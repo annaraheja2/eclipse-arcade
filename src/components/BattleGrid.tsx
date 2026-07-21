@@ -1,9 +1,10 @@
-import { N, keyOf, shipAt, isSunk, type Cell, type Ship } from '../lib/battleship'
+import { N, keyOf, isSunk, type Cell, type Ship } from '../lib/battleship'
+import Warship from './Warship'
 
 export type Shots = Record<string, 'hit' | 'miss'>
 
 export default function BattleGrid({
-  ships, shots, onCell, onHover, showShips, preview, previewOk, color, disabled, small,
+  ships, shots, onCell, onHover, showShips, preview, previewOk, disabled, small, lastShot,
 }: {
   ships: Ship[]
   shots: Shots
@@ -12,42 +13,63 @@ export default function BattleGrid({
   showShips?: boolean
   preview?: Cell[]
   previewOk?: boolean
-  color: string
   disabled?: boolean
   small?: boolean
+  lastShot?: string
 }) {
+  const CELL = small ? 26 : 40
+  const GAP = 3, PAD = 6, PITCH = CELL + GAP
+  const dim = N * CELL + (N - 1) * GAP + 2 * PAD
   const previewSet = new Set((preview ?? []).map((x) => keyOf(x.r, x.c)))
-  const size = small ? 30 : 40
+  const at = (r: number, c: number) => ({ left: PAD + c * PITCH, top: PAD + r * PITCH })
+  const center = (r: number, c: number) => ({ left: PAD + c * PITCH + CELL / 2, top: PAD + r * PITCH + CELL / 2 })
+
   return (
-    <div className="inline-grid gap-1 p-2 rounded-xl bg-black/30 border border-white/10"
-      style={{ gridTemplateColumns: `repeat(${N}, ${size}px)` }}>
-      {Array.from({ length: N * N }).map((_, i) => {
-        const r = Math.floor(i / N), c = i % N
-        const k = keyOf(r, c)
-        const shot = shots[k]
-        const occ = shipAt(ships, r, c)
-        const sunk = occ && isSunk(occ)
-        const showShip = (showShips && occ) || (sunk) // reveal sunk enemy ships
-        const inPrev = previewSet.has(k)
+    <div className="relative ocean rounded-xl border border-white/20" style={{ width: dim, height: dim }}>
+      {/* water tiles (clickable) */}
+      <div className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${N}, ${CELL}px)`, gap: `${GAP}px`, padding: `${PAD}px` }}>
+        {Array.from({ length: N * N }).map((_, i) => {
+          const r = Math.floor(i / N), c = i % N
+          const inPrev = previewSet.has(keyOf(r, c))
+          const bg = inPrev ? (previewOk ? 'rgba(61,255,162,0.45)' : 'rgba(255,90,90,0.5)') : 'rgba(120,190,235,0.08)'
+          return (
+            <button key={i} disabled={disabled} onClick={() => onCell?.(r, c)} onMouseEnter={() => onHover?.(r, c)}
+              className={`rounded-[4px] border border-white/[0.12] ${disabled ? '' : 'hover:border-cyan-300/70 hover:bg-cyan-300/10 cursor-crosshair'} transition`}
+              style={{ background: bg }} />
+          )
+        })}
+      </div>
 
-        let bg = 'rgba(255,255,255,0.04)'
-        if (showShip) bg = sunk ? 'rgba(255,80,80,0.35)' : `${color}44`
-        if (inPrev) bg = previewOk ? 'rgba(61,255,162,0.5)' : 'rgba(255,80,80,0.5)'
+      {/* ships */}
+      <div className="absolute inset-0 pointer-events-none">
+        {ships.filter((sh) => showShips || isSunk(sh)).map((sh) => {
+          const rs = sh.cells.map((x) => x.r), cs = sh.cells.map((x) => x.c)
+          const minR = Math.min(...rs), minC = Math.min(...cs)
+          const horiz = rs.every((v) => v === rs[0])
+          const p = at(minR, minC)
+          const w = horiz ? sh.size * CELL + (sh.size - 1) * GAP : CELL
+          const h = horiz ? CELL : sh.size * CELL + (sh.size - 1) * GAP
+          return (
+            <div key={sh.id} className="absolute" style={{ left: p.left, top: p.top, width: w, height: h, padding: 2 }}>
+              <Warship size={sh.size} horiz={horiz} sunk={isSunk(sh)} />
+            </div>
+          )
+        })}
+      </div>
 
-        return (
-          <button
-            key={i}
-            disabled={disabled}
-            onClick={() => onCell?.(r, c)}
-            onMouseEnter={() => onHover?.(r, c)}
-            className={`rounded-[5px] border border-white/10 grid place-items-center ${disabled ? '' : 'hover:border-white/40'} transition`}
-            style={{ width: size, height: size, background: bg }}
-          >
-            {shot === 'hit' && <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#ff5a5a', boxShadow: '0 0 8px #ff5a5a' }} />}
-            {shot === 'miss' && <span className="w-1.5 h-1.5 rounded-full bg-white/40" />}
-          </button>
-        )
-      })}
+      {/* impact effects */}
+      <div className="absolute inset-0 pointer-events-none">
+        {Object.entries(shots).map(([k, res]) => {
+          const [r, c] = k.split(',').map(Number)
+          const ctr = center(r, c)
+          return (
+            <div key={k} className="absolute" style={{ left: ctr.left, top: ctr.top }}>
+              {res === 'hit' ? <><span className="fx-fire" /><span className="fx-smoke" /></> : <><span className="fx-splash" /><span className="miss-dot" /></>}
+              {k === lastShot && <span className="fx-shell" />}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

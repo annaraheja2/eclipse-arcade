@@ -35,3 +35,51 @@ body {
     text-shadow: 0 0 8px currentColor, 0 0 22px currentColor;
   }
 }
+
+/* ===== Battleship ocean + FX ===== */
+.ocean {
+  position: relative;
+  background:
+    linear-gradient(180deg, #0b4a6e 0%, #093a5c 55%, #06263c 100%);
+  overflow: hidden;
+}
+.ocean::before, .ocean::after {
+  content: ''; position: absolute; inset: -20%;
+  background-image:
+    radial-gradient(60% 8px at 50% 50%, rgba(255,255,255,0.10), transparent 70%);
+  background-size: 120px 26px;
+  opacity: 0.5;
+  animation: waveA 7s linear infinite;
+}
+.ocean::after { background-size: 90px 20px; opacity: 0.35; animation: waveB 5s linear infinite; }
+@keyframes waveA { from { transform: translateX(0) } to { transform: translateX(120px) } }
+@keyframes waveB { from { transform: translateX(0) } to { transform: translateX(-90px) } }
+
+@keyframes smoke {
+  0%   { opacity: 0.8; transform: translate(-50%,-50%) scale(0.5); }
+  100% { opacity: 0;   transform: translate(-50%,-150%) scale(1.9); }
+}
+@keyframes splash {
+  0%   { opacity: 0.85; transform: translate(-50%,-50%) scale(0.2); }
+  100% { opacity: 0;    transform: translate(-50%,-50%) scale(1.8); }
+}
+@keyframes boom {
+  0%   { opacity: 1; transform: translate(-50%,-50%) scale(0.3); }
+  100% { opacity: 0; transform: translate(-50%,-50%) scale(2); }
+}
+@keyframes shelldrop {
+  0%   { opacity: 1; transform: translate(-50%,-90px) rotate(35deg); }
+  85%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%,-50%) rotate(35deg); }
+}
+.fx-smoke { position:absolute; top:50%; left:50%; width:18px; height:18px; border-radius:50%;
+  background: radial-gradient(circle, rgba(70,70,70,0.95), rgba(50,50,50,0) 70%); animation: smoke 1.7s ease-out infinite; }
+.fx-fire { position:absolute; top:50%; left:50%; width:20px; height:20px; border-radius:50%;
+  background: radial-gradient(circle, #ffe23d, #ff5a1f 55%, transparent 78%);
+  box-shadow: 0 0 16px #ff7a1f; animation: boom 0.6s ease-out; }
+.fx-splash { position:absolute; top:50%; left:50%; width:30px; height:30px; border-radius:50%;
+  border: 2px solid rgba(180,230,255,0.9); animation: splash 0.5s ease-out; }
+.fx-shell { position:absolute; top:50%; left:50%; width:4px; height:16px; border-radius:2px;
+  background: linear-gradient(#fff, #ffb43d); box-shadow: 0 0 8px #ffd23d; animation: shelldrop 0.45s ease-in; }
+.miss-dot { position:absolute; top:50%; left:50%; width:6px; height:6px; border-radius:50%;
+  background: rgba(220,240,255,0.7); transform: translate(-50%,-50%); }

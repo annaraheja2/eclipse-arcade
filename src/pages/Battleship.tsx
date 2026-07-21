@@ -1,20 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { COURSES, type Unit, type Subunit, type Question } from '../data/subjects'
 import {
-  FLEET, N, shipCells, placementOk, randomFleet, allSunk, isSunk, shipAt, keyOf, aiPick,
+  FLEET, shipCells, placementOk, randomFleet, allSunk, isSunk, keyOf, aiPick,
   type Ship, type Cell,
 } from '../lib/battleship'
 import BattleGrid, { type Shots } from '../components/BattleGrid'
 import QuestionPanel from '../components/QuestionPanel'
 import { usePlayer } from '../lib/player'
 import { ArrowLeft } from '../icons'
+import { sfxFire, sfxHit, sfxMiss, sfxSink, sfxWin, setMuted, isMuted } from '../lib/sound'
 
 const CY = '#3df5ff'
 const course = COURSES[0] // Algebra 1 (from profile later)
 
+function impactSound(result: 'miss' | 'hit' | 'sunk') {
+  sfxFire()
+  setTimeout(() => (result === 'miss' ? sfxMiss() : result === 'sunk' ? sfxSink() : sfxHit()), 320)
+}
+
 type Phase = 'unit' | 'subunit' | 'place' | 'battle' | 'over'
-interface Battle { enemy: Ship[]; placed: Ship[]; pShots: Shots; eShots: Shots; phase: 'q' | 'aim'; q: Question; msg: string; busy: boolean }
+interface Battle { enemy: Ship[]; placed: Ship[]; pShots: Shots; eShots: Shots; phase: 'q' | 'aim'; q: Question; msg: string; busy: boolean; lastP?: string; lastE?: string }
 
 function applyFire(ships: Ship[], r: number, c: number): { ships: Ship[]; result: 'miss' | 'hit' | 'sunk' } {
   let result: 'miss' | 'hit' | 'sunk' = 'miss'
@@ -42,6 +48,10 @@ export default function Battleship() {
   const [battle, setBattle] = useState<Battle | null>(null)
   const [winner, setWinner] = useState<'you' | 'ai' | null>(null)
   const [rewarded, setRewarded] = useState(false)
+  const [muted, setMutedState] = useState(isMuted())
+
+  const battleRef = useRef<Battle | null>(battle)
+  useEffect(() => { battleRef.current = battle }, [battle])
 
   // Game-over detection.
   useEffect(() => {
@@ -53,6 +63,7 @@ export default function Battleship() {
   useEffect(() => {
     if (ph === 'over' && !rewarded) {
       finishGame('battleship', winner === 'you' ? 3000 : 500)
+      if (winner === 'you') sfxWin()
       setRewarded(true)
     }
   }, [ph, rewarded, winner, finishGame])
@@ -75,33 +86,35 @@ export default function Battleship() {
 
   // ----- battle helpers -----
   function onAnswer(correct: boolean) {
-    setBattle((b) => b && { ...b, phase: correct ? 'aim' : b.phase, msg: correct ? 'Correct! Take your shot.' : 'Wrong! Enemy returns fire…' })
+    setBattle((b) => b && { ...b, phase: correct ? 'aim' : b.phase, busy: !correct, msg: correct ? 'Correct! Take your shot.' : 'Wrong! Enemy returns fire…' })
     if (!correct) aiTurn()
   }
   function fireAtEnemy(r: number, c: number) {
-    setBattle((b) => {
-      if (!b || b.phase !== 'aim' || b.pShots[keyOf(r, c)]) return b
-      const { ships, result } = applyFire(b.enemy, r, c)
-      const mark: 'hit' | 'miss' = result === 'miss' ? 'miss' : 'hit'
-      const pShots = { ...b.pShots, [keyOf(r, c)]: mark }
-      return { ...b, enemy: ships, pShots, msg: result === 'sunk' ? 'Enemy ship SUNK!' : result === 'hit' ? 'Direct hit!' : 'Splash — miss.' }
-    })
+    const b = battleRef.current
+    if (!b || b.phase !== 'aim' || b.busy || b.pShots[keyOf(r, c)]) return
+    const { ships, result } = applyFire(b.enemy, r, c)
+    const mark: 'hit' | 'miss' = result === 'miss' ? 'miss' : 'hit'
+    impactSound(result)
+    setBattle((cur) => cur && ({
+      ...cur, enemy: ships, pShots: { ...cur.pShots, [keyOf(r, c)]: mark }, lastP: keyOf(r, c), busy: true,
+      msg: result === 'sunk' ? 'Enemy ship SUNK!' : result === 'hit' ? 'Direct hit!' : 'Splash — miss.',
+    }))
     aiTurn()
   }
   function aiTurn() {
-    setBattle((b) => (b ? { ...b, busy: true } : b))
     setTimeout(() => {
-      setBattle((b) => {
-        if (!b || allSunk(b.enemy)) return b // player already won
-        const cell = aiPick(new Set(Object.keys(b.eShots)))
-        const { ships, result } = applyFire(b.placed, cell.r, cell.c)
-        const mark: 'hit' | 'miss' = result === 'miss' ? 'miss' : 'hit'
-        const eShots = { ...b.eShots, [keyOf(cell.r, cell.c)]: mark }
-        if (allSunk(ships)) return { ...b, placed: ships, eShots, busy: false }
-        if (!sub) return { ...b, placed: ships, eShots, busy: false }
-        return { ...b, placed: ships, eShots, phase: 'q', q: randomQ(sub), msg: '', busy: false }
-      })
-    }, 800)
+      const b = battleRef.current
+      if (!b || allSunk(b.enemy)) { setBattle((c) => c && ({ ...c, busy: false })); return } // player already won
+      const cell = aiPick(new Set(Object.keys(b.eShots)))
+      const { ships, result } = applyFire(b.placed, cell.r, cell.c)
+      const mark: 'hit' | 'miss' = result === 'miss' ? 'miss' : 'hit'
+      impactSound(result)
+      const over = allSunk(ships)
+      setBattle((cur) => cur && ({
+        ...cur, placed: ships, eShots: { ...cur.eShots, [keyOf(cell.r, cell.c)]: mark }, lastE: keyOf(cell.r, cell.c),
+        phase: over || !sub ? cur.phase : 'q', q: over || !sub ? cur.q : randomQ(sub), msg: '', busy: false,
+      }))
+    }, 900)
   }
 
   const back = () => navigate('/')
@@ -114,7 +127,7 @@ export default function Battleship() {
         <div className="flex items-center justify-between mb-6">
           <button onClick={ph === 'unit' ? back : () => resetTo(ph, setPh, setUnit, setSub, setPlaced)} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white"><ArrowLeft width={18} height={18} /></button>
           <div className="font-pixel text-[12px]" style={{ color: CY }}>BATTLESHIP</div>
-          <div className="w-10" />
+          <button onClick={() => { const m = !muted; setMuted(m); setMutedState(m) }} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white text-base">{muted ? '🔇' : '🔊'}</button>
         </div>
 
         {ph === 'unit' && (
@@ -153,7 +166,7 @@ export default function Battleship() {
             <p className="text-center text-sm text-white/50 mb-1">Tap to place your {nextDef ? `${nextDef.size}-cell ship` : 'fleet'} · ships can’t touch</p>
             <p className="text-center text-xs text-white/40 mb-4">{placed.length} / {FLEET.length} placed</p>
             <div className="flex justify-center mb-4" onMouseLeave={() => setHover(null)}>
-              <BattleGrid ships={placed} shots={{}} showShips color={CY} onCell={placeCell} onHover={(r, c) => setHover({ r, c })}
+              <BattleGrid ships={placed} shots={{}} showShips onCell={placeCell} onHover={(r, c) => setHover({ r, c })}
                 preview={placed.length < FLEET.length ? previewCells : []} previewOk={previewOk} />
             </div>
             <div className="flex justify-center gap-2.5 flex-wrap">
@@ -179,7 +192,7 @@ export default function Battleship() {
               <div className="font-pixel text-[10px] text-white/60">ENEMY WATERS</div>
             </div>
             <div className="flex justify-center mb-4">
-              <BattleGrid ships={battle.enemy} shots={battle.pShots} showShips={false} color="#ff4d8d"
+              <BattleGrid ships={battle.enemy} shots={battle.pShots} showShips={false} lastShot={battle.lastP}
                 disabled={battle.phase !== 'aim' || battle.busy} onCell={fireAtEnemy} />
             </div>
 
@@ -194,7 +207,7 @@ export default function Battleship() {
             <div className="mt-5">
               <div className="text-center font-pixel text-[9px] text-white/40 mb-1">YOUR FLEET</div>
               <div className="flex justify-center">
-                <BattleGrid ships={battle.placed} shots={battle.eShots} showShips color="#3df5ff" disabled small />
+                <BattleGrid ships={battle.placed} shots={battle.eShots} showShips disabled small lastShot={battle.lastE} />
               </div>
             </div>
           </div>
