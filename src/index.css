@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  @apply text-white antialiased;
+  min-height: 100vh;
+  background:
+    radial-gradient(60% 50% at 15% 0%, rgba(162, 75, 255, 0.28), transparent 60%),
+    radial-gradient(55% 45% at 95% 10%, rgba(61, 245, 255, 0.16), transparent 60%),
+    radial-gradient(60% 60% at 50% 120%, rgba(255, 61, 240, 0.16), transparent 60%),
+    #0a0620;
+  background-attachment: fixed;
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+/* faint grid overlay for the arcade-floor feel */
+.grid-floor {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 40%, transparent 80%);
+  mask-image: radial-gradient(120% 90% at 50% 0%, #000 40%, transparent 80%);
+}
+
+@layer utilities {
+  .neon-text {
+    text-shadow: 0 0 8px currentColor, 0 0 22px currentColor;
+  }
+}
