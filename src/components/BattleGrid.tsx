@@ -4,7 +4,7 @@ import Warship from './Warship'
 export type Shots = Record<string, 'hit' | 'miss'>
 
 export default function BattleGrid({
-  ships, shots, onCell, onHover, showShips, preview, previewOk, disabled, small, lastShot,
+  ships, shots, onCell, onHover, showShips, preview, previewOk, disabled, small, lastShot, selected,
 }: {
   ships: Ship[]
   shots: Shots
@@ -16,6 +16,7 @@ export default function BattleGrid({
   disabled?: boolean
   small?: boolean
   lastShot?: string
+  selected?: string
 }) {
   const CELL = small ? 26 : 40
   const GAP = 3, PAD = 6, PITCH = CELL + GAP
@@ -59,10 +60,13 @@ export default function BattleGrid({
             const p = at(minR, minC)
             const w = horiz ? sh.size * CELL + (sh.size - 1) * GAP : CELL
             const h = horiz ? CELL : sh.size * CELL + (sh.size - 1) * GAP
+            const sel = sh.id === selected
             return (
-              <div key={sh.id} className="absolute" style={{
+              <div key={sh.id} className="absolute rounded" style={{
                 left: p.left, top: p.top, width: w, height: h, padding: 2,
                 animation: isSunk(sh) ? 'none' : `bob ${3.4 + idx * 0.4}s ease-in-out ${idx * 0.35}s infinite`,
+                outline: sel ? '2px solid #ffe23d' : 'none', outlineOffset: 2,
+                boxShadow: sel ? '0 0 16px #ffe23d' : 'none',
               }}>
                 <Warship size={sh.size} horiz={horiz} sunk={isSunk(sh)} />
               </div>

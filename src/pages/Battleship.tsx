@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { COURSES, type Unit, type Subunit, type Question } from '../data/subjects'
 import {
-  FLEET, shipCells, placementOk, randomFleet, allSunk, isSunk, keyOf, aiPick,
-  type Ship, type Cell,
+  shipCells, placementOk, randomFleet, allSunk, isSunk, keyOf, aiPick,
+  type Ship,
 } from '../lib/battleship'
 import BattleGrid, { type Shots } from '../components/BattleGrid'
 import QuestionPanel from '../components/QuestionPanel'
@@ -40,10 +40,9 @@ export default function Battleship() {
   const [unit, setUnit] = useState<Unit | null>(null)
   const [sub, setSub] = useState<Subunit | null>(null)
 
-  // placement
+  // placement — all ships start placed; player rearranges.
   const [placed, setPlaced] = useState<Ship[]>([])
-  const [orient, setOrient] = useState(true)
-  const [hover, setHover] = useState<Cell | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const [battle, setBattle] = useState<Battle | null>(null)
   const [winner, setWinner] = useState<'you' | 'ai' | null>(null)
@@ -69,15 +68,26 @@ export default function Battleship() {
   }, [ph, rewarded, winner, finishGame])
 
   // ----- placement helpers -----
-  const nextDef = FLEET[placed.length]
-  const previewCells = hover && nextDef ? shipCells(hover.r, hover.c, nextDef.size, orient) : []
-  const previewOk = nextDef ? placementOk(previewCells, placed) : false
-
-  function placeCell(r: number, c: number) {
-    if (!nextDef) return
-    const cells = shipCells(r, c, nextDef.size, orient)
-    if (placementOk(cells, placed)) setPlaced([...placed, { id: nextDef.id, size: nextDef.size, cells, hits: 0 }])
+  function placementClick(r: number, c: number) {
+    const hit = placed.find((sh) => sh.cells.some((x) => x.r === r && x.c === c))
+    if (hit) { setSelectedId(hit.id); return }        // tap a ship → select it
+    const sh = placed.find((s) => s.id === selectedId)
+    if (!sh) return                                    // tap water with nothing selected
+    const horiz = sh.cells.every((x) => x.r === sh.cells[0].r)
+    const cells = shipCells(r, c, sh.size, horiz)      // move selected ship's anchor here
+    const others = placed.filter((s) => s.id !== sh.id)
+    if (placementOk(cells, others)) setPlaced(placed.map((s) => (s.id === sh.id ? { ...s, cells } : s)))
   }
+  function rotateSelected() {
+    const sh = placed.find((s) => s.id === selectedId)
+    if (!sh) return
+    const minR = Math.min(...sh.cells.map((x) => x.r)), minC = Math.min(...sh.cells.map((x) => x.c))
+    const horiz = sh.cells.every((x) => x.r === sh.cells[0].r)
+    const cells = shipCells(minR, minC, sh.size, !horiz)
+    const others = placed.filter((s) => s.id !== sh.id)
+    if (placementOk(cells, others)) setPlaced(placed.map((s) => (s.id === sh.id ? { ...s, cells } : s)))
+  }
+  function shuffle() { setPlaced(randomFleet()); setSelectedId(null) }
   function startBattle() {
     if (!sub) return
     setBattle({ enemy: randomFleet(), placed, pShots: {}, eShots: {}, phase: 'q', q: randomQ(sub), msg: '', busy: false })
@@ -148,7 +158,7 @@ export default function Battleship() {
           <Section title={`${unit.name.toUpperCase()} — PICK A TOPIC`}>
             <div className="grid gap-3 sm:grid-cols-2">
               {unit.subunits.map((s) => (
-                <button key={s.id} onClick={() => { setSub(s); setPlaced([]); setPh('place') }}
+                <button key={s.id} onClick={() => { setSub(s); setPlaced(randomFleet()); setSelectedId(null); setPh('place') }}
                   className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-neon-cyan/60 transition">
                   <div className="flex items-center justify-between">
                     <span className="font-bold">{s.name}</span>
@@ -162,19 +172,16 @@ export default function Battleship() {
         )}
 
         {ph === 'place' && (
-          <Section title="PLACE YOUR FLEET">
-            <p className="text-center text-sm text-white/50 mb-1">Tap to place your {nextDef ? `${nextDef.size}-cell ship` : 'fleet'} · ships can’t touch</p>
-            <p className="text-center text-xs text-white/40 mb-4">{placed.length} / {FLEET.length} placed</p>
-            <div className="flex justify-center mb-4" onMouseLeave={() => setHover(null)}>
-              <BattleGrid ships={placed} shots={{}} showShips onCell={placeCell} onHover={(r, c) => setHover({ r, c })}
-                preview={placed.length < FLEET.length ? previewCells : []} previewOk={previewOk} />
+          <Section title="ARRANGE YOUR FLEET">
+            <p className="text-center text-sm text-white/50 mb-4">Tap a ship to select it · tap water to move it · ROTATE to turn it · ships can’t touch</p>
+            <div className="flex justify-center mb-4">
+              <BattleGrid ships={placed} shots={{}} showShips selected={selectedId ?? undefined} onCell={placementClick} />
             </div>
             <div className="flex justify-center gap-2.5 flex-wrap">
-              <Btn onClick={() => setOrient((o) => !o)}>ROTATE ({orient ? 'H' : 'V'})</Btn>
-              <Btn onClick={() => setPlaced(randomFleet())}>AUTO</Btn>
-              <Btn onClick={() => setPlaced([])}>RESET</Btn>
-              <button onClick={startBattle} disabled={placed.length < FLEET.length}
-                className="font-pixel text-[10px] px-5 py-2.5 rounded-lg text-[#0a0620] disabled:opacity-40" style={{ background: CY, boxShadow: placed.length < FLEET.length ? 'none' : `0 0 16px ${CY}88` }}>
+              <Btn onClick={rotateSelected}>ROTATE</Btn>
+              <Btn onClick={shuffle}>SHUFFLE</Btn>
+              <button onClick={startBattle}
+                className="font-pixel text-[10px] px-5 py-2.5 rounded-lg text-[#0a0620]" style={{ background: CY, boxShadow: `0 0 16px ${CY}88` }}>
                 START BATTLE
               </button>
             </div>
