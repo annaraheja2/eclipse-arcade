@@ -31,10 +31,10 @@ export default function BattleGrid({
         {Array.from({ length: N * N }).map((_, i) => {
           const r = Math.floor(i / N), c = i % N
           const inPrev = previewSet.has(keyOf(r, c))
-          const bg = inPrev ? (previewOk ? 'rgba(61,255,162,0.45)' : 'rgba(255,90,90,0.5)') : 'rgba(120,190,235,0.08)'
+          const bg = inPrev ? (previewOk ? 'rgba(61,255,162,0.5)' : 'rgba(255,90,90,0.55)') : 'transparent'
           return (
             <button key={i} disabled={disabled} onClick={() => onCell?.(r, c)} onMouseEnter={() => onHover?.(r, c)}
-              className={`rounded-[4px] border border-white/[0.12] ${disabled ? '' : 'hover:border-cyan-300/70 hover:bg-cyan-300/10 cursor-crosshair'} transition`}
+              className={`rounded-[3px] ${disabled ? '' : 'hover:bg-cyan-300/25 hover:shadow-[inset_0_0_0_2px_rgba(120,240,255,0.7)] cursor-crosshair'} transition`}
               style={{ background: bg }} />
           )
         })}
@@ -42,7 +42,7 @@ export default function BattleGrid({
 
       {/* ships */}
       <div className="absolute inset-0 pointer-events-none">
-        {ships.filter((sh) => showShips || isSunk(sh)).map((sh) => {
+        {ships.filter((sh) => showShips || isSunk(sh)).map((sh, i) => {
           const rs = sh.cells.map((x) => x.r), cs = sh.cells.map((x) => x.c)
           const minR = Math.min(...rs), minC = Math.min(...cs)
           const horiz = rs.every((v) => v === rs[0])
@@ -50,7 +50,10 @@ export default function BattleGrid({
           const w = horiz ? sh.size * CELL + (sh.size - 1) * GAP : CELL
           const h = horiz ? CELL : sh.size * CELL + (sh.size - 1) * GAP
           return (
-            <div key={sh.id} className="absolute" style={{ left: p.left, top: p.top, width: w, height: h, padding: 2 }}>
+            <div key={sh.id} className="absolute" style={{
+              left: p.left, top: p.top, width: w, height: h, padding: 2,
+              animation: isSunk(sh) ? 'none' : `bob ${3.4 + i * 0.4}s ease-in-out ${i * 0.35}s infinite`,
+            }}>
               <Warship size={sh.size} horiz={horiz} sunk={isSunk(sh)} />
             </div>
           )

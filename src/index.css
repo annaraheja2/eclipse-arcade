@@ -39,21 +39,19 @@ body {
 /* ===== Battleship ocean + FX ===== */
 .ocean {
   position: relative;
-  background:
-    linear-gradient(180deg, #0b4a6e 0%, #093a5c 55%, #06263c 100%);
   overflow: hidden;
+  background: linear-gradient(180deg, #0f6191 0%, #0a466c 55%, #06283f 100%);
 }
 .ocean::before, .ocean::after {
-  content: ''; position: absolute; inset: -20%;
-  background-image:
-    radial-gradient(60% 8px at 50% 50%, rgba(255,255,255,0.10), transparent 70%);
-  background-size: 120px 26px;
-  opacity: 0.5;
-  animation: waveA 7s linear infinite;
+  content: ''; position: absolute; inset: -15%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='44'%3E%3Cpath d='M0 26 Q 40 12 80 26 T 160 26' fill='none' stroke='%23bfe8ff' stroke-opacity='0.16' stroke-width='2.5'/%3E%3C/svg%3E");
+  background-size: 160px 44px;
 }
-.ocean::after { background-size: 90px 20px; opacity: 0.35; animation: waveB 5s linear infinite; }
-@keyframes waveA { from { transform: translateX(0) } to { transform: translateX(120px) } }
-@keyframes waveB { from { transform: translateX(0) } to { transform: translateX(-90px) } }
+.ocean::before { opacity: 0.6; animation: waveA 7s linear infinite; }
+.ocean::after  { opacity: 0.4; background-size: 120px 34px; animation: waveB 11s linear infinite; }
+@keyframes waveA { 0% { transform: translate(0,0) } 100% { transform: translate(-160px, 6px) } }
+@keyframes waveB { 0% { transform: translate(0,0) } 100% { transform: translate(120px, -6px) } }
+@keyframes bob { 0%,100% { transform: translateY(0) rotate(-0.6deg) } 50% { transform: translateY(-3px) rotate(0.6deg) } }
 
 @keyframes smoke {
   0%   { opacity: 0.8; transform: translate(-50%,-50%) scale(0.5); }
