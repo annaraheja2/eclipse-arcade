@@ -2,13 +2,13 @@ import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Moon, Search, Coin, Flame, Bolt, Users, Bell, User,
-  Target, Slide, Grid, Link2, Chart, Star,
+  Target, Slide, Grid, Link2, Chart, Star, Ship,
 } from '../icons'
 import { GAMES, type GameDef } from '../lib/games'
 import { usePlayer, levelFromXp } from '../lib/player'
 
 const ICON: Record<string, ReactNode> = {
-  daily: <Star />, pinpoint: <Target />, slider: <Slide />,
+  battleship: <Ship />, daily: <Star />, pinpoint: <Target />, slider: <Slide />,
   gridfill: <Grid />, matchup: <Link2 />, fitline: <Chart />,
 }
 
@@ -114,7 +114,7 @@ function Cabinet({ g }: { g: GameDef }) {
   return (
     <button
       disabled={soon}
-      onClick={() => !soon && navigate(`/play/${g.key}`)}
+      onClick={() => { if (soon) return; navigate(g.type === 'battleship' ? '/battleship' : `/play/${g.key}`) }}
       className={`group relative overflow-hidden text-left rounded-2xl border transition-all duration-300 ${soon ? 'opacity-60 cursor-default' : 'hover:-translate-y-1.5'}`}
       style={{
         background: 'linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',

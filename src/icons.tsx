@@ -20,3 +20,4 @@ export const Chart = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M4
 export const Star = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)} fill="currentColor" stroke="none"><path d="m12 3 2.7 5.9 6.3.6-4.8 4.2 1.5 6.3L12 17.8 6.3 20.2l1.5-6.3L3 9.5l6.3-.6z" /></svg>)
 export const ArrowLeft = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M19 12H5M11 5l-7 7 7 7" /></svg>)
 export const Replay = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>)
+export const Ship = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M3 14h18l-2.2 5.2a1 1 0 0 1-.9.6H6.1a1 1 0 0 1-.9-.6zM6 14V8l6-3 6 3v6M9 8h6M12 5V2" /></svg>)
