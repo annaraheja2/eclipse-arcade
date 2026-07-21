@@ -18,3 +18,5 @@ export const Grid = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><rect x="4" 
 export const Link2 = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M9 12h6M8.5 8.5H7a3.5 3.5 0 0 0 0 7h1.5M15.5 8.5H17a3.5 3.5 0 0 1 0 7h-1.5" /></svg>)
 export const Chart = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M4 20 20 6" /><circle cx="7" cy="16" r="1.2" fill="currentColor" /><circle cx="12" cy="13" r="1.2" fill="currentColor" /><circle cx="16" cy="8" r="1.2" fill="currentColor" /></svg>)
 export const Star = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)} fill="currentColor" stroke="none"><path d="m12 3 2.7 5.9 6.3.6-4.8 4.2 1.5 6.3L12 17.8 6.3 20.2l1.5-6.3L3 9.5l6.3-.6z" /></svg>)
+export const ArrowLeft = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M19 12H5M11 5l-7 7 7 7" /></svg>)
+export const Replay = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>)
