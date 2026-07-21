@@ -1,14 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, Navigate } from 'react-router-dom'
 import { getGame, pickRounds, scorePin, scoreSlider, ROUND_MAX, type Round } from '../lib/games'
 import { usePlayer } from '../lib/player'
 import PinBoard from '../components/PinBoard'
 import SliderBoard from '../components/SliderBoard'
+import Controller from '../components/Controller'
+import Avatar, { type Mood } from '../components/Avatar'
 import { ArrowLeft, Replay, Coin, Bolt } from '../icons'
 
-type Guess = { x: number; y: number } | number | null
-
+type Aim = { x: number; y: number } | number
 const TOTAL_ROUNDS = 5
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
 function message(pts: number): string {
   if (pts >= 950) return 'BULLSEYE!'
@@ -16,6 +18,9 @@ function message(pts: number): string {
   if (pts >= 500) return 'Nice!'
   if (pts >= 250) return 'So close!'
   return 'Keep going'
+}
+function defaultAim(r: Round): Aim {
+  return r.kind === 'pin' ? { x: 0, y: 0 } : Math.round(((r.min + r.max) / 2) / r.step) * r.step
 }
 
 export default function Game() {
@@ -28,48 +33,65 @@ export default function Game() {
   const rounds = useMemo(() => (game ? pickRounds(game, TOTAL_ROUNDS) : []), [game, seed])
 
   const [idx, setIdx] = useState(0)
-  const [guess, setGuess] = useState<Guess>(null)
+  const [aim, setAim] = useState<Aim>(0)
   const [revealed, setRevealed] = useState(false)
   const [pts, setPts] = useState<number[]>([])
   const [done, setDone] = useState(false)
   const [rewards, setRewards] = useState<{ xp: number; coins: number; best: boolean } | null>(null)
 
+  const round: Round | undefined = rounds[idx]
+
+  // Reset the crosshair each new round.
+  useEffect(() => { if (round) { setAim(defaultAim(round)); setRevealed(false) } }, [idx, seed]) // eslint-disable-line
+
+  function move(dx: number, dy: number) {
+    if (revealed || !round) return
+    setAim((a) => {
+      if (round.kind === 'pin') {
+        const p = a as { x: number; y: number }
+        return { x: clamp(p.x + dx * 0.5, -round.range, round.range), y: clamp(p.y + dy * 0.5, -round.range, round.range) }
+      }
+      return clamp((a as number) + dx * round.step, round.min, round.max)
+    })
+  }
+  function submit() {
+    if (revealed || !round) return
+    const p = round.kind === 'pin'
+      ? scorePin(round, (aim as { x: number; y: number }).x, (aim as { x: number; y: number }).y)
+      : scoreSlider(round, aim as number)
+    setPts((a) => [...a, p]); setRevealed(true)
+  }
+  function next() {
+    if (idx < TOTAL_ROUNDS - 1) setIdx(idx + 1)
+    else { const t = pts.reduce((a, b) => a + b, 0); setRewards(finishGame(game!.key, t)); setDone(true) }
+  }
+  function restart() { setSeed((s) => s + 1); setIdx(0); setPts([]); setDone(false); setRevealed(false); setRewards(null) }
+
+  // Keyboard controls
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (done) return
+      if (e.key === 'ArrowUp') { move(0, 1); e.preventDefault() }
+      else if (e.key === 'ArrowDown') { move(0, -1); e.preventDefault() }
+      else if (e.key === 'ArrowLeft') { move(-1, 0); e.preventDefault() }
+      else if (e.key === 'ArrowRight') { move(1, 0); e.preventDefault() }
+      else if (e.key === ' ' || e.key === 'Enter') { revealed ? next() : submit(); e.preventDefault() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   if (!game || game.type === 'soon') return <Navigate to="/" replace />
 
-  const round = rounds[idx]
   const total = pts.reduce((a, b) => a + b, 0)
-
-  function submit() {
-    if (guess === null) return
-    const p = round.kind === 'pin'
-      ? scorePin(round, (guess as { x: number; y: number }).x, (guess as { x: number; y: number }).y)
-      : scoreSlider(round, guess as number)
-    setPts((a) => [...a, p])
-    setRevealed(true)
-  }
-
-  function next() {
-    if (idx < TOTAL_ROUNDS - 1) {
-      setIdx(idx + 1); setGuess(null); setRevealed(false)
-    } else {
-      const finalTotal = pts.reduce((a, b) => a + b, 0)
-      setRewards(finishGame(game!.key, finalTotal))
-      setDone(true)
-    }
-  }
-
-  function restart() {
-    setSeed((s) => s + 1); setIdx(0); setGuess(null); setRevealed(false); setPts([]); setDone(false); setRewards(null)
-  }
-
   const lastPts = revealed ? pts[pts.length - 1] : null
+  const mood: Mood = revealed ? ((lastPts ?? 0) >= 500 ? 'happy' : 'sad') : 'aim'
 
   return (
     <div className="min-h-screen relative">
       <div className="pointer-events-none fixed inset-0 grid-floor" />
       <div className="relative max-w-2xl mx-auto px-5 py-6">
-        {/* top bar */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-5">
           <button onClick={() => navigate('/')} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white"><ArrowLeft width={18} height={18} /></button>
           <div className="text-center">
             <div className="font-pixel text-[11px]" style={{ color: game.color }}>{game.name.toUpperCase()}</div>
@@ -80,66 +102,58 @@ export default function Game() {
 
         {done ? (
           <Results total={total} pts={pts} rewards={rewards} color={game.color} onReplay={restart} onHome={() => navigate('/')} />
-        ) : (
+        ) : round ? (
           <>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 mb-5 text-center min-h-[76px] grid place-items-center">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 mb-4 text-center min-h-[72px] grid place-items-center">
               <p className="text-lg font-semibold">{round.prompt}</p>
             </div>
 
-            <Board round={round} guess={guess} revealed={revealed} onPlace={setGuess} color={game.color} />
-
-            <div className="mt-5">
-              {revealed ? (
-                <div className="text-center space-y-3">
-                  <div className="font-pixel text-[12px]" style={{ color: game.color }}>{message(lastPts ?? 0)}</div>
-                  <div className="text-3xl font-extrabold tabular-nums neon-text" style={{ color: game.color }}>+{lastPts}</div>
-                  <div className="text-xs text-white/40">{answerText(round)}</div>
-                  <button onClick={next} className="mt-1 font-pixel text-[11px] px-6 py-3 rounded-lg text-[#0a0620]" style={{ background: game.color, boxShadow: `0 0 18px ${game.color}88` }}>
-                    {idx < TOTAL_ROUNDS - 1 ? 'NEXT' : 'RESULTS'}
-                  </button>
-                </div>
-              ) : (
-                <button onClick={submit} disabled={guess === null}
-                  className="w-full font-pixel text-[11px] py-4 rounded-xl text-[#0a0620] disabled:opacity-40 transition"
-                  style={{ background: game.color, boxShadow: guess === null ? 'none' : `0 0 18px ${game.color}88` }}>
-                  {guess === null ? 'PLACE YOUR GUESS' : 'SUBMIT'}
-                </button>
-              )}
+            <div className="mb-4">
+              {round.kind === 'pin'
+                ? <PinBoard range={round.range} color={game.color} disabled={revealed} guess={aim as { x: number; y: number }} answer={revealed ? { x: round.x, y: round.y } : null} onPlace={(x, y) => setAim({ x, y })} />
+                : <SliderBoard min={round.min} max={round.max} step={round.step} color={game.color} disabled={revealed} guess={aim as number} answer={revealed ? round.answer : null} onPlace={(v) => setAim(v)} />}
             </div>
+
+            {revealed ? (
+              <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <Avatar mood={mood} color={game.color} size={64} />
+                <div className="flex-1">
+                  <div className="font-pixel text-[11px]" style={{ color: game.color }}>{message(lastPts ?? 0)}</div>
+                  <div className="text-3xl font-extrabold tabular-nums neon-text" style={{ color: game.color }}>+{lastPts}</div>
+                  <div className="text-xs text-white/40">{round.kind === 'pin' ? `Answer: (${round.x}, ${round.y})` : `Answer: ${round.answer}`}</div>
+                </div>
+                <button onClick={next} className="font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={{ background: game.color, boxShadow: `0 0 18px ${game.color}88` }}>
+                  {idx < TOTAL_ROUNDS - 1 ? 'NEXT' : 'RESULTS'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="shrink-0"><Avatar mood="aim" color={game.color} size={72} /></div>
+                <div className="flex-1">
+                  <Controller mode={round.kind === 'pin' ? 'pad' : 'lr'} color={game.color} onMove={move} onFire={submit} fireLabel="FIRE" />
+                </div>
+              </div>
+            )}
+            <p className="text-center text-[11px] text-white/30 mt-3">Steer with the D-pad or arrow keys · FIRE / Space to lock in</p>
           </>
-        )}
+        ) : null}
       </div>
     </div>
   )
-}
-
-function Board({ round, guess, revealed, onPlace, color }: { round: Round; guess: Guess; revealed: boolean; onPlace: (g: Guess) => void; color: string }) {
-  if (round.kind === 'pin') {
-    return <PinBoard range={round.range} color={color} disabled={revealed}
-      guess={guess as { x: number; y: number } | null}
-      answer={revealed ? { x: round.x, y: round.y } : null}
-      onPlace={(x, y) => onPlace({ x, y })} />
-  }
-  return <SliderBoard min={round.min} max={round.max} step={round.step} color={color} disabled={revealed}
-    guess={guess as number | null}
-    answer={revealed ? round.answer : null}
-    onPlace={(v) => onPlace(v)} />
-}
-
-function answerText(r: Round): string {
-  return r.kind === 'pin' ? `Answer: (${r.x}, ${r.y})` : `Answer: ${r.answer}`
 }
 
 function Results({ total, pts, rewards, color, onReplay, onHome }: {
   total: number; pts: number[]; rewards: { xp: number; coins: number; best: boolean } | null; color: string
   onReplay: () => void; onHome: () => void
 }) {
+  const good = total >= pts.length * 500
   return (
     <div className="text-center">
+      <div className="flex justify-center mb-3"><Avatar mood={good ? 'happy' : 'sad'} color={color} size={84} /></div>
       <div className="font-pixel text-[12px] text-white/60 mb-2">FINAL SCORE</div>
       <div className="text-6xl font-extrabold tabular-nums neon-text mb-1" style={{ color }}>{total}</div>
       <div className="text-xs text-white/40 mb-1">out of {ROUND_MAX * pts.length}</div>
-      {rewards?.best && <div className="inline-block font-pixel text-[9px] px-2 py-1 rounded bg-neon-amber text-[#2a1a00] mb-4">NEW BEST!</div>}
+      {rewards?.best && <div className="inline-block font-pixel text-[9px] px-2 py-1 rounded bg-neon-amber text-[#2a1a00] mb-3">NEW BEST!</div>}
 
       <div className="flex justify-center gap-3 my-5">
         <span className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-neon-amber font-semibold"><Coin width={18} height={18} /> +{rewards?.coins ?? 0}</span>

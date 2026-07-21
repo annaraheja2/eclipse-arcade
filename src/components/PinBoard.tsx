@@ -47,9 +47,14 @@ export default function PinBoard({
       {lines}
       {ap && gp && <line x1={gp[0]} y1={gp[1]} x2={ap[0]} y2={ap[1]} stroke="white" strokeDasharray="4 4" strokeOpacity={0.6} />}
       {gp && (
-        <g>
-          <circle cx={gp[0]} cy={gp[1]} r={8} fill={color} opacity={0.25} />
-          <circle cx={gp[0]} cy={gp[1]} r={4.5} fill={color} />
+        <g style={{ filter: `drop-shadow(0 0 6px ${color})` }}>
+          {/* targeting reticle */}
+          <circle cx={gp[0]} cy={gp[1]} r={12} fill="none" stroke={color} strokeWidth={1.5} opacity={0.9} />
+          <line x1={gp[0] - 18} y1={gp[1]} x2={gp[0] - 5} y2={gp[1]} stroke={color} strokeWidth={1.5} />
+          <line x1={gp[0] + 5} y1={gp[1]} x2={gp[0] + 18} y2={gp[1]} stroke={color} strokeWidth={1.5} />
+          <line x1={gp[0]} y1={gp[1] - 18} x2={gp[0]} y2={gp[1] - 5} stroke={color} strokeWidth={1.5} />
+          <line x1={gp[0]} y1={gp[1] + 5} x2={gp[0]} y2={gp[1] + 18} stroke={color} strokeWidth={1.5} />
+          <circle cx={gp[0]} cy={gp[1]} r={2.5} fill={color} />
         </g>
       )}
       {ap && (
