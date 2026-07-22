@@ -29,30 +29,37 @@ add Vitest rather than leaving it untested — those are the functions worth cov
 
 ---
 
-## Deploy & delivery — standing authorization
+## Deploy & delivery — TWO SEPARATE PHASES (current standing preference)
 
-**This overrides the global "never commit/push unless I ask" rule — for this repo only.**
-Harish has given standing authorization to ship without a round-trip: **whenever a change
-worth testing is built and green, take it all the way to live.** "Worth testing" means a
-user-facing increment he'd actually want to click through — not every intermediate step.
+Harish wants **GitHub `main` kept continuously in sync with his localhost, but the public
+live site held back until he explicitly says so.** These are two distinct phases — never
+conflate them.
 
-The flow, in order:
-1. **Gate green first.** `npm run build` clean (zero TS/console errors) and any Vitest
-   passing. Never commit, push, or deploy a red build or a half-finished feature.
-2. **Commit** — clear imperative subject, one logical change (don't mix refactor + feature).
-   End the message with the standard `Co-Authored-By: Claude` trailer.
-3. **Integrate & sync `main`.** If on a feature branch, merge it into `main`. `git pull
-   --rebase` to sync with origin, then `git push`. Resolve conflicts deliberately —
-   never force-push `main`.
-4. **Deploy live to GitHub Pages.** Publish the built `dist/` to the **`gh-pages`** branch
-   (`npx gh-pages -d dist`, or a `deploy` npm script if one exists). Force-pushing the
-   built output to `gh-pages` is expected — it holds generated files only, not source.
-   Live URL: **https://annaraheja2.github.io/eclipse-arcade/** (refreshes in ~1 min).
-5. **Report** the live URL and exactly what to test.
+### Phase 1 — Push to GitHub `main` (AUTOMATIC, no round-trip)
+**This overrides the global "never commit/push unless I ask" rule for this repo.** Whenever
+a change is finished and green, **immediately commit and push it to `main`** — don't wait to
+be asked. The goal is that `main` always mirrors localhost at every stable checkpoint.
+1. **Gate green first.** `npm run build` clean (zero TS/console errors) and Vitest passing.
+   **Never commit a red build or a half-written/mid-edit state** (e.g. while a background
+   agent is still editing files — wait for it to finish and go green first).
+2. **Commit** — clear imperative subject, one logical change; end with the standard
+   `Co-Authored-By: Claude` trailer.
+3. **Sync & push `main`.** `git pull --rebase` then `git push`. Resolve conflicts
+   deliberately; never force-push `main`.
 
-Guardrails: no secrets in the bundle (client-only app; none expected). If a push/merge
-conflicts or the deploy fails, **stop and surface it** — don't paper over it. Scope is this
-repo only; everywhere else the global "never commit/push unless asked" still holds.
+### Phase 2 — Go live to the public site (ONLY on Harish's explicit say-so)
+**Do NOT deploy to the `gh-pages` public site automatically.** Hold all live/publish
+deploys until Harish explicitly says "go live" / "publish" / "make it live." When he does:
+- Publish built `dist/` to the **`gh-pages`** branch (`npx gh-pages -d dist`). Force-pushing
+  generated output there is expected. Live URL: **https://annaraheja2.github.io/eclipse-arcade/**.
+- Any pending **Firestore rules** re-publish must land alongside (data features break
+  without it) — hand Harish the one clipboard paste, or deploy rules if a Firebase token is set up.
+- Report the live URL and what to test.
+
+Guardrails: no secrets in the bundle (client-only app; the Firebase web config is
+publishable, not a secret). If a push/merge conflicts or a deploy fails, **stop and surface
+it** — don't paper over it. Scope is this repo only; everywhere else the global "never
+commit/push unless asked" still holds.
 
 ---
 
