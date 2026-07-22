@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Moon, Search, Coin, Flame, Bolt, Users, Bell, User,
@@ -6,6 +6,18 @@ import {
 } from '../icons'
 import { GAMES, type GameDef } from '../lib/games'
 import { usePlayer, levelFromXp, isStreakAtRisk, todayStr } from '../lib/player'
+
+// React.CSSProperties has no index signature for custom properties; this widens it
+// only for the arcade-button accent vars consumed by `.arcade-btn` in index.css.
+type ArcadeBtnVars = CSSProperties & { '--btn': string; '--edge': string; '--glow': string }
+
+function arcadeBtnStyle(color: string): ArcadeBtnVars {
+  return {
+    '--btn': color,
+    '--edge': `color-mix(in srgb, ${color} 50%, #000)`,
+    '--glow': `${color}88`,
+  }
+}
 
 const ICON: Record<string, ReactNode> = {
   battleship: <Ship />, daily: <Star />, pinpoint: <Target />, slider: <Slide />,
@@ -50,7 +62,7 @@ function Hud() {
           </div>
         </div>
         <div className="hidden md:flex items-center gap-3.5 shrink-0">
-          <Chip color="#ffb43d" icon={<Coin width={17} height={17} />} value={player.coins.toLocaleString()} />
+          <Chip color="#ffb43d" icon={<Coin width={17} height={17} />} label="CREDITS" value={player.coins.toLocaleString()} />
           <Chip color="#ff6b3d" icon={<Flame width={17} height={17} />} value={`${player.streak}`} />
           <div className="flex items-center gap-2.5 pl-3 pr-4 py-1.5 rounded-full bg-white/5 border border-white/10">
             <span className="text-neon-cyan"><Bolt width={16} height={16} /></span>
@@ -74,10 +86,12 @@ function Hud() {
   )
 }
 
-function Chip({ color, icon, value }: { color: string; icon: ReactNode; value: string }) {
+function Chip({ color, icon, label, value }: { color: string; icon: ReactNode; label?: string; value: string }) {
   return (
     <div className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-white/5 border border-white/10 text-sm font-semibold" style={{ color }}>
-      {icon}<span className="tabular-nums">{value}</span>
+      {icon}
+      {label && <span className="font-pixel text-[7px] tracking-wider pt-0.5">{label}</span>}
+      <span className="tabular-nums">{value}</span>
     </div>
   )
 }
@@ -92,17 +106,39 @@ function IconBtn({ children, dot }: { children: ReactNode; dot?: boolean }) {
 }
 
 function Hero() {
+  const { player } = usePlayer()
   return (
-    <section className="text-center py-16 sm:py-24">
-      <div className="font-pixel leading-[1.35] select-none">
-        <span className="block text-3xl sm:text-5xl text-neon-cyan neon-text">ECLIPSE</span>
-        <span className="block text-3xl sm:text-5xl mt-3 text-neon-magenta neon-text">ARCADE</span>
+    <section className="text-center py-12 sm:py-16">
+      <div className="marquee-sign mx-auto max-w-2xl px-5 sm:px-8 py-4 select-none">
+        <BulbRow />
+        <div className="font-pixel leading-[1.35] py-6 sm:py-8">
+          <span className="block text-3xl sm:text-5xl text-neon-cyan neon-text">ECLIPSE</span>
+          <span className="block text-3xl sm:text-5xl mt-3 text-neon-magenta neon-text">ARCADE</span>
+        </div>
+        <BulbRow />
       </div>
       <p className="mt-7 text-white/60 text-sm sm:text-base max-w-md mx-auto">
         Play math, score high, level up. Pick a cabinet and drop in.
       </p>
+      <div className="mt-6 font-pixel text-[10px] flex items-center justify-center gap-x-7 gap-y-3 flex-wrap">
+        <span className="blink-attract text-neon-amber">INSERT COIN</span>
+        <span className="text-white/80">
+          CREDITS <span className="text-neon-amber tabular-nums">{player.coins.toLocaleString()}</span>
+        </span>
+      </div>
       <StreakBanner />
     </section>
+  )
+}
+
+// Marquee bulbs: staggered delays make the pulse travel along the row like a chase.
+function BulbRow() {
+  return (
+    <div aria-hidden className="flex justify-between px-1">
+      {Array.from({ length: 13 }, (_, i) => (
+        <span key={i} className="bulb" style={{ animationDelay: `${i * 0.12}s` }} />
+      ))}
+    </div>
   )
 }
 
@@ -130,25 +166,46 @@ function StreakBanner() {
   )
 }
 
+// Bevel highlights/shades shared by every cabinet body; the accent ring + glow is
+// composed per game (box-shadow is a single property, so it's built as one string).
+const CAB_BEVEL = [
+  'inset 0 2px 0 rgba(255,255,255,0.10)',
+  'inset 0 -4px 0 rgba(0,0,0,0.55)',
+  'inset 2px 0 0 rgba(255,255,255,0.04)',
+  'inset -2px 0 0 rgba(0,0,0,0.35)',
+].join(', ')
+
 function Cabinet({ g }: { g: GameDef }) {
   const navigate = useNavigate()
   const { player } = usePlayer()
   const soon = g.type === 'soon'
   const best = player.bests[g.key]
   const dailyDone = g.key === 'daily' && localStorage.getItem(`eclipse-arcade:daily:${todayStr()}`) === '1'
-  const glow = soon ? 'none' : `0 0 0 1px ${g.color}55, 0 14px 46px -14px ${g.color}80`
+  const shadow = soon
+    ? `${CAB_BEVEL}, 0 12px 24px -12px rgba(0,0,0,0.8)`
+    : `${CAB_BEVEL}, 0 0 0 1px ${g.color}40, 0 16px 36px -14px ${g.color}70, 0 14px 28px -12px rgba(0,0,0,0.8)`
   return (
     <button
       disabled={soon}
       onClick={() => { if (soon) return; navigate(g.type === 'battleship' ? '/battleship' : `/play/${g.key}`) }}
-      className={`group relative overflow-hidden text-left rounded-2xl border transition-all duration-300 ${soon ? 'opacity-60 cursor-default' : 'hover:-translate-y-1.5'}`}
-      style={{
-        background: 'linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
-        borderColor: soon ? 'rgba(255,255,255,0.10)' : `${g.color}55`,
-        boxShadow: glow,
-      }}
+      className={`cab group relative text-left rounded-[14px] border border-white/10 transition-transform duration-200 ${soon ? 'opacity-60 cursor-default' : 'hover:-translate-y-1 active:translate-y-0.5'}`}
+      style={{ background: 'linear-gradient(180deg, #241543, #120a2c 60%, #0c0722)', boxShadow: shadow }}
     >
-      <div className="relative h-44 grid place-items-center" style={{ background: `radial-gradient(120% 120% at 50% 0%, ${g.color}33, transparent 70%)` }}>
+      <div className="cab-marquee rounded-t-[13px]">
+        <span
+          className="block text-center font-pixel text-[9px] tracking-wider truncate"
+          style={{
+            color: soon ? 'rgba(255,255,255,0.75)' : `color-mix(in srgb, ${g.color} 70%, #fff)`,
+            textShadow: soon ? 'none' : `0 0 10px ${g.color}`,
+          }}
+        >
+          {g.name.toUpperCase()}
+        </span>
+      </div>
+      <div
+        className="cab-screen relative h-40 grid place-items-center"
+        style={{ background: `radial-gradient(120% 100% at 50% 0%, ${g.color}2e, transparent 70%), #050213` }}
+      >
         <span className="grid place-items-center w-20 h-20 rounded-2xl" style={{ color: g.color, background: `${g.color}1f`, boxShadow: soon ? 'none' : `0 0 30px ${g.color}77` }}>
           <span className="[&>svg]:w-9 [&>svg]:h-9">{ICON[g.key]}</span>
         </span>
@@ -159,12 +216,22 @@ function Cabinet({ g }: { g: GameDef }) {
         )}
         {soon && <span className="absolute top-3 right-3 text-[9px] font-pixel px-2 py-1 rounded bg-white/10 text-white/70">SOON</span>}
       </div>
-      <div className="flex items-center justify-between px-5 py-4 border-t border-white/10">
+      <div className="cab-panel flex items-center justify-between px-4 py-3.5">
         <div className="min-w-0">
-          <div className="font-bold text-white truncate">{g.name}</div>
-          {!soon && <div className="text-xs text-white/45 mt-0.5">Best <span className="font-bold tabular-nums" style={{ color: g.color }}>{(best ?? 0).toLocaleString()}</span></div>}
+          <span aria-hidden className="flex items-center gap-2">
+            <span className="joy" />
+            <span className="mini-btn" style={{ background: soon ? '#4a4460' : g.color }} />
+            <span className="mini-btn bg-white/25" />
+          </span>
+          {!soon && (
+            <div className="text-xs text-white/60 mt-2">
+              Best <span className="font-bold tabular-nums" style={{ color: g.color }}>{(best ?? 0).toLocaleString()}</span>
+            </div>
+          )}
         </div>
-        {!soon && <span className="text-[10px] font-pixel px-4 py-2.5 rounded-lg text-[#0a0620] transition group-hover:brightness-110 shrink-0" style={{ background: g.color, boxShadow: `0 0 16px ${g.color}88` }}>PLAY</span>}
+        {soon
+          ? <span className="text-[9px] font-pixel text-white/60 shrink-0">COMING SOON</span>
+          : <span className="arcade-btn text-[10px] font-pixel px-4 py-2.5 rounded-lg text-[#0a0620] shrink-0" style={arcadeBtnStyle(g.color)}>PLAY</span>}
       </div>
     </button>
   )

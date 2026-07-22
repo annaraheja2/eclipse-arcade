@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { COURSES, type Unit, type Subunit, type Question } from '../data/subjects'
 import {
@@ -14,6 +14,10 @@ import { ArrowLeft, Volume, VolumeMute, Target, Rotate } from '../icons'
 import { sfxFire, sfxHit, sfxMiss, sfxSink, sfxWin, sfxPick, sfxDrop, sfxRotate, sfxDeny, setMuted, isMuted } from '../lib/sound'
 
 const CY = '#3df5ff'
+// accent vars for the `.arcade-btn` chunky-button chrome (see index.css)
+const CY_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': string } = {
+  '--btn': CY, '--edge': `color-mix(in srgb, ${CY} 50%, #000)`, '--glow': `${CY}88`,
+}
 const course = COURSES[0] // Algebra 1 (from profile later)
 
 function impactSound(result: 'miss' | 'hit' | 'sunk') {
@@ -301,8 +305,8 @@ export default function Battleship() {
               <Btn onClick={() => selectedId && rotate(selectedId)}><span className="inline-flex items-center gap-1.5"><Rotate width={13} height={13} />ROTATE</span></Btn>
               <Btn onClick={shuffle}>SHUFFLE</Btn>
               <button onClick={startBattle}
-                className="font-pixel text-[10px] px-5 py-2.5 rounded-lg text-[#0a0620] transition-all hover:brightness-110 active:scale-95"
-                style={{ background: CY, boxShadow: `0 0 16px ${CY}88` }}>
+                className="arcade-btn font-pixel text-[10px] px-5 py-2.5 rounded-lg text-[#0a0620]"
+                style={CY_BTN}>
                 START BATTLE
               </button>
             </div>
@@ -349,7 +353,7 @@ export default function Battleship() {
             <p className="text-white/50 mb-6">{winner === 'you' ? 'You sank the enemy fleet.' : 'Your fleet was sunk.'}</p>
             <div className="flex justify-center gap-3">
               <button onClick={() => { setPlaced(randomFleet()); setSelectedId(null); setBattle(null); setWinner(null); setRewarded(false); setPh('place') }}
-                className="font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={{ background: CY, boxShadow: `0 0 18px ${CY}88` }}>PLAY AGAIN</button>
+                className="arcade-btn font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={CY_BTN}>PLAY AGAIN</button>
               <button onClick={back} className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">ARCADE</button>
             </div>
           </div>
