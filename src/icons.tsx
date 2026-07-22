@@ -21,3 +21,6 @@ export const Star = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)} fill="curren
 export const ArrowLeft = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M19 12H5M11 5l-7 7 7 7" /></svg>)
 export const Replay = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>)
 export const Ship = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M3 14h18l-2.2 5.2a1 1 0 0 1-.9.6H6.1a1 1 0 0 1-.9-.6zM6 14V8l6-3 6 3v6M9 8h6M12 5V2" /></svg>)
+export const Volume = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M4 9v6h3.5L13 20V4L7.5 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8 8 0 0 1 0 12" /></svg>)
+export const VolumeMute = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M4 9v6h3.5L13 20V4L7.5 9zM17 9.5l4 5M21 9.5l-4 5" /></svg>)
+export const Rotate = (p: SVGProps<SVGSVGElement>) => (<svg {...s(p)}><path d="M20 11a8 8 0 1 0-1.8 5.4M20 5v5h-5" /></svg>)

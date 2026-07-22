@@ -31,6 +31,31 @@ function boom(a: AudioContext, when: number, { freq = 90, dur = 0.4, gain = 0.5,
   o.connect(g2).connect(a.destination); o.start(when); o.stop(when + dur)
 }
 
+function tone(a: AudioContext, { type, f0, f1, dur, gain, when = a.currentTime }: {
+  type: OscillatorType; f0: number; f1: number; dur: number; gain: number; when?: number
+}) {
+  const o = a.createOscillator(); o.type = type
+  o.frequency.setValueAtTime(f0, when)
+  o.frequency.exponentialRampToValueAtTime(f1, when + dur)
+  const g = a.createGain()
+  g.gain.setValueAtTime(gain, when); g.gain.exponentialRampToValueAtTime(0.001, when + dur)
+  o.connect(g).connect(a.destination); o.start(when); o.stop(when + dur)
+}
+
+// Placement feel: pick up / put down / rotate / rejected.
+export function sfxPick() { if (muted) return; const a = ac(); tone(a, { type: 'triangle', f0: 300, f1: 430, dur: 0.08, gain: 0.14 }) }
+export function sfxDrop() {
+  if (muted) return; const a = ac()
+  tone(a, { type: 'sine', f0: 190, f1: 85, dur: 0.11, gain: 0.3 })
+  tone(a, { type: 'triangle', f0: 520, f1: 380, dur: 0.05, gain: 0.08 })
+}
+export function sfxRotate() { if (muted) return; const a = ac(); tone(a, { type: 'triangle', f0: 420, f1: 620, dur: 0.07, gain: 0.12 }) }
+export function sfxDeny() {
+  if (muted) return; const a = ac()
+  tone(a, { type: 'square', f0: 150, f1: 110, dur: 0.07, gain: 0.09 })
+  tone(a, { type: 'square', f0: 150, f1: 95, dur: 0.09, gain: 0.09, when: a.currentTime + 0.09 })
+}
+
 export function sfxFire() { if (muted) return; const a = ac(); boom(a, a.currentTime, { freq: 140, dur: 0.22, gain: 0.35, filter: 1600 }) }
 export function sfxHit() { if (muted) return; const a = ac(); boom(a, a.currentTime, { freq: 80, dur: 0.55, gain: 0.6, filter: 1200 }) }
 export function sfxMiss() {

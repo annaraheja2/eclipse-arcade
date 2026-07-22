@@ -10,6 +10,19 @@ export const FLEET: { id: string; size: number }[] = [
 export interface Cell { r: number; c: number }
 export interface Ship { id: string; size: number; cells: Cell[]; hits: number }
 
+// Visual class per fleet id — five distinct silhouettes (art + roster labels key off this).
+export type ShipClass = 'carrier' | 'cruiser' | 'submarine' | 'destroyer' | 'patrol'
+export function shipClass(id: string): ShipClass {
+  if (id.startsWith('carrier')) return 'carrier'
+  if (id === 'cruiser-2') return 'submarine'
+  if (id.startsWith('cruiser')) return 'cruiser'
+  if (id === 'destroyer-2') return 'patrol'
+  return 'destroyer'
+}
+export const CLASS_NAMES: Record<ShipClass, string> = {
+  carrier: 'Carrier', cruiser: 'Cruiser', submarine: 'Submarine', destroyer: 'Destroyer', patrol: 'Patrol',
+}
+
 export const keyOf = (r: number, c: number) => `${r},${c}`
 
 export function shipCells(r: number, c: number, size: number, horiz: boolean): Cell[] {
@@ -54,6 +67,48 @@ export function randomFleet(): Ship[] {
 
 export function shipAt(ships: Ship[], r: number, c: number): Ship | undefined {
   return ships.find((sh) => sh.cells.some((x) => x.r === r && x.c === c))
+}
+
+// ----- placement geometry (pure) -----
+
+// A ship is horizontal when all its cells share a row.
+export const isHoriz = (cells: Cell[]) => cells.every((x) => x.r === cells[0].r)
+
+// Top-left anchor (min row, min col) of a ship's cells.
+export const anchorOf = (cells: Cell[]): Cell => ({
+  r: Math.min(...cells.map((x) => x.r)),
+  c: Math.min(...cells.map((x) => x.c)),
+})
+
+// Move a ship so its anchor sits at (r,c), preserving orientation.
+export function moveShip(ship: Ship, r: number, c: number): Ship {
+  return { ...ship, cells: shipCells(r, c, ship.size, isHoriz(ship.cells)) }
+}
+
+// Rotate a ship 90° about its current anchor.
+export function rotateShip(ship: Ship): Ship {
+  const a = anchorOf(ship.cells)
+  return { ...ship, cells: shipCells(a.r, a.c, ship.size, !isHoriz(ship.cells)) }
+}
+
+// Nearest legal anchor to a desired (r,c) for a ship of given size/orientation among
+// `others`, searching outward by Chebyshev ring. Returns null if none within `maxRadius`.
+export function nearestValidAnchor(
+  size: number, horiz: boolean, r: number, c: number, others: Ship[], maxRadius = N,
+): Cell | null {
+  for (let rad = 0; rad <= maxRadius; rad++) {
+    let best: Cell | null = null
+    let bestD = Infinity
+    for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+      if (Math.max(Math.abs(dr), Math.abs(dc)) !== rad) continue // only this ring
+      const ar = r + dr, ac = c + dc
+      if (!placementOk(shipCells(ar, ac, size, horiz), others)) continue
+      const d = dr * dr + dc * dc
+      if (d < bestD) { bestD = d; best = { r: ar, c: ac } }
+    }
+    if (best) return best
+  }
+  return null
 }
 export const isSunk = (sh: Ship) => sh.hits >= sh.size
 export const allSunk = (ships: Ship[]) => ships.every(isSunk)

@@ -52,6 +52,25 @@ body {
 @keyframes waveA { 0% { transform: translate(0,0) } 100% { transform: translate(-160px, 6px) } }
 @keyframes waveB { 0% { transform: translate(0,0) } 100% { transform: translate(120px, -6px) } }
 @keyframes bob { 0%,100% { transform: translateY(0) rotate(-0.6deg) } 50% { transform: translateY(-3px) rotate(0.6deg) } }
+@keyframes rejectShake { 0%,100% { transform: translateX(0) } 20% { transform: translateX(-7px) } 40% { transform: translateX(6px) } 60% { transform: translateX(-4px) } 80% { transform: translateX(3px) } }
+.reject-shake { animation: rejectShake 0.4s ease-in-out; }
+
+/* Keyboard focus: a white ring that clears 3:1 on every background in the app
+   (dark base, saturated ocean, cyan buttons). Pointer users never see it. */
+:focus-visible { outline: 2px solid #fff; outline-offset: 2px; border-radius: 6px; }
+
+/* placement: selected-ship ring + lift-in for the dragged ship */
+.sel-ring {
+  position: absolute; inset: -4px; border-radius: 10px;
+  border: 2px solid #ffd23d; pointer-events: none;
+  animation: selpulse 1.6s ease-in-out infinite;
+}
+@keyframes selpulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 210, 61, 0.45); opacity: 0.95 }
+  50%      { box-shadow: 0 0 18px rgba(255, 210, 61, 0.7); opacity: 0.65 }
+}
+@keyframes floatlift { from { transform: scale(0.94) } to { transform: scale(1) } }
+.float-lift { animation: floatlift 150ms ease-out; }
 
 @keyframes smoke {
   0%   { opacity: 0.8; transform: translate(-50%,-50%) scale(0.5); }

@@ -12,6 +12,8 @@ export interface Question {
   answer?: number; min?: number; max?: number; step?: number
   // fill:
   fill?: string
+  // optional one-line elaboration / method hint (shown when authored)
+  explain?: string
 }
 
 export interface Subunit {
@@ -24,8 +26,8 @@ export interface Subunit {
 export interface Unit { id: string; name: string; subunits: Subunit[] }
 export interface Course { id: string; name: string; units: Unit[] }
 
-const g = (prompt: string, x: number, y: number, range = 8): Question => ({ prompt, x, y, range })
-const s = (prompt: string, answer: number, min: number, max: number, step = 0.5): Question => ({ prompt, answer, min, max, step })
+const g = (prompt: string, x: number, y: number, range = 8, explain?: string): Question => ({ prompt, x, y, range, explain })
+const s = (prompt: string, answer: number, min: number, max: number, step = 0.5, explain?: string): Question => ({ prompt, answer, min, max, step, explain })
 const f = (prompt: string, fill: string): Question => ({ prompt, fill })
 
 export const COURSES: Course[] = [
@@ -40,7 +42,8 @@ export const COURSES: Course[] = [
             s('Solve:  3x = 15', 5, 0, 20), s('Solve:  x ÷ 2 = 6', 12, 0, 24),
           ]},
           { id: 'two-step', name: 'Two-Step', difficulty: 'medium', type: 'slider', questions: [
-            s('Solve:  2x + 4 = 10', 3, -5, 15), s('Solve:  3x − 5 = 10', 5, 0, 20),
+            s('Solve:  2x + 4 = 10', 3, -5, 15, 0.5, 'Undo the +4 first, then undo the ×2.'),
+            s('Solve:  3x − 5 = 10', 5, 0, 20, 0.5, 'Add 5 to both sides, then divide by 3.'),
             s('Solve:  x ÷ 3 + 2 = 6', 12, 0, 24), s('Solve:  5x + 1 = 26', 5, 0, 20),
           ]},
           { id: 'multi-step', name: 'Multi-Step', difficulty: 'hard', type: 'slider', questions: [
@@ -57,7 +60,8 @@ export const COURSES: Course[] = [
             g('Plot the point  (0, −3)', 0, -3), g('Plot the point  (2, 5)', 2, 5),
           ]},
           { id: 'intercepts', name: 'Intercepts', difficulty: 'medium', type: 'graph', questions: [
-            g('y-intercept of  y = 2x + 3', 0, 3), g('x-intercept of  y = 2x − 4', 2, 0),
+            g('y-intercept of  y = 2x + 3', 0, 3, 8, 'For a y-intercept, set x = 0 and read off y.'),
+            g('x-intercept of  y = 2x − 4', 2, 0, 8, 'For an x-intercept, set y = 0 and solve for x.'),
             g('y-intercept of  y = −x + 5', 0, 5), g('x-intercept of  y = 3x − 6', 2, 0),
           ]},
           { id: 'vertex', name: 'Parabola Vertex', difficulty: 'hard', type: 'graph', questions: [

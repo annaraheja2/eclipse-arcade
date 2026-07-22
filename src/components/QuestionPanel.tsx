@@ -40,7 +40,8 @@ export default function QuestionPanel({ q, color, onSubmit }: { q: Question; col
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <div className="text-center text-[10px] font-pixel mb-3" style={{ color }}>ANSWER TO EARN A SHOT</div>
-      <p className="text-center text-lg font-semibold mb-4">{q.prompt}</p>
+      <p className={`text-center text-lg font-semibold ${q.explain ? 'mb-2' : 'mb-4'}`}>{q.prompt}</p>
+      {q.explain && <p className="text-center text-xs text-white/70 mb-4">{q.explain}</p>}
       <div className="mb-4">
         {q.x !== undefined && <PinBoard range={q.range ?? 8} color={color} guess={pt} answer={null} onPlace={(x, y) => setPt({ x, y })} />}
         {q.answer !== undefined && <SliderBoard min={q.min!} max={q.max!} step={q.step ?? 0.5} color={color} guess={val} answer={null} onPlace={setVal} />}

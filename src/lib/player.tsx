@@ -21,8 +21,22 @@ function load(): PlayerState {
 }
 function save(p: PlayerState) { localStorage.setItem(KEY, JSON.stringify(p)) }
 
-function today(): string { return new Date().toISOString().slice(0, 10) }
-function yesterday(): string { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10) }
+// Date boundary + pure calendar helpers (yyyy-mm-dd, UTC).
+export function todayStr(): string { return new Date().toISOString().slice(0, 10) }
+export function prevDay(date: string): string {
+  const d = new Date(date + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+// A streak is at risk when the player has an active streak (last played yesterday)
+// but hasn't played today yet — one skipped day resets it.
+export function isStreakAtRisk(lastPlayed: string, today: string): boolean {
+  return lastPlayed !== '' && lastPlayed === prevDay(today)
+}
+
+function today(): string { return todayStr() }
+function yesterday(): string { return prevDay(todayStr()) }
 
 export function levelFromXp(xp: number) {
   const level = Math.floor(xp / XP_PER_LEVEL) + 1

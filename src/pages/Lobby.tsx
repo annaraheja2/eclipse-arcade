@@ -5,7 +5,7 @@ import {
   Target, Slide, Grid, Link2, Chart, Star, Ship,
 } from '../icons'
 import { GAMES, type GameDef } from '../lib/games'
-import { usePlayer, levelFromXp } from '../lib/player'
+import { usePlayer, levelFromXp, isStreakAtRisk, todayStr } from '../lib/player'
 
 const ICON: Record<string, ReactNode> = {
   battleship: <Ship />, daily: <Star />, pinpoint: <Target />, slider: <Slide />,
@@ -101,7 +101,32 @@ function Hero() {
       <p className="mt-7 text-white/60 text-sm sm:text-base max-w-md mx-auto">
         Play math, score high, level up. Pick a cabinet and drop in.
       </p>
+      <StreakBanner />
     </section>
+  )
+}
+
+// Streak surfaced at every breakpoint (the HUD chip is desktop-only) with a
+// loss-aversion nudge. Solid-color text on #0a0620 for AA contrast — not glow.
+function StreakBanner() {
+  const { player } = usePlayer()
+  const today = todayStr()
+  const playedToday = player.lastPlayed === today
+  const atRisk = isStreakAtRisk(player.lastPlayed, today)
+
+  let text: string
+  if (player.streak === 0) text = 'Start a streak today'
+  else if (playedToday) text = `${player.streak}-day streak — see you tomorrow`
+  else if (atRisk) text = `Play today to keep your ${player.streak}-day streak`
+  else text = 'Start a streak today' // streak recorded but a day was skipped — it resets on next play
+
+  return (
+    <div className="mt-8 flex justify-center">
+      <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10">
+        <span className="text-neon-amber"><Flame width={16} height={16} /></span>
+        <span className="text-sm font-semibold text-white/90">{text}</span>
+      </div>
+    </div>
   )
 }
 
@@ -110,6 +135,7 @@ function Cabinet({ g }: { g: GameDef }) {
   const { player } = usePlayer()
   const soon = g.type === 'soon'
   const best = player.bests[g.key]
+  const dailyDone = g.key === 'daily' && localStorage.getItem(`eclipse-arcade:daily:${todayStr()}`) === '1'
   const glow = soon ? 'none' : `0 0 0 1px ${g.color}55, 0 14px 46px -14px ${g.color}80`
   return (
     <button
@@ -126,7 +152,11 @@ function Cabinet({ g }: { g: GameDef }) {
         <span className="grid place-items-center w-20 h-20 rounded-2xl" style={{ color: g.color, background: `${g.color}1f`, boxShadow: soon ? 'none' : `0 0 30px ${g.color}77` }}>
           <span className="[&>svg]:w-9 [&>svg]:h-9">{ICON[g.key]}</span>
         </span>
-        {g.key === 'daily' && !soon && <span className="absolute top-3 left-3 text-[9px] font-pixel px-2 py-1 rounded bg-neon-amber text-[#2a1a00]">DAILY</span>}
+        {g.key === 'daily' && !soon && (
+          dailyDone
+            ? <span className="absolute top-3 left-3 text-[9px] font-pixel px-2 py-1 rounded bg-neon-green text-[#04180f]">PLAYED</span>
+            : <span className="absolute top-3 left-3 text-[9px] font-pixel px-2 py-1 rounded bg-neon-amber text-[#2a1a00]">DAILY</span>
+        )}
         {soon && <span className="absolute top-3 right-3 text-[9px] font-pixel px-2 py-1 rounded bg-white/10 text-white/70">SOON</span>}
       </div>
       <div className="flex items-center justify-between px-5 py-4 border-t border-white/10">

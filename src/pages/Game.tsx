@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, Navigate } from 'react-router-dom'
-import { getGame, pickRounds, scorePin, scoreSlider, ROUND_MAX, type Round } from '../lib/games'
-import { usePlayer } from '../lib/player'
+import { getGame, pickRounds, pickDailyRounds, scorePin, scoreSlider, ROUND_MAX, type Round } from '../lib/games'
+import { usePlayer, levelFromXp, todayStr } from '../lib/player'
+import { buildShareCard } from '../lib/share'
+import { sfxFire, sfxHit, sfxMiss, sfxWin } from '../lib/sound'
 import PinBoard from '../components/PinBoard'
 import SliderBoard from '../components/SliderBoard'
 import Controller from '../components/Controller'
@@ -26,11 +28,20 @@ function defaultAim(r: Round): Aim {
 export default function Game() {
   const { gameKey = '' } = useParams()
   const navigate = useNavigate()
-  const { finishGame } = usePlayer()
+  const { player, finishGame } = usePlayer()
   const game = getGame(gameKey)
 
+  const isDaily = game?.type === 'daily'
+  const dateStr = todayStr()
+  const dailyMarker = `eclipse-arcade:daily:${dateStr}`
+  const [alreadyPlayedToday] = useState(() => isDaily && localStorage.getItem(dailyMarker) === '1')
+
   const [seed, setSeed] = useState(0)
-  const rounds = useMemo(() => (game ? pickRounds(game, TOTAL_ROUNDS) : []), [game, seed])
+  // Daily is one deterministic puzzle per date (no reshuffle); others draw 5 at random.
+  const rounds = useMemo(
+    () => (!game ? [] : isDaily ? pickDailyRounds(dateStr, TOTAL_ROUNDS) : pickRounds(game, TOTAL_ROUNDS)),
+    [game, isDaily, dateStr, seed],
+  )
 
   const [idx, setIdx] = useState(0)
   const [aim, setAim] = useState<Aim>(0)
@@ -59,11 +70,17 @@ export default function Game() {
     const p = round.kind === 'pin'
       ? scorePin(round, (aim as { x: number; y: number }).x, (aim as { x: number; y: number }).y)
       : scoreSlider(round, aim as number)
+    sfxFire() // FIRE press is the user gesture that unlocks the AudioContext.
+    if (p >= 500) sfxHit(); else sfxMiss()
     setPts((a) => [...a, p]); setRevealed(true)
   }
   function next() {
     if (idx < TOTAL_ROUNDS - 1) setIdx(idx + 1)
-    else { const t = pts.reduce((a, b) => a + b, 0); setRewards(finishGame(game!.key, t)); setDone(true) }
+    else {
+      const t = pts.reduce((a, b) => a + b, 0)
+      setRewards(finishGame(game!.key, t)); setDone(true); sfxWin()
+      if (isDaily) localStorage.setItem(dailyMarker, '1')
+    }
   }
   function restart() { setSeed((s) => s + 1); setIdx(0); setPts([]); setDone(false); setRevealed(false); setRewards(null) }
 
@@ -83,6 +100,29 @@ export default function Game() {
 
   if (!game || game.type === 'soon') return <Navigate to="/" replace />
 
+  // Daily is once per calendar day — if it's already been played, don't re-open a puzzle.
+  if (isDaily && alreadyPlayedToday && !done) {
+    return (
+      <div className="min-h-screen relative">
+        <div className="pointer-events-none fixed inset-0 grid-floor" />
+        <div className="relative max-w-2xl mx-auto px-5 py-6">
+          <div className="flex items-center justify-between mb-5">
+            <button onClick={() => navigate('/')} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white"><ArrowLeft width={18} height={18} /></button>
+            <div className="font-pixel text-[11px]" style={{ color: game.color }}>{game.name.toUpperCase()}</div>
+            <div className="w-10" />
+          </div>
+          <div className="text-center py-16">
+            <div className="flex justify-center mb-4"><Avatar mood="happy" color={game.color} size={84} /></div>
+            <div className="font-pixel text-[12px] mb-3" style={{ color: game.color }}>DONE FOR TODAY</div>
+            <p className="text-white/70 text-sm max-w-xs mx-auto mb-6">You've cleared today's Daily Challenge. A fresh puzzle unlocks tomorrow.</p>
+            <button onClick={() => navigate('/')} className="font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={{ background: game.color, boxShadow: `0 0 18px ${game.color}88` }}>ARCADE</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const level = levelFromXp(player.xp).level
   const total = pts.reduce((a, b) => a + b, 0)
   const lastPts = revealed ? pts[pts.length - 1] : null
   const mood: Mood = revealed ? ((lastPts ?? 0) >= 500 ? 'happy' : 'sad') : 'aim'
@@ -101,7 +141,7 @@ export default function Game() {
         </div>
 
         {done ? (
-          <Results total={total} pts={pts} rewards={rewards} color={game.color} onReplay={restart} onHome={() => navigate('/')} />
+          <Results total={total} pts={pts} rewards={rewards} color={game.color} gameName={game.name} level={level} canReplay={!isDaily} onReplay={restart} onHome={() => navigate('/')} />
         ) : round ? (
           <>
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 mb-4 text-center min-h-[72px] grid place-items-center">
@@ -121,6 +161,7 @@ export default function Game() {
                   <div className="font-pixel text-[11px]" style={{ color: game.color }}>{message(lastPts ?? 0)}</div>
                   <div className="text-3xl font-extrabold tabular-nums neon-text" style={{ color: game.color }}>+{lastPts}</div>
                   <div className="text-xs text-white/40">{round.kind === 'pin' ? `Answer: (${round.x}, ${round.y})` : `Answer: ${round.answer}`}</div>
+                  {round.explain && <div className="text-xs text-white/70 mt-1">{round.explain}</div>}
                 </div>
                 <button onClick={next} className="font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={{ background: game.color, boxShadow: `0 0 18px ${game.color}88` }}>
                   {idx < TOTAL_ROUNDS - 1 ? 'NEXT' : 'RESULTS'}
@@ -142,11 +183,38 @@ export default function Game() {
   )
 }
 
-function Results({ total, pts, rewards, color, onReplay, onHome }: {
+function Results({ total, pts, rewards, color, gameName, level, canReplay, onReplay, onHome }: {
   total: number; pts: number[]; rewards: { xp: number; coins: number; best: boolean } | null; color: string
-  onReplay: () => void; onHome: () => void
+  gameName: string; level: number; canReplay: boolean; onReplay: () => void; onHome: () => void
 }) {
   const good = total >= pts.length * 500
+  const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const flashShare = (s: 'copied' | 'failed') => {
+    setShareStatus(s)
+    window.setTimeout(() => setShareStatus('idle'), 1800)
+  }
+
+  async function share() {
+    const text = buildShareCard(gameName, pts, total, level)
+    // Prefer the native share sheet; cancelling it is a no-op, not a failure.
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ text })
+        return
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        // Otherwise fall through to the clipboard.
+      }
+    }
+    // Clipboard fallback — surface a failure rather than swallow it.
+    try {
+      await navigator.clipboard.writeText(text)
+      flashShare('copied')
+    } catch {
+      flashShare('failed')
+    }
+  }
+
   return (
     <div className="text-center">
       <div className="flex justify-center mb-3"><Avatar mood={good ? 'happy' : 'sad'} color={color} size={84} /></div>
@@ -169,10 +237,18 @@ function Results({ total, pts, rewards, color, onReplay, onHome }: {
         ))}
       </div>
 
-      <div className="flex justify-center gap-3">
-        <button onClick={onReplay} className="flex items-center gap-2 font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={{ background: color, boxShadow: `0 0 18px ${color}88` }}>
-          <Replay width={16} height={16} /> PLAY AGAIN
+      <div className="flex flex-wrap justify-center gap-3">
+        {canReplay && (
+          <button onClick={onReplay} className="flex items-center gap-2 font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={{ background: color, boxShadow: `0 0 18px ${color}88` }}>
+            <Replay width={16} height={16} /> PLAY AGAIN
+          </button>
+        )}
+        <button onClick={share} aria-label="Share your score" className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/15">
+          {shareStatus === 'copied' ? 'COPIED!' : shareStatus === 'failed' ? 'COPY FAILED' : 'SHARE'}
         </button>
+        <span className="sr-only" role="status" aria-live="polite">
+          {shareStatus === 'copied' ? 'Score copied to clipboard' : shareStatus === 'failed' ? 'Copy failed' : ''}
+        </span>
         <button onClick={onHome} className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">ARCADE</button>
       </div>
     </div>
