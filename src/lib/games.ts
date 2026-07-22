@@ -47,7 +47,6 @@ export const GAMES: GameDef[] = [
   { key: 'battleship', name: 'Battleship', color: '#3df5ff', type: 'battleship', rounds: [] },
   { key: 'daily', name: 'Daily Challenge', color: '#ffb43d', type: 'daily', rounds: [] },
   { key: 'pinpoint', name: 'PinPoint', color: '#a24bff', type: 'pin', rounds: PINPOINT_ROUNDS },
-  { key: 'slider', name: 'Slider', color: '#ffb43d', type: 'slider', rounds: SLIDER_ROUNDS },
   { key: 'gridfill', name: 'Grid-Fill', color: '#3dffa2', type: 'soon', rounds: [] },
   { key: 'matchup', name: 'Match-Up', color: '#ff4d8d', type: 'soon', rounds: [] },
   { key: 'fitline', name: 'Fit-the-Line', color: '#ff6b3d', type: 'soon', rounds: [] },

@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { COURSES, type Course, type Unit, type Subunit, type Question, type Difficulty, type AnswerType } from '../data/subjects'
 import { fetchRemoteCourse, saveCourse, draftIssue, slugify, uniqueId } from '../lib/content'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useAuth } from '../lib/auth'
-import AccountControl from '../components/AccountControl'
 import { ArrowLeft } from '../icons'
 
 // Admin content editor: edits arcadeContent/{courseId} in Firestore as one whole
@@ -12,11 +11,23 @@ import { ArrowLeft } from '../icons'
 // editable here. The isAdmin gate is CLIENT gating for the UI only —
 // firestore.rules (isArcadeAdmin) is the real enforcement; a non-admin who
 // bypasses this page simply gets permission-denied on save.
+//
+// Unlike the rest of the arcade (neon-on-dark), this page wears the calm Eclipse
+// Learning aesthetic — a comfortable writing desk for authoring content. It sets
+// document.documentElement[data-plain] on mount so index.css can suppress the
+// global CRT/neon overlays for this route only, and restores them on unmount.
 
-const AM = '#ffb43d'
-const AM_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': string } = {
-  '--btn': AM, '--edge': `color-mix(in srgb, ${AM} 50%, #000)`, '--glow': `${AM}88`,
-}
+// Calm Eclipse-Learning palette (matches ~/app/studyreel-web tokens). Espresso
+// accent shifted one shade darker than the sibling's #B5610F so cream-on-accent
+// clears WCAG AA (~5.3:1) for the small button labels here.
+const ACCENT = '#9C5410'
+const INPUT =
+  'w-full rounded-lg bg-[#FBFDFF] border border-[#CADDEE] px-3 py-2 text-sm text-[#1F2A36] focus:border-[#2F6FB0] outline-none'
+const SELECT =
+  'rounded-lg bg-[#FBFDFF] border border-[#CADDEE] px-3 py-2 text-sm text-[#1F2A36] focus:border-[#2F6FB0] outline-none'
+const SECONDARY_BTN =
+  'rounded-lg bg-[#EDF5FC] border border-[#CADDEE] px-4 py-2 text-sm font-semibold text-[#1F2A36] hover:bg-[#E1EEF9] disabled:opacity-50 transition-colors'
+
 const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
 const ANSWER_TYPES: readonly AnswerType[] = ['graph', 'slider', 'fill']
 
@@ -76,26 +87,47 @@ function withSubunit(c: Course, ui: number, si: number, fn: (s: Subunit) => Subu
 
 export default function Admin() {
   const { user, loading, isAdmin } = useAuth()
+
+  // Suppress the global arcade CRT/neon overlays for this route only. index.css
+  // hides body::before/after and swaps the body background under :root[data-plain].
+  // Removed on unmount so every other page keeps the full neon treatment.
+  useEffect(() => {
+    document.documentElement.setAttribute('data-plain', '')
+    return () => document.documentElement.removeAttribute('data-plain')
+  }, [])
+
   return (
-    <div className="min-h-screen relative">
-      <div className="pointer-events-none fixed inset-0 grid-floor" />
-      <div className="relative max-w-3xl mx-auto px-5 py-6">
+    <div className="min-h-screen">
+      <div className="max-w-3xl mx-auto px-5 py-6">
         <div className="flex items-center justify-between mb-6">
-          <Link to="/" aria-label="Back to arcade" className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">
+          <Link
+            to="/" aria-label="Back to arcade"
+            className="grid place-items-center w-10 h-10 rounded-xl bg-[#FBFDFF] border border-[#CADDEE] text-[#566573] hover:text-[#1F2A36] hover:bg-[#EDF5FC] transition-colors"
+          >
             <ArrowLeft width={18} height={18} />
           </Link>
-          <h1 className="font-pixel text-[12px]" style={{ color: AM }}>CONTENT EDITOR</h1>
-          <div className="w-10 h-10 grid place-items-center">{isFirebaseConfigured && <AccountControl />}</div>
+          <h1 className="text-lg font-bold tracking-tight text-[#1F2A36]">Content Editor</h1>
+          <div className="min-w-[40px] flex justify-end">{isFirebaseConfigured && <CalmAccount />}</div>
         </div>
 
         {!isFirebaseConfigured ? (
-          <Gate title="EDITOR OFFLINE">Firebase is not configured — the content editor needs the live backend.</Gate>
+          <Gate title="Editor offline">Firebase is not configured — the content editor needs the live backend.</Gate>
         ) : loading ? (
-          <p className="text-center text-white/70 font-pixel text-[10px] py-16">CHECKING ACCESS…</p>
-        ) : !user || !isAdmin ? (
-          <Gate title="ADMINS ONLY">
-            Sign in with an admin account (top-right) to edit the arcade curriculum.
+          <StatusCard>Checking access…</StatusCard>
+        ) : !user ? (
+          <Gate
+            title="Admins only"
+            action={<GoogleGateButton />}
+          >
+            Sign in with an admin account to edit the arcade curriculum.
             This page only hides the controls — Firestore security rules are what actually enforce admin-only writes.
+          </Gate>
+        ) : !isAdmin ? (
+          <Gate
+            title="Admins only"
+            action={<GateSignOutButton />}
+          >
+            This account doesn't have editor access. Sign out and sign back in with an admin account.
           </Gate>
         ) : (
           <Editor email={user.email ?? ''} />
@@ -105,11 +137,102 @@ export default function Admin() {
   )
 }
 
-function Gate({ title, children }: { title: string; children: ReactNode }) {
+// A quiet, calm-palette account control for the /admin header. The user reaching
+// this component is always signed in (the gate blocks otherwise); it shows their
+// email plus an ADMIN tag and a plain "Sign out" text button — no neon, no
+// font-pixel, no dark modal. The global :root[data-plain] :focus-visible rule
+// gives every control here the dark #2F6FB0 focus ring.
+function CalmAccount() {
+  const { user, isAdmin, signOut } = useAuth()
+  const [error, setError] = useState('')
+  if (!user) return null
+  const handleSignOut = async () => {
+    const res = await signOut()
+    if (res.status === 'error') setError(res.message)
+  }
   return (
-    <div className="max-w-md mx-auto text-center rounded-2xl border-2 border-white/15 bg-[#120a2c] px-6 py-10 mt-10">
-      <h2 className="font-pixel text-[13px] tracking-wider neon-text mb-4" style={{ color: AM }}>{title}</h2>
-      <p className="text-sm text-white/80 leading-relaxed">{children}</p>
+    <div className="flex items-center gap-2.5 min-w-0">
+      {error && <span role="alert" className="text-xs text-[#B4232B] truncate" title={error}>{error}</span>}
+      {isAdmin && (
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#EDF5FC] border border-[#CADDEE] text-[#3A4653]">
+          Admin
+        </span>
+      )}
+      <span className="text-sm text-[#1F2A36] truncate max-w-[180px]" title={user.email ?? undefined}>
+        {user.email}
+      </span>
+      <button
+        onClick={() => void handleSignOut()}
+        className="shrink-0 rounded text-sm font-semibold hover:underline underline-offset-2"
+        style={{ color: ACCENT }}
+      >
+        Sign out
+      </button>
+    </div>
+  )
+}
+
+// Calm signed-out affordance on the gate: admins use Google, so a single
+// light-themed "Continue with Google" button is enough — no neon sign-in modal.
+function GoogleGateButton() {
+  const { signInWithGoogle } = useAuth()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const onClick = async () => {
+    setError('')
+    setBusy(true)
+    const res = await signInWithGoogle()
+    setBusy(false)
+    if (res.status === 'error') setError(res.message)
+    // 'cancelled' (popup closed) is benign — leave the gate as-is.
+  }
+  return (
+    <div>
+      <button
+        onClick={() => void onClick()}
+        disabled={busy}
+        className="rounded-lg px-5 py-2.5 text-sm font-semibold text-[#FBF3E7] hover:brightness-95 disabled:opacity-50 transition"
+        style={{ backgroundColor: ACCENT }}
+      >
+        {busy ? 'Signing in…' : 'Continue with Google'}
+      </button>
+      {error && <p role="alert" className="mt-3 text-sm text-[#B4232B]">{error}</p>}
+    </div>
+  )
+}
+
+// Signed-in-but-not-an-admin: offer a calm sign-out so they can switch accounts.
+function GateSignOutButton() {
+  const { signOut } = useAuth()
+  const [error, setError] = useState('')
+  const onClick = async () => {
+    const res = await signOut()
+    if (res.status === 'error') setError(res.message)
+  }
+  return (
+    <div>
+      <button onClick={() => void onClick()} className={SECONDARY_BTN}>Sign out</button>
+      {error && <p role="alert" className="mt-3 text-sm text-[#B4232B]">{error}</p>}
+    </div>
+  )
+}
+
+function Gate({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="max-w-md mx-auto text-center rounded-2xl border border-[#CADDEE] bg-[#FBFDFF] shadow-sm px-6 py-10 mt-10">
+      <h2 className="text-base font-bold text-[#1F2A36] mb-3">{title}</h2>
+      <p className="text-sm text-[#566573] leading-relaxed">{children}</p>
+      {action && <div className="mt-6">{action}</div>}
+    </div>
+  )
+}
+
+// Transient loading/checking states, carded onto a solid #FBFDFF surface so the
+// muted text clears AA (it fails on the bare light-blue body gradient).
+function StatusCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="max-w-md mx-auto text-center rounded-2xl border border-[#CADDEE] bg-[#FBFDFF] shadow-sm px-6 py-10 mt-10">
+      <p className="text-sm text-[#566573]">{children}</p>
     </div>
   )
 }
@@ -162,6 +285,19 @@ function Editor({ email }: { email: string }) {
   const update = (fn: (c: Course) => Course) =>
     setState((s) => (s.phase === 'ready' ? { ...s, draft: fn(s.draft) } : s))
 
+  // Reset to bundled: load the built-in course into the draft, replacing whatever
+  // is loaded (cloud copy, emptied doc, or unsaved edits). saved stays put so the
+  // draft reads dirty and the recovery is completed by clicking SAVE (which
+  // overwrites the cloud doc). This is the fix path even when a doc already
+  // exists — unlike SEED, which only appears for a missing doc.
+  const resetToBundled = () => {
+    const bundled = COURSES.find((c) => c.id === courseId)
+    if (!bundled) return
+    if (!window.confirm('This replaces the current course with the built-in version. Unsaved and saved cloud changes for this course will be overwritten on Save. Continue?')) return
+    setSaveError('')
+    update(() => clone(bundled))
+  }
+
   async function write(course: Course, resetDraft: boolean) {
     const issue = resetDraft ? null : draftIssue(course)
     if (issue) { setSaveError(issue); return }
@@ -182,14 +318,12 @@ function Editor({ email }: { email: string }) {
     }
   }
 
-  if (state.phase === 'loading') return <p className="text-center text-white/70 font-pixel text-[10px] py-16">LOADING CONTENT…</p>
+  if (state.phase === 'loading') return <StatusCard>Loading content…</StatusCard>
   if (state.phase === 'error') {
     return (
-      <div className="max-w-md mx-auto text-center py-10">
-        <p role="alert" className="text-sm text-[#ff9dbd] mb-5">{state.message}</p>
-        <button onClick={() => setReloadKey((k) => k + 1)} className="arcade-btn font-pixel text-[10px] px-5 py-2.5 rounded-lg text-[#0a0620]" style={AM_BTN}>
-          RETRY
-        </button>
+      <div className="max-w-md mx-auto text-center rounded-2xl border border-[#CADDEE] bg-[#FBFDFF] shadow-sm px-6 py-10 mt-10">
+        <p role="alert" className="text-sm text-[#B4232B] mb-5">{state.message}</p>
+        <button onClick={() => setReloadKey((k) => k + 1)} className={SECONDARY_BTN}>Retry</button>
       </div>
     )
   }
@@ -201,7 +335,7 @@ function Editor({ email }: { email: string }) {
     <div className="pb-28">
       <div className="flex items-end justify-between gap-4 mb-5 flex-wrap">
         <div>
-          <label htmlFor="course-pick" className="block font-pixel text-[8px] tracking-wider text-white/80 mb-2">COURSE</label>
+          <label htmlFor="course-pick" className="block text-xs font-semibold uppercase tracking-wide text-[#566573] mb-2">Course</label>
           <select
             id="course-pick" value={courseId}
             onChange={(e) => {
@@ -210,17 +344,17 @@ function Editor({ email }: { email: string }) {
               if (dirty && !window.confirm('Discard unsaved changes?')) { e.target.value = courseId; return }
               setCourseId(e.target.value)
             }}
-            className="rounded-lg bg-white/5 border border-white/15 px-3 py-2 text-sm text-white"
+            className={SELECT}
           >
             {COURSES.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        <div className="text-xs text-white/60">
+        <div className="text-xs text-[#566573]">
           {draft.units.length} units · {draft.units.reduce((n, u) => n + u.subunits.length, 0)} topics · {draft.units.reduce((n, u) => n + u.subunits.reduce((m, s) => m + s.questions.length, 0), 0)} questions
         </div>
       </div>
 
-      {note && <p className="mb-5 rounded-lg border border-neon-amber/40 bg-neon-amber/10 px-4 py-3 text-sm text-[#ffd694]">{note}</p>}
+      {note && <p className="mb-5 rounded-lg border border-[#E7CFA0] bg-[#FBF1E0] px-4 py-3 text-sm text-[#7A4B12]">{note}</p>}
 
       <div className="space-y-3">
         {draft.units.map((unit, ui) => (
@@ -253,14 +387,17 @@ function Editor({ email }: { email: string }) {
       <AddUnitForm onAdd={(name, description) => update((c) => ({ ...c, units: [...c.units, newUnit(c, name, description)] }))} />
 
       {/* Save bar — fixed so the action and its status are always reachable. */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-[#0d0724]/95 backdrop-blur px-5 py-3">
+      <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-[#CADDEE] bg-[#FBFDFF]/95 backdrop-blur px-5 py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
-            {dirty && <span className="font-pixel text-[8px] px-2 py-1 rounded bg-neon-amber/15 text-neon-amber whitespace-nowrap">UNSAVED CHANGES</span>}
-            <span aria-live="polite" className="font-pixel text-[8px] text-neon-green whitespace-nowrap">{flash ? 'SAVED' : ''}</span>
-            {saveError && <p role="alert" className="text-sm text-[#ff9dbd] truncate" title={saveError}>{saveError}</p>}
+            {dirty && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#FBF1E0] text-[#7A4B12] whitespace-nowrap">Unsaved changes</span>}
+            <span aria-live="polite" className="text-xs font-semibold text-[#1E7A46] whitespace-nowrap">{flash ? 'Saved' : ''}</span>
+            {saveError && <p role="alert" className="text-sm text-[#B4232B] truncate" title={saveError}>{saveError}</p>}
           </div>
           <div className="flex items-center gap-2.5 shrink-0">
+            <button onClick={resetToBundled} disabled={saving} className={SECONDARY_BTN}>
+              Reset to bundled
+            </button>
             {!docExists && (
               <button
                 onClick={() => {
@@ -268,18 +405,18 @@ function Editor({ email }: { email: string }) {
                   void write(clone(COURSES.find((c) => c.id === courseId) ?? draft), true)
                 }}
                 disabled={saving}
-                className="font-pixel text-[10px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 hover:border-neon-amber/40 disabled:opacity-60"
+                className={SECONDARY_BTN}
               >
-                SEED FROM BUNDLED
+                Seed from bundled
               </button>
             )}
             <button
               onClick={() => { void write(draft, false) }}
               disabled={saving}
-              className="arcade-btn font-pixel text-[10px] px-6 py-2.5 rounded-lg text-[#0a0620] disabled:opacity-60"
-              style={AM_BTN}
+              className="rounded-lg px-6 py-2.5 text-sm font-semibold text-[#FBF3E7] hover:brightness-95 disabled:opacity-50 transition"
+              style={{ backgroundColor: ACCENT }}
             >
-              {saving ? 'SAVING…' : 'SAVE'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
@@ -310,39 +447,33 @@ function UnitEditor({
   const nameId = `unit-name-${unit.id}`
   const descId = `unit-desc-${unit.id}`
   return (
-    <details open={open} className="rounded-xl border border-white/10 bg-white/[0.03]">
+    <details open={open} className="rounded-xl border border-[#CADDEE] bg-[#FBFDFF] shadow-sm">
       <summary className="cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-3">
-        <span className="font-pixel text-[10px] tracking-wider text-white/90">{unit.name.toUpperCase()}</span>
-        <span className="font-pixel text-[8px] text-white/50 shrink-0">{unit.subunits.length} TOPICS</span>
+        <span className="text-sm font-bold text-[#1F2A36]">{unit.name}</span>
+        <span className="text-xs text-[#566573] shrink-0">{unit.subunits.length} topics</span>
       </summary>
       <div className="px-4 pb-4 space-y-3">
-        <div className="rounded-lg border border-white/10 bg-[#0d0724] p-3">
+        <div className="rounded-lg border border-[#DCEAF6] bg-[#F4F9FE] p-3">
           <div className="flex items-start justify-between gap-3 mb-2.5">
-            <span className="font-pixel text-[8px] tracking-wider text-white/60 pt-2">UNIT</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-[#566573] pt-2">Unit</span>
             <div className="flex items-center gap-1.5">
-              <MiniBtn label={`Move unit ${unit.name} up`} disabled={isFirst} onClick={() => onMove(-1)}>UP</MiniBtn>
-              <MiniBtn label={`Move unit ${unit.name} down`} disabled={isLast} onClick={() => onMove(1)}>DN</MiniBtn>
-              <MiniBtn label={`Delete unit ${unit.name}`} danger onClick={onDelete}>DEL</MiniBtn>
+              <MiniBtn label={`Move unit ${unit.name} up`} disabled={isFirst} onClick={() => onMove(-1)}>Up</MiniBtn>
+              <MiniBtn label={`Move unit ${unit.name} down`} disabled={isLast} onClick={() => onMove(1)}>Dn</MiniBtn>
+              <MiniBtn label={`Delete unit ${unit.name}`} danger onClick={onDelete}>Del</MiniBtn>
             </div>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2">
-            <LabeledField id={nameId} label="UNIT NAME">
-              <input
-                id={nameId} type="text" value={unit.name} onChange={(e) => onPatch({ name: e.target.value })}
-                className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
-              />
+            <LabeledField id={nameId} label="Unit name">
+              <input id={nameId} type="text" value={unit.name} onChange={(e) => onPatch({ name: e.target.value })} className={INPUT} />
             </LabeledField>
-            <LabeledField id={descId} label="DESCRIPTION (OPT)">
-              <input
-                id={descId} type="text" value={unit.description ?? ''} onChange={(e) => onDescription(e.target.value)}
-                className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
-              />
+            <LabeledField id={descId} label="Description (opt)">
+              <input id={descId} type="text" value={unit.description ?? ''} onChange={(e) => onDescription(e.target.value)} className={INPUT} />
             </LabeledField>
           </div>
         </div>
 
         {unit.subunits.length === 0 && (
-          <p className="text-sm text-white/50 px-1">No topics yet — add one below.</p>
+          <p className="text-sm text-[#566573] px-1">No topics yet — add one below.</p>
         )}
         {unit.subunits.map((sub, si) => (
           <SubunitEditor
@@ -373,37 +504,34 @@ function SubunitEditor({ sub, isFirst, isLast, onPatch, onQuestions, onMove, onD
   const diffId = `diff-${sub.id}`
   const nameId = `sub-name-${sub.id}`
   return (
-    <details className="rounded-lg border border-white/10 bg-white/[0.03]">
+    <details className="rounded-lg border border-[#DCEAF6] bg-[#F4F9FE]">
       <summary className="cursor-pointer select-none px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-        <span className="text-sm font-bold text-white/90">{sub.name}</span>
-        <span className="flex items-center gap-2 text-[9px] font-pixel">
-          <span className="px-2 py-1 rounded bg-white/10 text-white/80 uppercase">{sub.type}</span>
-          <span className="text-white/60">{sub.questions.length} Q</span>
+        <span className="text-sm font-bold text-[#1F2A36]">{sub.name}</span>
+        <span className="flex items-center gap-2 text-xs">
+          <span className="px-2 py-0.5 rounded bg-[#EDF5FC] border border-[#CADDEE] text-[#3A4653] uppercase font-semibold">{sub.type}</span>
+          <span className="text-[#566573]">{sub.questions.length} Q</span>
         </span>
       </summary>
       <div className="px-3 pb-3">
         <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
           <div className="flex-1 min-w-[160px]">
-            <LabeledField id={nameId} label="TOPIC NAME">
-              <input
-                id={nameId} type="text" value={sub.name} onChange={(e) => onPatch({ name: e.target.value })}
-                className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
-              />
+            <LabeledField id={nameId} label="Topic name">
+              <input id={nameId} type="text" value={sub.name} onChange={(e) => onPatch({ name: e.target.value })} className={INPUT} />
             </LabeledField>
           </div>
-          <div className="flex items-center gap-1.5 pt-5">
-            <MiniBtn label={`Move topic ${sub.name} up`} disabled={isFirst} onClick={() => onMove(-1)}>UP</MiniBtn>
-            <MiniBtn label={`Move topic ${sub.name} down`} disabled={isLast} onClick={() => onMove(1)}>DN</MiniBtn>
-            <MiniBtn label={`Delete topic ${sub.name}`} danger onClick={onDelete}>DEL</MiniBtn>
+          <div className="flex items-center gap-1.5 pt-6">
+            <MiniBtn label={`Move topic ${sub.name} up`} disabled={isFirst} onClick={() => onMove(-1)}>Up</MiniBtn>
+            <MiniBtn label={`Move topic ${sub.name} down`} disabled={isLast} onClick={() => onMove(1)}>Dn</MiniBtn>
+            <MiniBtn label={`Delete topic ${sub.name}`} danger onClick={onDelete}>Del</MiniBtn>
           </div>
         </div>
-        <div className="flex items-center gap-2 mb-3">
-          <label htmlFor={diffId} className="font-pixel text-[8px] tracking-wider text-white/80">DIFFICULTY</label>
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <label htmlFor={diffId} className="text-xs font-semibold uppercase tracking-wide text-[#566573]">Difficulty</label>
           <select id={diffId} value={sub.difficulty} onChange={(e) => onPatch({ difficulty: e.target.value as Difficulty })}
-            className="rounded-lg bg-white/5 border border-white/15 px-2 py-1.5 text-xs text-white">
+            className="rounded-lg bg-[#FBFDFF] border border-[#CADDEE] px-2 py-1.5 text-xs text-[#1F2A36] focus:border-[#2F6FB0] outline-none">
             {DIFFICULTIES.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
-          <span className="font-pixel text-[8px] tracking-wider text-white/50">TYPE FIXED: {sub.type.toUpperCase()}</span>
+          <span className="text-xs text-[#566573]">Type fixed: {sub.type}</span>
         </div>
         <ol className="space-y-3">
           {sub.questions.map((q, qi) => (
@@ -426,9 +554,9 @@ function SubunitEditor({ sub, isFirst, isLast, onPatch, onQuestions, onMove, onD
         </ol>
         <button
           onClick={() => onQuestions((qs) => [...qs, newQuestion(sub.type)])}
-          className="mt-3 font-pixel text-[9px] px-3 py-2 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 hover:border-neon-amber/40"
+          className="mt-3 text-sm font-semibold px-3 py-2 rounded-lg bg-[#EDF5FC] border border-[#CADDEE] text-[#1F2A36] hover:bg-[#E1EEF9] transition-colors"
         >
-          + ADD {sub.type.toUpperCase()} QUESTION
+          + Add {sub.type} question
         </button>
       </div>
     </details>
@@ -445,31 +573,28 @@ function AddUnitForm({ onAdd }: { onAdd: (name: string, description: string) => 
     setDescription('')
   }
   return (
-    <div className="mt-4 rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-4">
-      <h3 className="font-pixel text-[9px] tracking-wider text-white/70 mb-3">ADD UNIT</h3>
+    <div className="mt-4 rounded-xl border border-dashed border-[#CADDEE] bg-[#F4F9FE] p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-[#566573] mb-3">Add unit</h3>
       <div className="grid gap-2.5 sm:grid-cols-2 mb-3">
-        <LabeledField id="new-unit-name" label="UNIT NAME">
+        <LabeledField id="new-unit-name" label="Unit name">
           <input
             id="new-unit-name" type="text" value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
-            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+            className={INPUT}
           />
         </LabeledField>
-        <LabeledField id="new-unit-desc" label="DESCRIPTION (OPT)">
+        <LabeledField id="new-unit-desc" label="Description (opt)">
           <input
             id="new-unit-desc" type="text" value={description}
             onChange={(e) => setDescription(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
-            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+            className={INPUT}
           />
         </LabeledField>
       </div>
-      <button
-        onClick={add} disabled={name.trim() === ''}
-        className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 hover:border-neon-amber/40 disabled:opacity-40"
-      >
-        + ADD UNIT
+      <button onClick={add} disabled={name.trim() === ''} className={`${SECONDARY_BTN} disabled:opacity-40`}>
+        + Add unit
       </button>
     </div>
   )
@@ -485,39 +610,30 @@ function AddSubunitForm({ onAdd }: { onAdd: (name: string, type: AnswerType, dif
     setName('')
   }
   return (
-    <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.02] p-3">
-      <h4 className="font-pixel text-[8px] tracking-wider text-white/60 mb-2.5">ADD TOPIC</h4>
+    <div className="rounded-lg border border-dashed border-[#CADDEE] bg-[#F4F9FE] p-3">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-[#566573] mb-2.5">Add topic</h4>
       <div className="grid gap-2.5 sm:grid-cols-3 mb-3">
-        <LabeledField id="new-sub-name" label="TOPIC NAME">
+        <LabeledField id="new-sub-name" label="Topic name">
           <input
             id="new-sub-name" type="text" value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
-            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+            className={INPUT}
           />
         </LabeledField>
-        <LabeledField id="new-sub-type" label="ANSWER TYPE">
-          <select
-            id="new-sub-type" value={type} onChange={(e) => setType(e.target.value as AnswerType)}
-            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
-          >
+        <LabeledField id="new-sub-type" label="Answer type">
+          <select id="new-sub-type" value={type} onChange={(e) => setType(e.target.value as AnswerType)} className={INPUT}>
             {ANSWER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </LabeledField>
-        <LabeledField id="new-sub-diff" label="DIFFICULTY">
-          <select
-            id="new-sub-diff" value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}
-            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
-          >
+        <LabeledField id="new-sub-diff" label="Difficulty">
+          <select id="new-sub-diff" value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)} className={INPUT}>
             {DIFFICULTIES.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         </LabeledField>
       </div>
-      <button
-        onClick={add} disabled={name.trim() === ''}
-        className="font-pixel text-[8px] px-3 py-2 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 hover:border-neon-amber/40 disabled:opacity-40"
-      >
-        + ADD TOPIC
+      <button onClick={add} disabled={name.trim() === ''} className={`${SECONDARY_BTN} disabled:opacity-40`}>
+        + Add topic
       </button>
     </div>
   )
@@ -542,47 +658,41 @@ function QuestionEditor({ q, index, type, subId, count, onPatch, onMove, onDelet
           const n = e.target.valueAsNumber
           onPatch({ [field]: Number.isNaN(n) ? undefined : n })
         }}
-        className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+        className={INPUT}
       />
     </LabeledField>
   )
 
   return (
-    <li className="rounded-lg border border-white/10 bg-[#0d0724] p-3">
+    <li className="rounded-lg border border-[#DCEAF6] bg-[#FBFDFF] p-3">
       <div className="flex items-start justify-between gap-3 mb-2.5">
-        <span className="font-pixel text-[9px] pt-2" style={{ color: AM }}>Q{index + 1}</span>
+        <span className="text-xs font-bold pt-2" style={{ color: ACCENT }}>Q{index + 1}</span>
         <div className="flex items-center gap-1.5">
-          <MiniBtn label={`Move question ${index + 1} up`} disabled={index === 0} onClick={() => onMove(-1)}>UP</MiniBtn>
-          <MiniBtn label={`Move question ${index + 1} down`} disabled={index === count - 1} onClick={() => onMove(1)}>DN</MiniBtn>
-          <MiniBtn label={`Delete question ${index + 1}`} danger onClick={onDelete}>DEL</MiniBtn>
+          <MiniBtn label={`Move question ${index + 1} up`} disabled={index === 0} onClick={() => onMove(-1)}>Up</MiniBtn>
+          <MiniBtn label={`Move question ${index + 1} down`} disabled={index === count - 1} onClick={() => onMove(1)}>Dn</MiniBtn>
+          <MiniBtn label={`Delete question ${index + 1}`} danger onClick={onDelete}>Del</MiniBtn>
         </div>
       </div>
-      <LabeledField id={id('prompt')} label="PROMPT">
-        <input
-          id={id('prompt')} type="text" value={q.prompt} onChange={(e) => onPatch({ prompt: e.target.value })}
-          className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
-        />
+      <LabeledField id={id('prompt')} label="Prompt">
+        <input id={id('prompt')} type="text" value={q.prompt} onChange={(e) => onPatch({ prompt: e.target.value })} className={INPUT} />
       </LabeledField>
       <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        {type === 'graph' && (<>{num('x', 'X')}{num('y', 'Y')}{num('range', 'RANGE (OPT)')}</>)}
-        {type === 'slider' && (<>{num('answer', 'ANSWER')}{num('min', 'MIN')}{num('max', 'MAX')}{num('step', 'STEP (OPT)')}</>)}
+        {type === 'graph' && (<>{num('x', 'X')}{num('y', 'Y')}{num('range', 'Range (opt)')}</>)}
+        {type === 'slider' && (<>{num('answer', 'Answer')}{num('min', 'Min')}{num('max', 'Max')}{num('step', 'Step (opt)')}</>)}
         {type === 'fill' && (
           <div className="col-span-2">
-            <LabeledField id={id('fill')} label="ANSWER">
-              <input
-                id={id('fill')} type="text" value={q.fill ?? ''} onChange={(e) => onPatch({ fill: e.target.value })}
-                className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
-              />
+            <LabeledField id={id('fill')} label="Answer">
+              <input id={id('fill')} type="text" value={q.fill ?? ''} onChange={(e) => onPatch({ fill: e.target.value })} className={INPUT} />
             </LabeledField>
           </div>
         )}
       </div>
       <div className="mt-2.5">
-        <LabeledField id={id('explain')} label="EXPLAIN (OPT)">
+        <LabeledField id={id('explain')} label="Explain (opt)">
           <input
             id={id('explain')} type="text" value={q.explain ?? ''}
             onChange={(e) => onPatch({ explain: e.target.value === '' ? undefined : e.target.value })}
-            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+            className={INPUT}
           />
         </LabeledField>
       </div>
@@ -593,7 +703,7 @@ function QuestionEditor({ q, index, type, subId, count, onPatch, onMove, onDelet
 function LabeledField({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   return (
     <div>
-      <label htmlFor={id} className="block font-pixel text-[7px] tracking-wider text-white/80 mb-1.5">{label}</label>
+      <label htmlFor={id} className="block text-xs font-semibold uppercase tracking-wide text-[#566573] mb-1.5">{label}</label>
       {children}
     </div>
   )
@@ -605,9 +715,9 @@ function MiniBtn({ label, disabled, danger, onClick, children }: {
   return (
     <button
       onClick={onClick} disabled={disabled} aria-label={label}
-      className={`font-pixel text-[8px] px-2 py-1.5 rounded border transition disabled:opacity-30 ${danger
-        ? 'border-[#ff4d8d]/40 text-[#ff9dbd] hover:bg-[#ff4d8d]/15'
-        : 'border-white/15 text-white/70 hover:bg-white/10 hover:text-white'}`}
+      className={`text-xs font-semibold px-2 py-1 rounded border transition-colors disabled:opacity-40 ${danger
+        ? 'border-[#E7B9BC] text-[#B4232B] hover:bg-[#FBE9EA]'
+        : 'border-[#CADDEE] text-[#566573] hover:bg-[#EDF5FC] hover:text-[#1F2A36]'}`}
     >
       {children}
     </button>

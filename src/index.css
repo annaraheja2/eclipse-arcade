@@ -46,6 +46,23 @@ body::after {
   98.6% { opacity: 1 }
 }
 
+/* ===== Calm route override (Admin content editor) =====
+   The Admin page sets :root[data-plain] on mount (and removes it on unmount), so
+   this treatment is scoped to /admin only — every other route keeps the full
+   neon/CRT arcade look. We suppress the global scanline + vignette overlays and
+   swap the neon body background for the calm Eclipse-Learning surface. The global
+   :focus-visible ring is white (invisible on this light surface), so give focus a
+   dark ring here for AA-visible keyboard focus. */
+:root[data-plain] { color-scheme: light; }
+:root[data-plain] body::before,
+:root[data-plain] body::after { display: none; }
+:root[data-plain] body {
+  color: #1F2A36;
+  background: linear-gradient(180deg, #E3F1FC 0%, #BCDAF3 48%, #8FBEE8 100%);
+  background-attachment: fixed;
+}
+:root[data-plain] :focus-visible { outline-color: #2F6FB0; }
+
 /* ===== Coin-op cabinet furniture ===== */
 /* Chrome-lit display lettering for the ECLIPSE ARCADE wordmark. The accent
    comes in via --wm; the top-white → accent gradient stays bright end-to-end
