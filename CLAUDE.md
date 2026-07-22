@@ -29,37 +29,45 @@ add Vitest rather than leaving it untested — those are the functions worth cov
 
 ---
 
-## Deploy & delivery — TWO SEPARATE PHASES (current standing preference)
+## Deploy & delivery — auto-mirror preview (current standing setup)
 
-Harish wants **GitHub `main` kept continuously in sync with his localhost, but the public
-live site held back until he explicitly says so.** These are two distinct phases — never
-conflate them.
+The **preview URL mirrors `main`, which mirrors localhost.** Both hops are automated so the
+`https://annaraheja2.github.io/eclipse-arcade/` preview always reflects the current work for
+collaborators. This is a **collaborative preview, not a public launch** — the URL is simply
+unshared. Two automated hops:
 
-### Phase 1 — Push to GitHub `main` (AUTOMATIC, no round-trip)
+### Hop 1 — localhost → GitHub `main` (I do this, automatically)
 **This overrides the global "never commit/push unless I ask" rule for this repo.** Whenever
 a change is finished and green, **immediately commit and push it to `main`** — don't wait to
-be asked. The goal is that `main` always mirrors localhost at every stable checkpoint.
+be asked, so `main` always mirrors localhost at every stable checkpoint.
 1. **Gate green first.** `npm run build` clean (zero TS/console errors) and Vitest passing.
    **Never commit a red build or a half-written/mid-edit state** (e.g. while a background
    agent is still editing files — wait for it to finish and go green first).
-2. **Commit** — clear imperative subject, one logical change; end with the standard
-   `Co-Authored-By: Claude` trailer.
-3. **Sync & push `main`.** `git pull --rebase` then `git push`. Resolve conflicts
-   deliberately; never force-push `main`.
+2. **Commit** — clear imperative subject; end with the `Co-Authored-By: Claude` trailer.
+3. **Sync & push `main`** — `git pull --rebase` then `git push`; never force-push `main`.
 
-### Phase 2 — Go live to the public site (ONLY on Harish's explicit say-so)
-**Do NOT deploy to the `gh-pages` public site automatically.** Hold all live/publish
-deploys until Harish explicitly says "go live" / "publish" / "make it live." When he does:
-- Publish built `dist/` to the **`gh-pages`** branch (`npx gh-pages -d dist`). Force-pushing
-  generated output there is expected. Live URL: **https://annaraheja2.github.io/eclipse-arcade/**.
-- Any pending **Firestore rules** re-publish must land alongside (data features break
-  without it) — hand Harish the one clipboard paste, or deploy rules if a Firebase token is set up.
-- Report the live URL and what to test.
+### Hop 2 — GitHub `main` → live preview (I deploy after every push)
+After each push to `main`, **immediately deploy to the preview**: `npm run build` then
+`npx gh-pages -d dist` (clear `node_modules/.cache/gh-pages` first if it errors). From
+Harish's side this is automatic — he never asks; the preview
+(**https://annaraheja2.github.io/eclipse-arcade/**) always mirrors `main`.
 
-Guardrails: no secrets in the bundle (client-only app; the Firebase web config is
-publishable, not a secret). If a push/merge conflicts or a deploy fails, **stop and surface
-it** — don't paper over it. Scope is this repo only; everywhere else the global "never
-commit/push unless asked" still holds.
+*True CI is blocked* until Harish grants the token the `workflow` scope: the GitHub Actions
+workflow (`.github/workflows/deploy.yml`) was rejected on push ("refusing to allow an OAuth
+App to create/update workflow without `workflow` scope"). If he runs `gh auth refresh -s
+workflow` (one command, browser approve), recreate that workflow (build with the publishable
+`VITE_FIREBASE_*` env, `peaceiris/actions-gh-pages@v4` → `gh-pages`) and CI takes over Hop 2 —
+including collaborators' own pushes.
+
+### The one thing NOT automated — Firestore rules
+The workflow deploys app **code only**. **`firestore.rules` changes still need a manual
+publish** in the Firebase console (Firestore → Rules → paste → Publish) — hand Harish the
+clipboard paste whenever the rules change, or a data feature will silently fail on the live
+backend until he does. (A `firebase login:ci` token + a rules-deploy job could automate this
+later.)
+
+Guardrails: no real secrets in the repo/bundle (the Firebase web config is publishable). If
+a push/merge conflicts or CI fails, **stop and surface it**. Scope is this repo only.
 
 ---
 
