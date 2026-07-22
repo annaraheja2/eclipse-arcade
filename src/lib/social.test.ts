@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  friendshipId, normalizeEmail, opponentOf,
+  friendshipId, requestId, friendRequestIdsFor, normalizeEmail, opponentOf,
   toFriendRequest, toFriendship, toQueueEntry, toMatch, toShot, toStoredMatch,
-  adjudicateShot, fleetWithHits, shotMarks, sortShots,
-  type Match, type Shot,
+  adjudicateShot, fleetWithHits, shotMarks, sortShots, priorResultAt,
+  type Friendship, type Match, type Shot,
 } from './social'
 import type { Ship } from './battleship'
 
@@ -13,6 +13,25 @@ describe('friendshipId', () => {
   it('is order-independent and joins the sorted uids with _', () => {
     expect(friendshipId('bob', 'alice')).toBe('alice_bob')
     expect(friendshipId('alice', 'bob')).toBe('alice_bob')
+  })
+})
+
+describe('requestId', () => {
+  it('joins the sender uid and the lowercased recipient email', () => {
+    expect(requestId('u1', 'Friend@Example.COM')).toBe('u1_friend@example.com')
+    expect(requestId('u1', 'friend@example.com')).toBe('u1_friend@example.com')
+  })
+})
+
+describe('friendRequestIdsFor', () => {
+  it('derives both directional request ids with sender/recipient crossed over', () => {
+    const f = toFriendship('a_b', { uids: ['a', 'b'], emails: ['a@x.com', 'b@x.com'] }) as Friendship
+    // request A->B keys on B's email; request B->A keys on A's email.
+    expect(friendRequestIdsFor(f)).toEqual(['a_b@x.com', 'b_a@x.com'])
+  })
+  it('lowercases the recipient email (via requestId)', () => {
+    const f = toFriendship('u1_u2', { uids: ['u1', 'u2'], emails: ['Alice@X.com', 'Bob@Y.com'] }) as Friendship
+    expect(friendRequestIdsFor(f)).toEqual(['u1_bob@y.com', 'u2_alice@x.com'])
   })
 })
 
@@ -184,6 +203,39 @@ describe('fleetWithHits', () => {
     const fleet = fleetWithHits(twoShips, shots)
     expect(fleet[0].hits).toBe(1)
     expect(fleet[1].hits).toBe(0)
+  })
+  it('counts distinct cells once — duplicate shots on a cell cannot inflate hits', () => {
+    const shots = [
+      shot({ id: '1', r: 0, c: 0, result: 'hit' }),
+      shot({ id: '2', r: 0, c: 0, result: 'hit' }), // duplicate cell
+      shot({ id: '3', r: 0, c: 0, result: 'sunk' }), // even with a lying result
+    ]
+    const fleet = fleetWithHits(twoShips, shots)
+    expect(fleet[0].hits).toBe(1) // NOT 3 — the destroyer is not sunk
+    expect(fleet[0].hits).toBeLessThan(fleet[0].size)
+  })
+  it('never exceeds a ship\'s size even when every cell is duplicated', () => {
+    const shots = [
+      shot({ id: '1', r: 0, c: 0, result: 'hit' }),
+      shot({ id: '2', r: 0, c: 1, result: 'sunk' }),
+      shot({ id: '3', r: 0, c: 0, result: 'hit' }),
+      shot({ id: '4', r: 0, c: 1, result: 'sunk' }),
+    ]
+    expect(fleetWithHits(twoShips, shots)[0].hits).toBe(2)
+  })
+})
+
+describe('priorResultAt', () => {
+  const shots = [
+    shot({ id: '1', r: 0, c: 0, result: 'hit' }),
+    shot({ id: '2', r: 1, c: 1, result: 'pending' }),
+  ]
+  it('returns the adjudicated result for an already-shot cell', () => {
+    expect(priorResultAt(shots, 0, 0)).toBe('hit')
+  })
+  it('ignores pending shots and unknown cells', () => {
+    expect(priorResultAt(shots, 1, 1)).toBeNull()
+    expect(priorResultAt(shots, 5, 5)).toBeNull()
   })
 })
 

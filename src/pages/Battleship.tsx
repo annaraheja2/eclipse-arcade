@@ -8,7 +8,9 @@ import {
 } from '../lib/battleship'
 import BattleGrid, { type Shots } from '../components/BattleGrid'
 import FleetPlacement from '../components/FleetPlacement'
+import FleetPips from '../components/FleetPips'
 import QuestionPanel from '../components/QuestionPanel'
+import VerifyEmailNotice from '../components/VerifyEmailNotice'
 import { usePlayer } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
@@ -41,7 +43,7 @@ const remaining = (ships: Ship[]) => ships.filter((s) => !isSunk(s)).length
 export default function Battleship() {
   const navigate = useNavigate()
   const { finishGame } = usePlayer()
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, emailVerified } = useAuth()
   const [ph, setPh] = useState<Phase>('mode')
   // Firestore-backed when configured; loadCourse falls back to the bundled
   // course on any failure, so null only ever means "still loading".
@@ -99,10 +101,12 @@ export default function Battleship() {
     }
   }
 
-  // Quick match: put our own queue doc up first (so we're discoverable), then
-  // try to pair with the oldest waiting player. If nobody's there we stay
-  // queued; the next joiner's transaction creates the match, which our match
-  // subscription spots (any placing match not present at subscription time).
+  // Quick match: establish the match-subscription BASELINE first (so a match
+  // created the instant we become discoverable can't be mistaken for a
+  // pre-existing one), then put our queue doc up and try to pair with the
+  // oldest waiting player. If nobody's there we stay queued; the next
+  // joiner's transaction creates the match, which our subscription spots
+  // (any placing match not present in the baseline snapshot).
   useEffect(() => {
     if (ph !== 'queue' || !user) return
     let active = true
@@ -110,17 +114,21 @@ export default function Battleship() {
     const email = (user.email ?? '').toLowerCase()
     setOnlineError('')
     let initialIds: Set<string> | null = null
+    let baselineReady!: () => void
+    const baseline = new Promise<void>((resolve) => { baselineReady = resolve })
     const unsub = subscribeMyMatches(uid, (ms) => {
       if (!active) return
-      if (initialIds === null) { initialIds = new Set(ms.map((m) => m.id)); return }
+      if (initialIds === null) { initialIds = new Set(ms.map((m) => m.id)); baselineReady(); return }
       const fresh = ms.find((m) => m.status === 'placing' && !initialIds!.has(m.id))
       if (fresh) { active = false; navigate(`/battleship/pvp/${fresh.id}`) }
     }, (err) => {
       console.error('[eclipse-arcade] queue watch failed:', err)
-      if (active) { setOnlineError('Matchmaking failed — check your connection and try again.'); setPh('mode') }
+      if (active) { active = false; baselineReady(); setOnlineError('Matchmaking failed — check your connection and try again.'); setPh('mode') }
     })
     void (async () => {
       try {
+        await baseline // don't join until the baseline snapshot is captured
+        if (!active) return
         await joinQueue(uid, email)
         const matchId = await attemptPair(uid, email, COURSE_ID)
         if (matchId && active) { active = false; navigate(`/battleship/pvp/${matchId}`) }
@@ -131,6 +139,7 @@ export default function Battleship() {
     })()
     return () => {
       active = false
+      baselineReady() // release the joiner if we unmount before the first snapshot
       unsub()
       leaveQueue(uid).catch((err: unknown) => console.error('[eclipse-arcade] leave queue failed:', err))
     }
@@ -202,6 +211,11 @@ export default function Battleship() {
 
   const online = isFirebaseConfigured
   const signedIn = user !== null
+  // Online play needs a VERIFIED email (see lib/social.ts): a signed-in but
+  // unverified user would only hit permission-denied, so the online modes stay
+  // disabled and we nudge them to verify instead. VS AI is always available.
+  const needsVerify = online && signedIn && !emailVerified
+  const onlineReady = online && signedIn && emailVerified
 
   // ================= RENDER =================
   return (
@@ -221,9 +235,9 @@ export default function Battleship() {
               <ModeButton color={CY} title="VS AI" desc="Battle the computer — answer questions to earn your shots."
                 onClick={() => setPh('unit')} />
               <ModeButton color="#ff3df0" title="VS FRIEND" desc="Challenge a friend to a live head-to-head battle."
-                disabled={!online || !signedIn} onClick={() => setPh('friend')} />
+                disabled={!onlineReady} onClick={() => setPh('friend')} />
               <ModeButton color="#3dffa2" title="QUICK MATCH" desc="Get paired with another player who's looking for a battle."
-                disabled={!online || !signedIn} onClick={() => setPh('queue')} />
+                disabled={!onlineReady} onClick={() => setPh('queue')} />
             </div>
             {!online && (
               <p className="text-center text-sm text-white/65 mt-4">Online play is unavailable in this build.</p>
@@ -232,6 +246,12 @@ export default function Battleship() {
               <p className="text-center text-sm text-white/65 mt-4">
                 Sign in from the <Link to="/" className="text-neon-cyan underline underline-offset-4">lobby</Link> to battle friends and strangers online.
               </p>
+            )}
+            {needsVerify && (
+              <VerifyEmailNotice
+                className="mt-4 flex flex-col items-center text-center"
+                message="Verify your email to play online."
+              />
             )}
           </Section>
         )}
@@ -396,22 +416,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 function Btn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return <button onClick={onClick} className="font-pixel text-[10px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/80 transition-all hover:bg-white/10 hover:border-neon-cyan/40 active:scale-95">{children}</button>
-}
-export function FleetPips({ ships, color, label, align }: { ships: Ship[]; color: string; label: string; align?: 'right' }) {
-  return (
-    <div className={`flex items-center gap-2 ${align === 'right' ? 'flex-row-reverse' : ''}`}>
-      <span className="font-pixel text-[8px] text-white/60">{label}</span>
-      <span className="flex items-center gap-1" aria-hidden="true">
-        {ships.map((s) => (
-          <span key={s.id} className="h-[6px] rounded-[2px] transition-all" style={{
-            width: s.size * 5,
-            background: isSunk(s) ? 'rgba(255,255,255,0.14)' : color,
-            boxShadow: isSunk(s) ? 'none' : `0 0 6px ${color}99`,
-          }} />
-        ))}
-      </span>
-    </div>
-  )
 }
 function DiffBadge({ d }: { d: 'easy' | 'medium' | 'hard' }) {
   const c = d === 'easy' ? '#3dffa2' : d === 'medium' ? '#ffb43d' : '#ff4d8d'

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type K
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import VerifyEmailNotice from './VerifyEmailNotice'
 import { User as UserIcon } from '../icons'
 
 // The HUD account button, rendered only when Firebase is configured (the Lobby
@@ -64,7 +65,7 @@ export default function AccountControl() {
 // onClose(false) skips restoring focus to the trigger — used when the popover
 // closes because focus already moved somewhere else (tab-out).
 function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void }) {
-  const { user, isAdmin, signOut } = useAuth()
+  const { user, isAdmin, emailVerified, signOut } = useAuth()
   const [error, setError] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -114,6 +115,11 @@ function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void })
         )}
       </div>
       {error && <p role="alert" className="mt-2 text-sm text-[#ff9dbd]">{error}</p>}
+      {/* Unverified email accounts can't use online play — Google users are
+          always verified and see nothing here (see lib/social.ts). */}
+      {!emailVerified && (
+        <VerifyEmailNotice className="mt-3" message="Verify your email to play online." />
+      )}
       <button
         onClick={handleSignOut}
         className="arcade-btn mt-3.5 w-full font-pixel text-[10px] px-4 py-2.5 rounded-lg text-[#0a0620]"

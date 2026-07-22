@@ -6,9 +6,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
 import AccountControl from '../components/AccountControl'
+import VerifyEmailNotice from '../components/VerifyEmailNotice'
 import { COURSES } from '../data/subjects'
 import {
-  normalizeEmail, sendFriendRequest, hasPendingRequest, respondToRequest,
+  normalizeEmail, sendFriendRequest, hasPendingRequest, respondToRequest, removeFriend,
   subscribeIncomingRequests, subscribeFriendships, subscribeMyMatches,
   createInviteMatch, acceptInvite, deleteInviteMatch,
   type FriendRequest, type Friendship, type Match,
@@ -22,7 +23,7 @@ const CY_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': str
 
 export default function Friends() {
   const navigate = useNavigate()
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, emailVerified } = useAuth()
 
   return (
     <div className="min-h-screen relative">
@@ -48,7 +49,19 @@ export default function Friends() {
             <p className="text-sm text-white/65">Use the account button in the top-right corner, then challenge your friends to Battleship.</p>
           </div>
         )}
-        {isFirebaseConfigured && user && user.email && (
+        {/* A signed-in but unverified email account would only hit
+            permission-denied on the Firestore feeds, so we DON'T mount the
+            subscriptions — we nudge them to verify first. */}
+        {isFirebaseConfigured && user && user.email && !emailVerified && (
+          <div className="text-center py-14">
+            <p className="text-white/80 font-semibold mb-2">Verify your email to use Friends & online play</p>
+            <VerifyEmailNotice
+              className="flex flex-col items-center"
+              message="Check your inbox for the verification link we sent, then reload this page."
+            />
+          </div>
+        )}
+        {isFirebaseConfigured && user && user.email && emailVerified && (
           <SignedIn uid={user.uid} email={user.email.toLowerCase()} />
         )}
       </div>
@@ -255,6 +268,7 @@ function FriendsSection({ uid, email, friends, matches, navigate }: {
 }) {
   const [error, setError] = useState('')
   const [busyUid, setBusyUid] = useState<string | null>(null)
+  const [confirmUnfriendId, setConfirmUnfriendId] = useState<string | null>(null)
 
   async function invite(friendUid: string, friendEmail: string) {
     // An invite to this friend already pending? Jump back into it instead of
@@ -273,6 +287,16 @@ function FriendsSection({ uid, email, friends, matches, navigate }: {
     }
   }
 
+  async function unfriend(f: Friendship, friendUid: string) {
+    setError('')
+    setConfirmUnfriendId(null)
+    setBusyUid(friendUid)
+    try { await removeFriend(f) } catch (err) {
+      console.error('[eclipse-arcade] unfriend failed:', err)
+      setError('Could not remove this friend — try again.')
+    } finally { setBusyUid(null) }
+  }
+
   return (
     <Section title="YOUR FRIENDS">
       {error && <ErrorLine text={error} />}
@@ -285,10 +309,30 @@ function FriendsSection({ uid, email, friends, matches, navigate }: {
             return (
               <li key={f.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
                 <span className="text-sm text-white/90 truncate">{f.emails[idx]}</span>
-                <button onClick={() => void invite(f.uids[idx], f.emails[idx])} disabled={busyUid !== null}
-                  className="arcade-btn shrink-0 font-pixel text-[9px] px-4 py-2.5 rounded-lg text-[#0a0620] disabled:opacity-60" style={CY_BTN}>
-                  {busyUid === f.uids[idx] ? 'INVITING…' : 'INVITE TO BATTLESHIP'}
-                </button>
+                {confirmUnfriendId === f.id ? (
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm text-white/80">Remove {f.emails[idx]}?</span>
+                    <button onClick={() => void unfriend(f, f.uids[idx])} disabled={busyUid !== null}
+                      className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-[#ff4d8d] text-[#2a0512] disabled:opacity-60">
+                      CONFIRM
+                    </button>
+                    <button onClick={() => setConfirmUnfriendId(null)} disabled={busyUid !== null}
+                      className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 disabled:opacity-60">
+                      KEEP
+                    </button>
+                  </span>
+                ) : (
+                  <span className="flex gap-2 shrink-0">
+                    <button onClick={() => void invite(f.uids[idx], f.emails[idx])} disabled={busyUid !== null}
+                      className="arcade-btn font-pixel text-[9px] px-4 py-2.5 rounded-lg text-[#0a0620] disabled:opacity-60" style={CY_BTN}>
+                      {busyUid === f.uids[idx] ? 'INVITING…' : 'INVITE TO BATTLESHIP'}
+                    </button>
+                    <button onClick={() => setConfirmUnfriendId(f.id)} disabled={busyUid !== null}
+                      className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-60">
+                      UNFRIEND
+                    </button>
+                  </span>
+                )}
               </li>
             )
           })}

@@ -10,13 +10,24 @@ export type AuthResult =
   | { status: 'cancelled' }
   | { status: 'error'; message: string }
 
+// ONLINE-SOCIAL REQUIRES A VERIFIED EMAIL (mirrors the admin gap documented
+// below and the verified() gate in firestore.rules / lib/social.ts): every
+// social surface — friend requests, matchmaking, PvP match creation — demands
+// request.auth.token.email_verified == true, so an attacker can't claim a
+// victim's address before proving ownership. Google sign-in is auto-verified;
+// email/password accounts land UNVERIFIED and MUST verify first (we send the
+// link on sign-up, and resendVerification() re-sends it). `emailVerified` is a
+// first-class UI state: signed-in-but-unverified users get gated OUT of the
+// online entry points instead of clicking into a permission-denied flow.
 interface AuthCtx {
   user: User | null
   loading: boolean
   isAdmin: boolean
+  emailVerified: boolean
   signInWithGoogle: () => Promise<AuthResult>
   signInWithEmail: (email: string, password: string) => Promise<AuthResult>
   signUpWithEmail: (email: string, password: string) => Promise<AuthResult>
+  resendVerification: () => Promise<AuthResult>
   signOut: () => Promise<AuthResult>
 }
 
@@ -119,7 +130,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUpWithEmail = useCallback(
     (email: string, password: string) => attempt(async () => {
       const { sdk, auth } = await authSdk()
-      await sdk.createUserWithEmailAndPassword(auth, email, password)
+      const cred = await sdk.createUserWithEmailAndPassword(auth, email, password)
+      // Email/password accounts start UNVERIFIED, and online-social rules
+      // require a verified email (see the AuthCtx note above) — send the
+      // verification link now. A send failure must NOT fail the whole sign-up:
+      // the account exists and the user is already signed in, and they can
+      // retry via resendVerification(). Log it so it's never silently lost.
+      try {
+        await sdk.sendEmailVerification(cred.user)
+      } catch (err) {
+        console.error('[eclipse-arcade] verification email send failed on sign-up:', err)
+      }
+    }),
+    []
+  )
+  // Re-sends the verification link to the currently signed-in user. Typed
+  // AuthResult with friendly errors — never swallowed.
+  const resendVerification = useCallback(
+    () => attempt(async () => {
+      const { sdk, auth } = await authSdk()
+      if (!auth.currentUser) throw new Error('You must be signed in to resend a verification email.')
+      await sdk.sendEmailVerification(auth.currentUser)
     }),
     []
   )
@@ -133,18 +164,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Mirrors the firestore.rules isAdmin() condition: verified email in the admin
   // list. UI gating only — the rules are the enforcement (see lib/admin.ts).
-  //
-  // NOTE: admin access is effectively GOOGLE-SIGN-IN-ONLY for now. Google
-  // accounts arrive with emailVerified === true, but signUpWithEmail never
-  // sends a verification email, so an email/password account can never pass
-  // this check (or the matching rules condition). That is accepted for this
-  // phase — do NOT "fix" it by dropping the emailVerified requirement; the
-  // right fix, when needed, is sending the verification email on sign-up.
+  // The emailVerified requirement stands (an unverified signup could otherwise
+  // just CLAIM an admin address): Google accounts are auto-verified, and an
+  // email/password admin now qualifies only AFTER clicking the verification
+  // link we send on sign-up. Do NOT drop the emailVerified requirement.
   const isAdmin = user !== null && user.emailVerified && isAdminEmail(user.email ?? '')
 
+  // Signed-in-but-unverified is a distinct, first-class state (see AuthCtx
+  // note): the online-social entry points gate on this, not just on `user`.
+  const emailVerified = user !== null && user.emailVerified
+
   const value = useMemo(
-    () => ({ user, loading, isAdmin, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut }),
-    [user, loading, isAdmin, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut]
+    () => ({
+      user, loading, isAdmin, emailVerified,
+      signInWithGoogle, signInWithEmail, signUpWithEmail, resendVerification, signOut,
+    }),
+    [user, loading, isAdmin, emailVerified, signInWithGoogle, signInWithEmail, signUpWithEmail, resendVerification, signOut]
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

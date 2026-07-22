@@ -7,8 +7,19 @@
 // cannot read it. The shooter writes a shot doc with result 'pending'; the
 // DEFENDER's client adjudicates it against its local fleet (the same pure
 // applyFire used vs the AI) and writes back the result, the turn flip, and —
-// when its own last ship goes down — the game end. A hacked client could lie
-// about results; that is accepted here. The honest path is airtight.
+// when its own last ship goes down — the game end.
+//
+// What a hacked client CAN still do: lie when adjudicating shots against its
+// OWN fleet (call every incoming shot a miss), or end a match in its own
+// favor via forfeit/timeout. What it CANNOT do (firestore.rules plus the
+// defender-side bounds in BattleshipPvp): fire outside its turn or off the
+// board, adjudicate or alter its own shots, get more than one shot
+// adjudicated per turn (extra stockpiled 'pending' shots are ignored by the
+// defender), inflate hit counts by re-shooting a cell (adjudication and hit
+// derivation are idempotent per cell), rewind or mutate a finished match,
+// edit identity fields, or declare itself winner without ending the match.
+// Cheating is bounded to self-favoring lies about one's own board; it cannot
+// corrupt the opponent's board or the turn protocol.
 //
 // Layout mirrors lib/content.ts: pure helpers first (narrowing untrusted docs,
 // id derivation, adjudication — unit-tested), the Firestore boundary at the
@@ -73,6 +84,29 @@ export interface Shot {
 /** Canonical friendship doc id: the two uids sorted and joined with '_'. */
 export function friendshipId(uidA: string, uidB: string): string {
   return [uidA, uidB].sort().join('_')
+}
+
+/**
+ * Deterministic friend-request doc id. One doc per (sender, recipient) pair
+ * dedupes repeat requests, and firestore.rules derives the same id to verify
+ * an accepted request before allowing the friendship create.
+ */
+export function requestId(fromUid: string, toEmail: string): string {
+  return `${fromUid}_${toEmail.toLowerCase()}`
+}
+
+/**
+ * The two directional friend-request doc ids for a friendship — the request
+ * `A -> B`'s email and the request `B -> A`'s email. Both must be cleared on
+ * unfriend: the accepted request doc is deterministic and the rules only allow
+ * pending->accepted/declined, so a leftover 'accepted' doc can never reset and
+ * would permanently block re-friending in that direction. uids[i] is paired
+ * with emails[i] (see Friendship), so the sender/recipient pairs cross over.
+ */
+export function friendRequestIdsFor(friendship: Friendship): [string, string] {
+  const [uidA, uidB] = friendship.uids
+  const [emailA, emailB] = friendship.emails
+  return [requestId(uidA, emailB), requestId(uidB, emailA)]
 }
 
 /** The other participant's uid, or null if `uid` isn't in the match. */
@@ -196,10 +230,21 @@ export function adjudicateShot(
 export function fleetWithHits(fleet: Ship[], oppShots: Shot[]): Ship[] {
   return fleet.map((sh) => ({
     ...sh,
-    hits: oppShots.filter(
-      (s) => s.result !== 'pending' && sh.cells.some((x) => x.r === s.r && x.c === s.c)
+    // Count DISTINCT cells (iterate the ship's cells, not the shots) so
+    // duplicate shot docs on the same cell can never inflate a hit count
+    // past the ship's size.
+    hits: sh.cells.filter((cell) =>
+      oppShots.some((s) => s.result !== 'pending' && s.r === cell.r && s.c === cell.c)
     ).length,
   }))
+}
+
+/** The already-adjudicated result at (r,c) among these shots, or null. */
+export function priorResultAt(shots: Shot[], r: number, c: number): 'miss' | 'hit' | 'sunk' | null {
+  for (const s of shots) {
+    if (s.r === r && s.c === c && s.result !== 'pending') return s.result
+  }
+  return null
 }
 
 /** Shot list → BattleGrid marks. Pending shots don't render until adjudicated. */
@@ -251,11 +296,19 @@ export function loadStoredMatch(matchId: string): StoredMatch | null {
   } catch { return null }
 }
 
-export function saveStoredMatch(matchId: string, stored: StoredMatch): void {
-  localStorage.setItem(
-    matchKey(matchId),
-    JSON.stringify({ ...stored, fleet: stored.fleet.map((s) => ({ id: s.id, size: s.size, cells: s.cells })) })
-  )
+/**
+ * Persists the fleet for refresh-survival. Returns false when localStorage
+ * rejects the write (quota, private mode) — callers MUST treat that as fatal
+ * before READY: an unsaved fleet plus a refresh is an unrecoverable match.
+ */
+export function saveStoredMatch(matchId: string, stored: StoredMatch): boolean {
+  try {
+    localStorage.setItem(
+      matchKey(matchId),
+      JSON.stringify({ ...stored, fleet: stored.fleet.map((s) => ({ id: s.id, size: s.size, cells: s.cells })) })
+    )
+    return true
+  } catch { return false }
 }
 
 // Rewards must be granted exactly once per match, even across refreshes and
@@ -265,7 +318,9 @@ export function wasRewarded(matchId: string): boolean {
   try { return localStorage.getItem(`${matchKey(matchId)}:rewarded`) === '1' } catch { return true }
 }
 export function markRewarded(matchId: string): void {
-  localStorage.setItem(`${matchKey(matchId)}:rewarded`, '1')
+  // Best-effort: if the flag can't persist, a refresh may double-reward —
+  // preferable to crashing the victory screen.
+  try { localStorage.setItem(`${matchKey(matchId)}:rewarded`, '1') } catch { /* accepted: see above */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +331,8 @@ export function markRewarded(matchId: string): void {
 
 const REQUESTS = 'friendRequests'
 const FRIENDSHIPS = 'friendships'
+// NOTE: matchQueue and matches docs accumulate indefinitely — there is no
+// TTL/cleanup job in this prototype. Revisit before real traffic.
 const QUEUE = 'matchQueue'
 const MATCHES = 'matches'
 const SHOTS = 'shots'
@@ -319,11 +376,26 @@ function subscribe<T>(
 
 // ----- friends -----
 
-/** Sends a friend request by email. The address is stored lowercased. */
+// VERIFIED-EMAIL REQUIREMENT (enforced by firestore.rules' verified() gate on
+// friendRequests, matchQueue, and matches-create): every write below assumes a
+// signed-in user with request.auth.token.email_verified == true. An
+// email/password account can CLAIM any address before proving ownership, so
+// without this an attacker could receive a victim's friend requests or pose as
+// them in matchmaking. Google sign-in is auto-verified; email/password users
+// MUST verify first — the UI gates the entry points on emailVerified (see
+// lib/auth.tsx) so these helpers are never called by an unverified account.
+
+/**
+ * Sends a friend request by email; addresses are stored lowercased. The
+ * deterministic doc id (requestId) collapses repeat requests onto one doc.
+ * Re-sending after a decline is rejected by rules (the doc exists and only
+ * the recipient may update it) — accepted for this prototype.
+ */
 export async function sendFriendRequest(fromUid: string, fromEmail: string, toEmail: string): Promise<void> {
   const { sdk, db } = await fs()
-  await sdk.addDoc(sdk.collection(db, REQUESTS), {
-    fromUid, fromEmail: fromEmail.toLowerCase(), toEmail, status: 'pending', createdAt: sdk.serverTimestamp(),
+  await sdk.setDoc(sdk.doc(db, REQUESTS, requestId(fromUid, toEmail)), {
+    fromUid, fromEmail: fromEmail.toLowerCase(), toEmail: toEmail.toLowerCase(),
+    status: 'pending', createdAt: sdk.serverTimestamp(),
   })
 }
 
@@ -371,6 +443,23 @@ export async function respondToRequest(req: FriendRequest, accept: boolean, myUi
     })
   }
   await batch.commit()
+}
+
+/**
+ * Unfriend: removes the friendship doc (either side may do this — rules) AND
+ * best-effort deletes BOTH directional accepted friendRequest docs, so the
+ * deterministic request id doesn't permanently block re-friending later (see
+ * friendRequestIdsFor). The request deletes are non-fatal — the friendship
+ * delete is what matters, a stale request doc is only a nuisance — but they're
+ * always attempted (Promise.allSettled) so neither a missing doc nor a
+ * permission edge fails the unfriend.
+ */
+export async function removeFriend(friendship: Friendship): Promise<void> {
+  const { sdk, db } = await fs()
+  await sdk.deleteDoc(sdk.doc(db, FRIENDSHIPS, friendship.id))
+  await Promise.allSettled(
+    friendRequestIdsFor(friendship).map((id) => sdk.deleteDoc(sdk.doc(db, REQUESTS, id)))
+  )
 }
 
 /** Live list of this player's friendships. */
@@ -501,12 +590,19 @@ export async function passTurn(matchId: string, toUid: string): Promise<void> {
   await sdk.updateDoc(sdk.doc(db, MATCHES, matchId), { turn: toUid, updatedAt: sdk.serverTimestamp() })
 }
 
-/** Shooter files a shot; the defender's client will adjudicate it. */
+/**
+ * Shooter files a shot; the defender's client will adjudicate it. Also bumps
+ * the match doc's updatedAt in the same batch so the opponent's staleness
+ * check sees the shooter as alive even before adjudication.
+ */
 export async function fireShot(matchId: string, uid: string, r: number, c: number, seq: number): Promise<void> {
   const { sdk, db } = await fs()
-  await sdk.addDoc(sdk.collection(db, MATCHES, matchId, SHOTS), {
+  const batch = sdk.writeBatch(db)
+  batch.set(sdk.doc(sdk.collection(db, MATCHES, matchId, SHOTS)), {
     by: uid, r, c, seq, result: 'pending', createdAt: sdk.serverTimestamp(),
   })
+  batch.update(sdk.doc(db, MATCHES, matchId), { updatedAt: sdk.serverTimestamp() })
+  await batch.commit()
 }
 
 /**

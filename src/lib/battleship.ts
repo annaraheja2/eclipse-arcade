@@ -124,14 +124,6 @@ export function applyFire(ships: Ship[], r: number, c: number): { ships: Ship[];
   return { ships: next, result }
 }
 
-// Fire at a cell already known not to be previously shot. Mutates hit count.
-export function resolveFire(ships: Ship[], r: number, c: number): 'miss' | 'hit' | 'sunk' {
-  const sh = shipAt(ships, r, c)
-  if (!sh) return 'miss'
-  sh.hits += 1
-  return isSunk(sh) ? 'sunk' : 'hit'
-}
-
 // AI random guess among cells not yet fired at.
 export function aiPick(shot: Set<string>): Cell {
   const open: Cell[] = []

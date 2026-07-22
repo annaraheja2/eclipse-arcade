@@ -106,47 +106,98 @@ service cloud.firestore {
     // ---------------- Eclipse Arcade — online play (PvP Battleship) ----------------
     // Trust model (see src/lib/social.ts): no game server; fleets never leave
     // the client. The shooter files a 'pending' shot; the DEFENDER adjudicates.
+    //
+    // NOTE: matchQueue and matches docs accumulate indefinitely — there is no
+    // TTL/cleanup job yet (prototype). Revisit before opening to real traffic.
 
     function signedIn() { return request.auth != null; }
+    // Identity surfaces (friendRequests, matchQueue, matches create) demand a
+    // VERIFIED email: an email/password signup can claim any address before
+    // verifying it, so without this check an attacker could impersonate a
+    // victim's address — receiving their friend requests or posing as them in
+    // matchmaking. Google sign-in is always verified.
+    function verified() { return signedIn() && request.auth.token.email_verified == true; }
+    // All social docs store emails lowercased (normalizeEmail in
+    // src/lib/social.ts); comparing against the LOWERCASED token email avoids
+    // case-mismatch permission-denials and keeps email-scoped queries
+    // (subscribeIncomingRequests) provable.
+    function myEmail() { return request.auth.token.email.lower(); }
 
-    // Friend requests are addressed by (lowercased) email.
+    // Friend requests are addressed by (lowercased) email. Doc id is
+    // DETERMINISTIC — `${fromUid}_${toEmail}` — which dedupes repeat requests
+    // and lets the friendships create rule look the settled request up by id.
     match /friendRequests/{requestId} {
-      allow read: if signedIn()
+      allow read: if verified()
         && (resource.data.fromUid == request.auth.uid
-            || resource.data.toEmail == request.auth.token.email);
-      allow create: if signedIn()
+            || resource.data.toEmail == myEmail());
+      allow create: if verified()
         && request.resource.data.fromUid == request.auth.uid
-        && request.resource.data.fromEmail == request.auth.token.email
+        && request.resource.data.fromEmail == myEmail()
         && request.resource.data.toEmail is string
+        && request.resource.data.toEmail == request.resource.data.toEmail.lower()
+        && requestId == request.auth.uid + '_' + request.resource.data.toEmail
         && request.resource.data.status == 'pending'
         && request.resource.data.keys().hasOnly(
              ['fromUid', 'fromEmail', 'toEmail', 'status', 'createdAt']);
       // Only the recipient settles a request, exactly once, status-only.
-      allow update: if signedIn()
-        && resource.data.toEmail == request.auth.token.email
+      allow update: if verified()
+        && resource.data.toEmail == myEmail()
         && resource.data.status == 'pending'
         && request.resource.data.status in ['accepted', 'declined']
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+      // Either party to a request may delete it (cancel / cleanup). Unfriend
+      // clears both directional accepted requests so the deterministic id can't
+      // permanently block re-friending (see removeFriend in src/lib/social.ts).
+      // Benign: deleting a request you sent or received only removes your own
+      // pending/settled edge — it can't touch anyone else's relationships.
+      allow delete: if verified()
+        && (resource.data.fromUid == request.auth.uid
+            || resource.data.toEmail == myEmail());
     }
 
     // Doc id = the two uids sorted and '_'-joined; created by the accepter.
     match /friendships/{pairId} {
+      function reqPath(otherUid) {
+        return /databases/$(database)/documents/friendRequests/$(otherUid + '_' + request.auth.token.email.lower());
+      }
+      // The settled request that authorizes the creator (the accepter) to
+      // befriend `otherUid`. getAfter, not get: the accept flow settles the
+      // request AND creates the friendship in ONE batch, and get() would
+      // still see the pre-batch 'pending' status. getAfter is equally safe —
+      // reaching 'accepted' post-batch requires passing the recipient-only
+      // request update rule, and exists() (pre-batch state) blocks a request
+      // forged inside the same batch. fromUid != creator: the accepter must
+      // be the RECIPIENT of the request, never its sender.
+      function acceptedRequestFrom(otherUid) {
+        return exists(reqPath(otherUid))
+          && getAfter(reqPath(otherUid)).data.status == 'accepted'
+          && getAfter(reqPath(otherUid)).data.fromUid != request.auth.uid;
+      }
       allow read: if signedIn() && request.auth.uid in resource.data.uids;
+      // Two-branch check: rules can't know which of uids[0]/uids[1] is the
+      // request's sender, so whichever slot ISN'T the creator must have sent
+      // an accepted request to the creator's email.
       allow create: if signedIn()
         && request.auth.uid in request.resource.data.uids
         && request.resource.data.uids.size() == 2
         && request.resource.data.uids[0] < request.resource.data.uids[1]
         && pairId == request.resource.data.uids[0] + '_' + request.resource.data.uids[1]
-        && request.resource.data.keys().hasOnly(['uids', 'emails', 'createdAt']);
+        && request.resource.data.keys().hasOnly(['uids', 'emails', 'createdAt'])
+        && ((request.auth.uid == request.resource.data.uids[0]
+              && acceptedRequestFrom(request.resource.data.uids[1]))
+            || (request.auth.uid == request.resource.data.uids[1]
+              && acceptedRequestFrom(request.resource.data.uids[0])));
+      // Unfriend: either side may sever the friendship at any time.
+      allow delete: if signedIn() && request.auth.uid in resource.data.uids;
     }
 
     // Quick-match queue: one doc per waiting player, id = uid.
     match /matchQueue/{uid} {
       allow read: if signedIn();
-      allow create, update: if signedIn()
+      allow create, update: if verified()
         && request.auth.uid == uid
         && request.resource.data.uid == uid
-        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.email == myEmail()
         && request.resource.data.keys().hasOnly(['uid', 'email', 'createdAt']);
       // Any signed-in user may delete entries: the pairing transaction
       // atomically removes BOTH its own and its opponent's queue doc.
@@ -157,23 +208,59 @@ service cloud.firestore {
       function isParticipant() {
         return signedIn() && request.auth.uid in resource.data.players;
       }
+      function pairIdOf(a, b) { return a < b ? a + '_' + b : b + '_' + a; }
       allow read: if isParticipant();
       // players[0] is always the creator (inviter / quick-match pairer).
-      allow create: if signedIn()
+      // Relationship gating: an 'invite' requires an existing friendship with
+      // the invitee; a 'placing' match (quick-match pairing) requires the
+      // opponent to be waiting in the queue. exists() sees PRE-transaction
+      // state, so the pairing transaction (create match + delete both queue
+      // docs) still passes.
+      allow create: if verified()
+        && request.resource.data.keys().hasOnly(
+             ['players', 'emails', 'status', 'turn', 'winner', 'endReason',
+              'courseId', 'ready', 'createdAt', 'updatedAt'])
         && request.resource.data.players.size() == 2
         && request.resource.data.players[0] == request.auth.uid
         && request.resource.data.players[0] != request.resource.data.players[1]
         && request.resource.data.status in ['invite', 'placing']
         && request.resource.data.turn in request.resource.data.players
-        && request.resource.data.winner == null;
-      // Participants drive the state machine (accept, ready, turn flips, shot
-      // adjudication side-effects, forfeit/timeout). Identity fields frozen;
-      // finished matches immutable.
+        && request.resource.data.winner == null
+        // The creator's own email in the map must be their real (verified)
+        // address. The OPPONENT's entry is display-only / unverified — the
+        // creator supplies it (from a friendship or the queue) and the client
+        // only ever shows it, never trusts it for authorization.
+        && request.resource.data.emails[request.auth.uid] == myEmail()
+        && ((request.resource.data.status == 'invite'
+              && exists(/databases/$(database)/documents/friendships/$(pairIdOf(request.resource.data.players[0], request.resource.data.players[1]))))
+            // Quick-match: BOTH the victim (players[1]) AND the creator
+            // (players[0]) must be genuinely queued, so a verified user can't
+            // spam placing-matches at a queued player. exists() sees
+            // PRE-transaction state, so attemptPair (which created its own
+            // queue doc first, then deletes both in the pairing transaction)
+            // still passes.
+            || (request.resource.data.status == 'placing'
+              && exists(/databases/$(database)/documents/matchQueue/$(request.resource.data.players[0]))
+              && exists(/databases/$(database)/documents/matchQueue/$(request.resource.data.players[1]))));
+      // Participants drive the state machine FORWARD only (accept, ready,
+      // turn flips, shot adjudication side-effects, forfeit/timeout). It never
+      // rewinds: 'invite' is not a permitted target (which would re-open the
+      // delete window), and the one remaining backward edge — active->placing,
+      // which would let a losing player reset a live match to placement — is
+      // explicitly forbidden. Still allowed: invite->placing (accept),
+      // placing->active (both ready), ready toggles within placing, and
+      // {placing,active}->done. Winner is set iff the match is done, identity
+      // fields are frozen via affectedKeys, and finished matches are immutable.
       allow update: if isParticipant()
         && resource.data.status != 'done'
-        && request.resource.data.players == resource.data.players
-        && request.resource.data.emails == resource.data.emails
-        && request.resource.data.courseId == resource.data.courseId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+             ['status', 'turn', 'winner', 'endReason', 'ready', 'updatedAt'])
+        && request.resource.data.status in ['placing', 'active', 'done']
+        && !(resource.data.status == 'active' && request.resource.data.status == 'placing')
+        && ((request.resource.data.status == 'done')
+            == (request.resource.data.winner != null))
+        && (request.resource.data.endReason == null
+            || request.resource.data.endReason in ['fleet-sunk', 'forfeit', 'timeout'])
         && request.resource.data.turn in resource.data.players
         && (request.resource.data.winner == null
             || request.resource.data.winner in resource.data.players);
@@ -196,10 +283,12 @@ service cloud.firestore {
           && request.resource.data.r is int && request.resource.data.r >= 0 && request.resource.data.r < 8
           && request.resource.data.c is int && request.resource.data.c >= 0 && request.resource.data.c < 8
           && request.resource.data.keys().hasOnly(['by', 'r', 'c', 'seq', 'result', 'createdAt']);
-        // Only the DEFENDER adjudicates, exactly once, result field only.
+        // Only the DEFENDER adjudicates, exactly once, result field only, and
+        // only while the match is still live.
         allow update: if signedIn()
           && request.auth.uid in matchData().players
           && request.auth.uid != resource.data.by
+          && matchData().status == 'active'
           && resource.data.result == 'pending'
           && request.resource.data.result in ['miss', 'hit', 'sunk']
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['result']);

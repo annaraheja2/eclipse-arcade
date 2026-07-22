@@ -8,21 +8,21 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Course, Subunit, Question } from '../data/subjects'
 import { loadCourse } from '../lib/content'
-import { FLEET, type Ship } from '../lib/battleship'
+import { FLEET, allSunk, type Ship } from '../lib/battleship'
 import BattleGrid from '../components/BattleGrid'
 import FleetPlacement from '../components/FleetPlacement'
+import FleetPips from '../components/FleetPips'
 import QuestionPanel from '../components/QuestionPanel'
 import { usePlayer } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
 import {
-  opponentOf, fleetWithHits, shotMarks, adjudicateShot,
+  opponentOf, fleetWithHits, shotMarks, adjudicateShot, priorResultAt,
   loadStoredMatch, saveStoredMatch, wasRewarded, markRewarded,
   subscribeMatch, subscribeShots,
   acceptInvite, deleteInviteMatch, setReady, fireShot, resolveShot, passTurn, endMatch,
   type Match, type Shot, type StoredMatch,
 } from '../lib/social'
-import { FleetPips } from './Battleship'
 import { ArrowLeft, Volume, VolumeMute, Target } from '../icons'
 import { sfxFire, sfxHit, sfxMiss, sfxSink, sfxWin, setMuted, isMuted } from '../lib/sound'
 
@@ -31,6 +31,7 @@ const CY_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': str
   '--btn': CY, '--edge': `color-mix(in srgb, ${CY} 50%, #000)`, '--glow': `${CY}88`,
 }
 const STALE_MS = 60_000
+const FIRED_MSG = 'Shot away — waiting for the impact report…'
 
 const randomQ = (s: Subunit): Question => s.questions[Math.floor(Math.random() * s.questions.length)]
 
@@ -116,15 +117,36 @@ export default function BattleshipPvp() {
     if (match?.status === 'placing' && !iAmReady && placed.length === 0 && stored) setPlaced(stored.fleet)
   }, [match?.status, iAmReady, placed.length, stored])
 
+  // My own last action feeds the staleness clock (S10): a long think on MY
+  // side must not flag the OPPONENT as inactive.
+  const lastMyActionRef = useRef(0)
+
   // ----- defender: adjudicate the opponent's pending shots -----
+  // Deliberately bounded (see trust model in lib/social.ts): we adjudicate
+  // ONLY the single oldest pending opposing shot, and only while the turn is
+  // still the shooter's — the only window in which an honest shot can exist.
+  // A hacked shooter stockpiling extra 'pending' shots gets at most one
+  // adjudicated per turn; the rest are ignored. Adjudication is idempotent
+  // per cell: a cell we already resolved re-reports its prior result instead
+  // of counting a second hit.
   const resolvingRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     if (!match || match.status !== 'active' || !user || !stored || !oppUid) return
-    const pending = oppShots.find((s) => s.result === 'pending' && !resolvingRef.current.has(s.id))
-    if (!pending) return
+    if (match.turn !== oppUid) return // an honest unresolved shot keeps the turn on the shooter
+    const pendingAll = oppShots.filter((s) => s.result === 'pending')
+    if (pendingAll.length === 0) return
+    if (pendingAll.length > 1) {
+      console.warn(`[eclipse-arcade] ${pendingAll.length} pending opposing shots — adjudicating only the oldest; extras ignored as implausible.`)
+    }
+    const pending = pendingAll[0] // oppShots is already in stable seq order
+    if (resolvingRef.current.has(pending.id)) return
     resolvingRef.current.add(pending.id)
     const fleetNow = fleetWithHits(stored.fleet, resolvedOppShots)
-    const { result, fleetSunk } = adjudicateShot(fleetNow, pending.r, pending.c)
+    const prior = priorResultAt(resolvedOppShots, pending.r, pending.c)
+    const { result, fleetSunk } = prior
+      ? { result: prior, fleetSunk: allSunk(fleetNow) }
+      : adjudicateShot(fleetNow, pending.r, pending.c)
+    lastMyActionRef.current = Date.now()
     resolveShot(match.id, pending.id, result, user.uid, oppUid, fleetSunk).catch((err: unknown) => {
       console.error('[eclipse-arcade] shot adjudication failed:', err)
       resolvingRef.current.delete(pending.id) // retried on the next snapshot
@@ -188,8 +210,13 @@ export default function BattleshipPvp() {
   const lockIn = () => {
     if (placed.length === 0 || !user) return
     const next: StoredMatch = { fleet: placed, subunitId }
-    saveStoredMatch(matchId, next)
+    if (!saveStoredMatch(matchId, next)) {
+      // An unsaved fleet plus a refresh is an unrecoverable match — block READY.
+      setActionError('Could not save your fleet on this device — free up storage or leave private browsing, then try again.')
+      return
+    }
     setStored(next)
+    lastMyActionRef.current = Date.now()
     void run(() => setReady(matchId, user.uid), 'Could not lock in your fleet — try again.')
   }
 
@@ -210,15 +237,35 @@ export default function BattleshipPvp() {
     void run(() => passTurn(match.id, oppUid), 'Could not pass the turn — check your connection.')
   }
 
+  // Synchronous double-fire guard: `myShots` lags the snapshot, so without
+  // this ref a fast double-tap could file the same cell twice.
+  const firedRef = useRef<Set<string>>(new Set())
   function fireAt(r: number, c: number) {
     if (!match || !myTurn || qPhase !== 'aim' || busy) return
-    if (myShots.some((s) => s.r === r && s.c === c)) return
-    setMsg('Shot away — waiting for the impact report…')
-    void run(() => fireShot(match.id, myUid, r, c, shots.length), 'Could not fire — check your connection.')
+    const cellKey = `${r},${c}`
+    if (firedRef.current.has(cellKey) || myShots.some((s) => s.r === r && s.c === c)) return
+    firedRef.current.add(cellKey)
+    setMsg(FIRED_MSG)
+    lastMyActionRef.current = Date.now()
+    void run(
+      () => fireShot(match.id, myUid, r, c, shots.length).catch((err: unknown) => {
+        firedRef.current.delete(cellKey) // a failed fire may be retried
+        throw err
+      }),
+      'Could not fire — check your connection.'
+    )
   }
 
+  // Clear the "waiting for the impact report" line once the shot resolves.
+  useEffect(() => {
+    if (!pendingMine) setMsg((m) => (m === FIRED_MSG ? '' : m))
+  }, [pendingMine])
+
   // ----- staleness (opponent inactive while we wait on them) -----
-  const lastActivityMs = Math.max(match?.updatedAtMs ?? 0, ...shots.map((s) => s.createdAtMs))
+  // My own actions count too (S10): the threshold measures silence since the
+  // LAST thing either side did, not just the opponent's last server write.
+  const lastActivityMs = Math.max(
+    match?.updatedAtMs ?? 0, lastMyActionRef.current, ...shots.map((s) => s.createdAtMs))
   const waitingOnOpponent =
     (match?.status === 'placing' && iAmReady && !oppReady) ||
     (match?.status === 'active' && (match.turn !== myUid || pendingMine))
@@ -347,7 +394,7 @@ export default function BattleshipPvp() {
       const statusLine = msg !== '' ? msg
         : myTurn
           ? (qPhase === 'q' ? 'Your turn — answer to earn a shot.' : 'Direct your fire — tap the enemy waters.')
-          : pendingMine ? 'Shot away — waiting for the impact report…' : `${oppEmail} is taking their turn…`
+          : pendingMine ? FIRED_MSG : `${oppEmail} is taking their turn…`
       const lastMine = myShots.length > 0 ? myShots[myShots.length - 1] : undefined
       const lastTheirs = resolvedOppShots.length > 0 ? resolvedOppShots[resolvedOppShots.length - 1] : undefined
       return (
