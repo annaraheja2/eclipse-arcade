@@ -225,7 +225,7 @@ function Cabinet({ g }: { g: GameDef }) {
           </span>
           {!soon && (
             <div className="text-xs text-white/60 mt-2">
-              Best <span className="font-bold tabular-nums" style={{ color: g.color }}>{(best ?? 0).toLocaleString()}</span>
+              Best <span className="font-bold tabular-nums" style={{ color: `color-mix(in srgb, ${g.color} 70%, #fff)` }}>{(best ?? 0).toLocaleString()}</span>
             </div>
           )}
         </div>
