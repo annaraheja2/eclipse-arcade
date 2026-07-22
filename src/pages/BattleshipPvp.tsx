@@ -47,7 +47,7 @@ function findSubunit(course: Course, id: string): Subunit | null {
 export default function BattleshipPvp() {
   const { matchId = '' } = useParams()
   const navigate = useNavigate()
-  const { finishGame } = usePlayer()
+  const { finishGame, recordAnswer } = usePlayer()
   const { user, loading: authLoading } = useAuth()
 
   const [match, setMatch] = useState<Match | null>(null)
@@ -237,6 +237,7 @@ export default function BattleshipPvp() {
 
   function onAnswer(correct: boolean) {
     if (!match || !oppUid || !myTurn) return
+    recordAnswer(correct) // feeds the profile's Question accuracy stat
     if (correct) { setQPhase('aim'); setMsg('Correct! Take your shot.'); return }
     setMsg('Wrong — the turn passes to the enemy.')
     void run(() => passTurn(match.id, oppUid), 'Could not pass the turn — check your connection.')

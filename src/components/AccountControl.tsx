@@ -26,6 +26,11 @@ export default function AccountControl() {
 
   if (user) {
     const initial = displayNameFor(player.username, user.email).charAt(0).toUpperCase()
+    // Tint the HUD avatar with the player's chosen accent (Settings → Avatar);
+    // the solid inline background overrides the default cyan→blue gradient. Dark
+    // text on any neon-palette accent clears AA.
+    const accent = player.avatarColor
+    const accentStyle = accent ? { background: accent, boxShadow: `0 0 16px ${accent}99` } : undefined
     return (
       <div className="relative">
         <button
@@ -34,6 +39,7 @@ export default function AccountControl() {
           aria-label="Account menu"
           aria-haspopup="dialog"
           aria-expanded={menuOpen}
+          style={accentStyle}
           className="grid place-items-center w-10 h-10 rounded-xl bg-gradient-to-br from-neon-cyan to-neon-blue text-[#06121a] shadow-[0_0_16px_rgba(61,245,255,0.6)] font-pixel text-sm"
         >
           {initial}
@@ -151,6 +157,13 @@ function AccountMenu({ onClose, onSetUsername }: {
       >
         {player.username ? 'CHANGE USERNAME' : 'SET USERNAME'}
       </button>
+      <Link
+        to="/settings"
+        onClick={() => onClose(false)}
+        className="mt-2 block w-full text-center font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/85 hover:bg-white/10 transition"
+      >
+        SETTINGS &amp; PROFILE
+      </Link>
       <button
         onClick={handleSignOut}
         className="arcade-btn mt-2.5 w-full font-pixel text-[10px] px-4 py-2.5 rounded-lg text-[#0a0620]"

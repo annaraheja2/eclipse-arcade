@@ -1,13 +1,24 @@
 // Synthesized battle sound effects via Web Audio (no asset files).
+// The mute preference is app-wide and persisted (Settings owns the canonical
+// toggle); every mount reads the same stored value via isMuted(), so it no
+// longer resets on reload.
+const MUTE_KEY = 'eclipse-arcade:muted'
 let ctx: AudioContext | null = null
-let muted = false
+
+function readMuted(): boolean {
+  try { return localStorage.getItem(MUTE_KEY) === '1' } catch { return false }
+}
+let muted = readMuted()
 
 function ac(): AudioContext {
   if (!ctx) ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
   if (ctx.state === 'suspended') ctx.resume()
   return ctx
 }
-export function setMuted(m: boolean) { muted = m }
+export function setMuted(m: boolean) {
+  muted = m
+  try { localStorage.setItem(MUTE_KEY, m ? '1' : '0') } catch { /* private mode: in-memory only */ }
+}
 export function isMuted() { return muted }
 
 function noiseBuffer(a: AudioContext, dur: number) {

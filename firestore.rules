@@ -89,12 +89,28 @@ service cloud.firestore {
       allow write: if request.auth != null
         && request.auth.uid == uid
         && request.resource.data.email == request.auth.token.email
-        // Defense-in-depth: username is OPTIONAL on this doc (finishGame writes
-        // omit it), but when present the mirrored handle must be a string.
+        // Defense-in-depth: these fields are all OPTIONAL on the doc (different
+        // write paths include different subsets), but when present each must
+        // carry the right type — a string handle/pref, a numeric counter.
         && (!('username' in request.resource.data)
             || request.resource.data.username is string)
+        && (!('preferredCourseId' in request.resource.data)
+            || request.resource.data.preferredCourseId is string)
+        && (!('avatarColor' in request.resource.data)
+            || request.resource.data.avatarColor is string)
+        && (!('gamesPlayed' in request.resource.data)
+            || request.resource.data.gamesPlayed is number)
+        && (!('questionsAnswered' in request.resource.data)
+            || request.resource.data.questionsAnswered is number)
+        && (!('questionsCorrect' in request.resource.data)
+            || request.resource.data.questionsCorrect is number)
         && request.resource.data.keys().hasOnly(
-             ['coins', 'xp', 'streak', 'lastPlayed', 'bests', 'email', 'updatedAt', 'username']);
+             ['coins', 'xp', 'streak', 'lastPlayed', 'bests', 'email', 'updatedAt', 'username',
+              'gamesPlayed', 'questionsAnswered', 'questionsCorrect', 'preferredCourseId', 'avatarColor']);
+      // Self-delete for account deletion (Settings → Data & Privacy). The client
+      // fan-out also clears the player's usernames/friendships/friendRequests/
+      // matchQueue docs, each already owner-deletable by its own rule.
+      allow delete: if request.auth != null && request.auth.uid == uid;
     }
 
     // Unique, server-reserved usernames. UNIQUENESS MECHANISM: the doc id IS the

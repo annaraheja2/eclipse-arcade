@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef, ty
 import type { User } from 'firebase/auth'
 import { getFirebaseDb } from './firebase'
 import { useAuth } from './auth'
+import { COURSE_LIST } from '../data/subjects'
 
 export interface PlayerState {
   coins: number
@@ -9,13 +10,52 @@ export interface PlayerState {
   streak: number
   lastPlayed: string // yyyy-mm-dd
   bests: Record<string, number> // gameKey -> best total score
+  gamesPlayed: number // cumulative count, max-merged like coins
+  // Cumulative answer counters — NEVER store a ratio; accuracy() derives it for
+  // display. Both max-merge (a wrong answer only ever raises `answered`).
+  questionsAnswered: number
+  questionsCorrect: number
   username?: string // display-case handle; server-reserved (see lib/username.ts)
+  preferredCourseId?: string // vs-AI default course; cloud-preferred like username
+  avatarColor?: string // one of AVATAR_COLORS; cloud-preferred like username
 }
 
 const KEY = 'eclipse-arcade:player'
 const XP_PER_LEVEL = 500
 
-const DEFAULT: PlayerState = { coins: 0, xp: 0, streak: 0, lastPlayed: '', bests: {} }
+const DEFAULT: PlayerState = {
+  coins: 0, xp: 0, streak: 0, lastPlayed: '', bests: {},
+  gamesPlayed: 0, questionsAnswered: 0, questionsCorrect: 0,
+}
+
+// The default math level (Algebra 1) and the neon accent palette an avatar may
+// use (tailwind.config.js → colors.neon). Constraining avatars to this palette
+// keeps every accent AA-legible on the #0a0620 field.
+export const DEFAULT_COURSE_ID = COURSE_LIST[0].id
+export const AVATAR_COLORS = [
+  '#3df5ff', '#ff3df0', '#a24bff', '#7c3aff', '#ff4d8d', '#ffb43d', '#3dffa2', '#4d8dff',
+] as const
+
+/** True when `id` is a known course (see COURSE_LIST). */
+export function isValidCourseId(id: string): boolean {
+  return COURSE_LIST.some((c) => c.id === id)
+}
+/** A stored/absent preferred course id resolved to a real one — falls back to Algebra 1. */
+export function resolveCourseId(id: string | undefined): string {
+  return id !== undefined && isValidCourseId(id) ? id : DEFAULT_COURSE_ID
+}
+/** True when `color` is one of the AA-safe avatar accents. */
+export function isValidAvatarColor(color: string): boolean {
+  return (AVATAR_COLORS as readonly string[]).includes(color)
+}
+/**
+ * Correct/answered as a 0–1 ratio, or null when nothing has been answered yet.
+ * Display-only — the ratio is never persisted (the two counters are).
+ */
+export function accuracy(answered: number, correct: number): number | null {
+  if (answered <= 0) return null
+  return correct / answered
+}
 
 function load(): PlayerState {
   try {
@@ -67,11 +107,20 @@ export function mergePlayerState(local: PlayerState, cloud: PlayerState): Player
     streak: Math.max(local.streak, cloud.streak),
     lastPlayed: local.lastPlayed > cloud.lastPlayed ? local.lastPlayed : cloud.lastPlayed,
     bests,
+    gamesPlayed: Math.max(local.gamesPlayed, cloud.gamesPlayed),
+    questionsAnswered: Math.max(local.questionsAnswered, cloud.questionsAnswered),
+    questionsCorrect: Math.max(local.questionsCorrect, cloud.questionsCorrect),
   }
   // The handle is server-authoritative (the usernames reservation), so prefer
   // the cloud copy; fall back to local so a just-claimed handle isn't dropped.
   const username = cloud.username ?? local.username
   if (username !== undefined) merged.username = username
+  // Non-numeric prefs are cloud-preferred too (a device switch adopts the last
+  // saved choice), falling back to a just-set local value.
+  const preferredCourseId = cloud.preferredCourseId ?? local.preferredCourseId
+  if (preferredCourseId !== undefined) merged.preferredCourseId = preferredCourseId
+  const avatarColor = cloud.avatarColor ?? local.avatarColor
+  if (avatarColor !== undefined) merged.avatarColor = avatarColor
   return merged
 }
 
@@ -96,8 +145,19 @@ export function toPlayerState(data: unknown): PlayerState {
     streak: num(d.streak),
     lastPlayed: typeof d.lastPlayed === 'string' && DATE_RE.test(d.lastPlayed) ? d.lastPlayed : '',
     bests,
+    gamesPlayed: num(d.gamesPlayed),
+    questionsAnswered: num(d.questionsAnswered),
+    questionsCorrect: num(d.questionsCorrect),
   }
   if (typeof d.username === 'string' && d.username.length > 0) state.username = d.username
+  // Prefs from an untrusted doc are validated against the known sets — an
+  // unknown course id or off-palette color is dropped (consumers fall back).
+  if (typeof d.preferredCourseId === 'string' && isValidCourseId(d.preferredCourseId)) {
+    state.preferredCourseId = d.preferredCourseId
+  }
+  if (typeof d.avatarColor === 'string' && isValidAvatarColor(d.avatarColor)) {
+    state.avatarColor = d.avatarColor
+  }
   return state
 }
 
@@ -116,9 +176,14 @@ function cloudPayload(sdk: FsSdk, user: User, state: PlayerState): Record<string
   const payload: Record<string, unknown> = {
     coins: state.coins, xp: state.xp, streak: state.streak,
     lastPlayed: state.lastPlayed, bests: state.bests,
+    gamesPlayed: state.gamesPlayed,
+    questionsAnswered: state.questionsAnswered,
+    questionsCorrect: state.questionsCorrect,
     email: user.email, updatedAt: sdk.serverTimestamp(),
   }
   if (state.username) payload.username = state.username
+  if (state.preferredCourseId) payload.preferredCourseId = state.preferredCourseId
+  if (state.avatarColor) payload.avatarColor = state.avatarColor
   return payload
 }
 
@@ -130,7 +195,9 @@ async function writeCloud(user: User, state: PlayerState): Promise<void> {
 interface Ctx {
   player: PlayerState
   finishGame: (gameKey: string, score: number) => { xp: number; coins: number; best: boolean }
+  recordAnswer: (correct: boolean) => void
   setUsername: (username: string) => void
+  updatePreferences: (patch: { preferredCourseId?: string; avatarColor?: string }) => void
 }
 const PlayerCtx = createContext<Ctx | null>(null)
 
@@ -186,6 +253,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => { stale = true }
   }, [user])
 
+  // The single commit path for local + write-through: adopt `next`, persist to
+  // localStorage, and (signed in) mirror to Firestore — fire-and-forget but
+  // never silent. A denied write (e.g. old rules rejecting new fields) is
+  // logged; local state is already updated, so the app degrades gracefully.
+  const commit = useCallback((next: PlayerState) => {
+    playerRef.current = next
+    setPlayer(next)
+    save(next)
+    const u = userRef.current
+    if (u) {
+      writeCloud(u, next).catch((err: unknown) =>
+        console.error('[eclipse-arcade] cloud save failed:', err))
+    }
+  }, [])
+
   const finishGame = useCallback((gameKey: string, score: number) => {
     const { xp, coins } = rewardsFor(score)
     const prev = playerRef.current
@@ -195,25 +277,42 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       streak = prev.lastPlayed === yesterday() ? prev.streak + 1 : 1
     }
     const prevBest = prev.bests[gameKey] ?? 0
+    // Spread `prev` so prefs (username, preferredCourseId, avatarColor) and the
+    // answer counters survive a game finish untouched.
     const next: PlayerState = {
+      ...prev,
       coins: prev.coins + coins,
       xp: prev.xp + xp,
       streak,
       lastPlayed: t,
       bests: { ...prev.bests, [gameKey]: Math.max(prevBest, score) },
+      gamesPlayed: prev.gamesPlayed + 1,
     }
-    playerRef.current = next
-    setPlayer(next)
-    save(next)
-    // Write-through to Firestore while signed in — fire-and-forget, but never
-    // silent: a failed save must be visible in the console.
-    const u = userRef.current
-    if (u) {
-      writeCloud(u, next).catch((err: unknown) =>
-        console.error('[eclipse-arcade] cloud save failed:', err))
-    }
+    commit(next)
     return { xp, coins, best: score > prevBest }
-  }, [])
+  }, [commit])
+
+  // Question games (Battleship solo + PvP) call this at the answer boundary —
+  // NOT the flat pin/slider loop, which has no right/wrong. Cumulative counters
+  // only; accuracy is derived for display.
+  const recordAnswer = useCallback((correct: boolean) => {
+    const prev = playerRef.current
+    const next: PlayerState = {
+      ...prev,
+      questionsAnswered: prev.questionsAnswered + 1,
+      questionsCorrect: prev.questionsCorrect + (correct ? 1 : 0),
+    }
+    commit(next)
+  }, [commit])
+
+  // Profile prefs (math level, avatar color) — a normal write-through; only the
+  // keys present in `patch` change.
+  const updatePreferences = useCallback((patch: { preferredCourseId?: string; avatarColor?: string }) => {
+    const next: PlayerState = { ...playerRef.current }
+    if (patch.preferredCourseId !== undefined) next.preferredCourseId = patch.preferredCourseId
+    if (patch.avatarColor !== undefined) next.avatarColor = patch.avatarColor
+    commit(next)
+  }, [commit])
 
   // The username WRITE is owned by claimUsername (it must be transactional with
   // the usernames reservation collection, which finishGame can't do atomically).
@@ -226,7 +325,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     save(next)
   }, [])
 
-  return <PlayerCtx.Provider value={{ player, finishGame, setUsername }}>{children}</PlayerCtx.Provider>
+  return (
+    <PlayerCtx.Provider value={{ player, finishGame, recordAnswer, setUsername, updatePreferences }}>
+      {children}
+    </PlayerCtx.Provider>
+  )
 }
 
 export function usePlayer(): Ctx {

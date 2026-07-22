@@ -11,7 +11,7 @@ import FleetPlacement from '../components/FleetPlacement'
 import FleetPips from '../components/FleetPips'
 import QuestionPanel from '../components/QuestionPanel'
 import VerifyEmailNotice from '../components/VerifyEmailNotice'
-import { usePlayer } from '../lib/player'
+import { usePlayer, resolveCourseId } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
 import {
@@ -28,7 +28,8 @@ const CY_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': str
   '--btn': CY, '--edge': `color-mix(in srgb, ${CY} 50%, #000)`, '--glow': `${CY}88`,
 }
 // PvP (invites + quick match) stays on this single course for now; only the
-// vs-AI flow lets the player pick from all courses (see the 'course' phase).
+// vs-AI flow lets the player pick from all courses (see the 'course' phase),
+// where their profile's preferred math level is pre-highlighted.
 const COURSE_ID = COURSES[0].id // Algebra 1
 
 function impactSound(result: 'miss' | 'hit' | 'sunk') {
@@ -44,8 +45,10 @@ const remaining = (ships: Ship[]) => ships.filter((s) => !isSunk(s)).length
 
 export default function Battleship() {
   const navigate = useNavigate()
-  const { finishGame } = usePlayer()
+  const { player, finishGame, recordAnswer } = usePlayer()
   const { user, loading: authLoading, emailVerified } = useAuth()
+  // The player's preferred math level pre-selects in the vs-AI course picker.
+  const preferredCourseId = resolveCourseId(player.preferredCourseId)
   const [ph, setPh] = useState<Phase>('mode')
   // vs-AI course selection. Firestore-backed when configured; loadCourse falls
   // back to the bundled course on any failure, so course=null while aiCourseId
@@ -175,6 +178,7 @@ export default function Battleship() {
   }
 
   function onAnswer(correct: boolean) {
+    recordAnswer(correct) // feeds the profile's Question accuracy stat
     setBattle((b) => b && { ...b, phase: correct ? 'aim' : b.phase, busy: !correct, msg: correct ? 'Correct! Take your shot.' : 'Wrong! Enemy returns fire…' })
     if (!correct) aiTurn()
   }
@@ -310,12 +314,19 @@ export default function Battleship() {
         {ph === 'course' && (
           <Section title="CHOOSE A COURSE">
             <div className="grid gap-3 sm:grid-cols-2">
-              {COURSE_LIST.map((c) => (
-                <button key={c.id} onClick={() => { setAiCourseId(c.id); setUnit(null); setSub(null); setPh('unit') }}
-                  className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-neon-cyan/60 transition">
-                  <div className="font-bold">{c.name}</div>
-                </button>
-              ))}
+              {COURSE_LIST.map((c) => {
+                const preferred = c.id === preferredCourseId
+                return (
+                  <button key={c.id} onClick={() => { setAiCourseId(c.id); setUnit(null); setSub(null); setPh('unit') }}
+                    aria-label={preferred ? `${c.name} — your math level` : c.name}
+                    className={`text-left rounded-xl border bg-white/[0.03] p-4 transition ${preferred ? 'border-neon-cyan/70' : 'border-white/10 hover:border-neon-cyan/60'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold">{c.name}</span>
+                      {preferred && <span className="shrink-0 font-pixel text-[8px] px-2 py-1 rounded bg-neon-cyan/20 text-neon-cyan">YOUR LEVEL</span>}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </Section>
         )}

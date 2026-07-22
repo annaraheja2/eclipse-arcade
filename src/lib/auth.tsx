@@ -29,6 +29,13 @@ interface AuthCtx {
   signUpWithEmail: (email: string, password: string) => Promise<AuthResult>
   resetPassword: (email: string) => Promise<AuthResult>
   resendVerification: () => Promise<AuthResult>
+  // Links an email/password credential to the CURRENT (Google) account so the
+  // user can afterward sign in with email + password on the same account.
+  linkPassword: (password: string) => Promise<AuthResult>
+  // Permanently deletes the auth user. `password` is used to re-authenticate a
+  // password account when Firebase demands a recent login; Google accounts
+  // re-auth via popup. Firestore fan-out (lib/account.ts) happens FIRST.
+  deleteAccount: (password?: string) => Promise<AuthResult>
   signOut: () => Promise<AuthResult>
 }
 
@@ -45,6 +52,9 @@ const FRIENDLY: Record<string, string> = {
   'auth/too-many-requests': 'Too many attempts — wait a moment and try again.',
   'auth/popup-blocked': 'Your browser blocked the sign-in popup — allow popups and try again.',
   'auth/network-request-failed': 'Network error — check your connection and try again.',
+  'auth/requires-recent-login': 'For your security, please re-authenticate and try again.',
+  'auth/provider-already-linked': 'This account already has a password set.',
+  'auth/credential-already-in-use': 'That password credential is already tied to another account.',
 }
 
 const CANCELLED_CODES = new Set(['auth/popup-closed-by-user', 'auth/cancelled-popup-request'])
@@ -178,6 +188,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }),
     []
   )
+  // GOOGLE-ONLY ACCOUNTS: sets a password by LINKING an email/password
+  // credential to the signed-in Google account. If Firebase demands a recent
+  // login, re-authenticate via a fresh Google popup and retry once. Afterward
+  // the user can sign in with either provider on the same account.
+  const linkPassword = useCallback(
+    (password: string) => attempt(async () => {
+      const { sdk, auth } = await authSdk()
+      const u = auth.currentUser
+      if (!u || !u.email) throw new Error('You must be signed in with an email to set a password.')
+      const cred = sdk.EmailAuthProvider.credential(u.email, password)
+      try {
+        await sdk.linkWithCredential(u, cred)
+      } catch (err) {
+        if (firebaseCode(err) !== 'auth/requires-recent-login') throw err
+        await sdk.reauthenticateWithPopup(u, new sdk.GoogleAuthProvider())
+        await sdk.linkWithCredential(u, cred)
+      }
+    }),
+    []
+  )
+
+  // Deletes the auth user. On auth/requires-recent-login, re-authenticate first
+  // (Google popup, or an email/password credential from the supplied password)
+  // then retry deleteUser. The caller runs the Firestore fan-out BEFORE this so
+  // a still-present auth user can retry a partial cleanup idempotently.
+  const deleteAccount = useCallback(
+    (password?: string) => attempt(async () => {
+      const { sdk, auth } = await authSdk()
+      const u = auth.currentUser
+      if (!u) throw new Error('You must be signed in to delete your account.')
+      try {
+        await sdk.deleteUser(u)
+      } catch (err) {
+        if (firebaseCode(err) !== 'auth/requires-recent-login') throw err
+        const isGoogle = u.providerData.some((p) => p.providerId === 'google.com')
+        if (isGoogle) {
+          await sdk.reauthenticateWithPopup(u, new sdk.GoogleAuthProvider())
+        } else if (password && u.email) {
+          const cred = sdk.EmailAuthProvider.credential(u.email, password)
+          await sdk.reauthenticateWithCredential(u, cred)
+        } else {
+          throw new Error('Re-enter your account password to confirm deletion, then try again.')
+        }
+        await sdk.deleteUser(u)
+      }
+    }),
+    []
+  )
+
   const signOut = useCallback(
     () => attempt(async () => {
       const { sdk, auth } = await authSdk()
@@ -201,9 +260,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       user, loading, isAdmin, emailVerified,
-      signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, resendVerification, signOut,
+      signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, resendVerification,
+      linkPassword, deleteAccount, signOut,
     }),
-    [user, loading, isAdmin, emailVerified, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, resendVerification, signOut]
+    [user, loading, isAdmin, emailVerified, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, resendVerification, linkPassword, deleteAccount, signOut]
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

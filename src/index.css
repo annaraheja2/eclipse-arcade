@@ -271,6 +271,9 @@ body::after {
   to   { transform: rotate(2.5deg) scale(1.15) }
 }
 
+/* Reduced motion: honored both from the OS setting AND the in-app Settings
+   toggle (which sets :root[data-reduced-motion="true"] — see lib/motion.ts).
+   Only the selectors are listed twice; the keyframes stay defined once above. */
 @media (prefers-reduced-motion: reduce) {
   body::before, .bulb, .blink-attract, .wordmark, .marquee-sign::before,
   .cab-live::before, .cab-shine::after, .spotlights,
@@ -280,7 +283,35 @@ body::after {
   /* pulse rings and sheens are motion-only accents — hide their static frame */
   .tn-ping, .tn-shine { display: none; }
   .tn-draw { stroke-dashoffset: 0; }
+  /* Still the Battleship ocean too — kept identical to the in-app-toggle block
+     below so an OS reduce-motion user gets the same calm as the settings toggle. */
+  .ocean::before, .ocean::after { animation: none; }
 }
+:root[data-reduced-motion="true"] body::before,
+:root[data-reduced-motion="true"] .bulb,
+:root[data-reduced-motion="true"] .blink-attract,
+:root[data-reduced-motion="true"] .wordmark,
+:root[data-reduced-motion="true"] .marquee-sign::before,
+:root[data-reduced-motion="true"] .cab-live::before,
+:root[data-reduced-motion="true"] .cab-shine::after,
+:root[data-reduced-motion="true"] .spotlights,
+:root[data-reduced-motion="true"] .tn-wave,
+:root[data-reduced-motion="true"] .tn-bob,
+:root[data-reduced-motion="true"] .tn-ping,
+:root[data-reduced-motion="true"] .tn-flame,
+:root[data-reduced-motion="true"] .tn-drift,
+:root[data-reduced-motion="true"] .tn-slide,
+:root[data-reduced-motion="true"] .tn-glowpulse,
+:root[data-reduced-motion="true"] .tn-cellblink,
+:root[data-reduced-motion="true"] .tn-draw,
+:root[data-reduced-motion="true"] .tn-fit,
+:root[data-reduced-motion="true"] .tn-shine { animation: none; }
+:root[data-reduced-motion="true"] .blink-attract { opacity: 1; }
+:root[data-reduced-motion="true"] .tn-ping,
+:root[data-reduced-motion="true"] .tn-shine { display: none; }
+:root[data-reduced-motion="true"] .tn-draw { stroke-dashoffset: 0; }
+:root[data-reduced-motion="true"] .ocean::before,
+:root[data-reduced-motion="true"] .ocean::after { animation: none; }
 
 /* faint grid overlay for the arcade-floor feel */
 .grid-floor {

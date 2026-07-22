@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Moon, Search, Coin, Flame, Bolt, Users, Bell, User } from '../icons'
+import { Moon, Search, Coin, Flame, Bolt, Users, Bell, User, Gear } from '../icons'
 import { GAMES, type GameDef } from '../lib/games'
 import GameThumbnail from '../components/GameThumbnail'
 import AccountControl from '../components/AccountControl'
@@ -82,7 +82,8 @@ function Hud() {
         </div>
         <div className="flex items-center gap-2.5 shrink-0">
           <IconBtn label="Friends" onClick={() => navigate('/friends')}><Users width={18} height={18} /></IconBtn>
-          <IconBtn dot><Bell width={18} height={18} /></IconBtn>
+          <IconBtn label="Settings" onClick={() => navigate('/settings')}><Gear width={18} height={18} /></IconBtn>
+          <IconBtn dot label="Notifications"><Bell width={18} height={18} /></IconBtn>
           {isFirebaseConfigured ? (
             <AccountControl />
           ) : (

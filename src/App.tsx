@@ -5,6 +5,7 @@ import Battleship from './pages/Battleship'
 import BattleshipPvp from './pages/BattleshipPvp'
 import Friends from './pages/Friends'
 import Admin from './pages/Admin'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
       <Route path="/friends" element={<Friends />} />
       <Route path="/play/:gameKey" element={<Game />} />
       <Route path="/admin" element={<Admin />} />
+      <Route path="/settings" element={<Settings />} />
     </Routes>
   )
 }
