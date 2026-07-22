@@ -1,15 +1,16 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  Moon, Search, Coin, Flame, Bolt, Users, Bell, User,
-  Target, Slide, Grid, Link2, Chart, Star, Ship,
-} from '../icons'
+import { Moon, Search, Coin, Flame, Bolt, Users, Bell, User } from '../icons'
 import { GAMES, type GameDef } from '../lib/games'
+import GameThumbnail from '../components/GameThumbnail'
 import { usePlayer, levelFromXp, isStreakAtRisk, todayStr } from '../lib/player'
 
-// React.CSSProperties has no index signature for custom properties; this widens it
-// only for the arcade-button accent vars consumed by `.arcade-btn` in index.css.
+// React.CSSProperties has no index signature for custom properties; these widen it
+// only for the accent vars consumed by `.arcade-btn` / `.cab-live` / `.wordmark`
+// in index.css.
 type ArcadeBtnVars = CSSProperties & { '--btn': string; '--edge': string; '--glow': string }
+type CabVars = CSSProperties & { '--cab'?: string }
+type WordmarkVars = CSSProperties & { '--wm': string; '--wm-glow': string }
 
 function arcadeBtnStyle(color: string): ArcadeBtnVars {
   return {
@@ -19,22 +20,22 @@ function arcadeBtnStyle(color: string): ArcadeBtnVars {
   }
 }
 
-const ICON: Record<string, ReactNode> = {
-  battleship: <Ship />, daily: <Star />, pinpoint: <Target />, slider: <Slide />,
-  gridfill: <Grid />, matchup: <Link2 />, fitline: <Chart />,
+function wordmarkStyle(color: string, glow: string): WordmarkVars {
+  return { '--wm': color, '--wm-glow': glow }
 }
 
 export default function Lobby() {
   return (
     <div className="min-h-screen">
-      <div className="pointer-events-none fixed inset-0 grid-floor" />
+      <div aria-hidden className="pointer-events-none fixed inset-0 grid-floor" />
+      <div aria-hidden className="pointer-events-none fixed inset-0 spotlights" />
       <div className="relative">
         <Hud />
         <main className="max-w-6xl mx-auto px-6 pb-24">
           <Hero />
           <section>
-            <h2 className="font-pixel text-[11px] tracking-wider text-neon-cyan neon-text mb-6">SELECT A GAME</h2>
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <SectionHeader>SELECT A GAME</SectionHeader>
+            <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
               {GAMES.map((g) => <Cabinet key={g.key} g={g} />)}
             </div>
           </section>
@@ -54,7 +55,7 @@ function Hud() {
           <span className="grid place-items-center w-10 h-10 rounded-xl bg-gradient-to-br from-neon-purple to-neon-violet text-white shadow-[0_0_18px_rgba(162,75,255,0.7)]">
             <Moon width={22} height={22} />
           </span>
-          <span className="hidden sm:block font-pixel text-[11px] tracking-wide text-white/90">ECLIPSE</span>
+          <span className="hidden sm:block font-display text-lg tracking-wide text-white/95">ECLIPSE</span>
         </div>
         <div className="flex-1 max-w-sm">
           <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 text-white/50 text-sm">
@@ -111,9 +112,13 @@ function Hero() {
     <section className="text-center py-12 sm:py-16">
       <div className="marquee-sign mx-auto max-w-2xl px-5 sm:px-8 py-4 select-none">
         <BulbRow />
-        <div className="font-pixel leading-[1.35] py-6 sm:py-8">
-          <span className="block text-3xl sm:text-5xl text-neon-cyan neon-text">ECLIPSE</span>
-          <span className="block text-3xl sm:text-5xl mt-3 text-neon-magenta neon-text">ARCADE</span>
+        <div className="leading-none py-6 sm:py-8">
+          <span className="wordmark block text-5xl sm:text-7xl" style={wordmarkStyle('#3df5ff', 'rgba(61,245,255,0.5)')}>
+            ECLIPSE
+          </span>
+          <span className="wordmark block text-5xl sm:text-7xl mt-2 sm:mt-3" style={wordmarkStyle('#ff3df0', 'rgba(255,61,240,0.5)')}>
+            ARCADE
+          </span>
         </div>
         <BulbRow />
       </div>
@@ -128,6 +133,21 @@ function Hero() {
       </div>
       <StreakBanner />
     </section>
+  )
+}
+
+// Section headers get theater-marquee framing: gradient rules + diamond studs.
+function SectionHeader({ children }: { children: string }) {
+  return (
+    <div className="flex items-center gap-4 mb-8">
+      <span aria-hidden className="h-px flex-1 bg-gradient-to-r from-transparent to-neon-cyan/70" />
+      <span aria-hidden className="w-1.5 h-1.5 rotate-45 bg-neon-cyan shadow-[0_0_8px_#3df5ff]" />
+      <h2 className="font-pixel text-[12px] sm:text-[13px] tracking-[0.25em] text-neon-cyan neon-text">
+        {children}
+      </h2>
+      <span aria-hidden className="w-1.5 h-1.5 rotate-45 bg-neon-cyan shadow-[0_0_8px_#3df5ff]" />
+      <span aria-hidden className="h-px flex-1 bg-gradient-to-l from-transparent to-neon-cyan/70" />
+    </div>
   )
 }
 
@@ -184,12 +204,17 @@ function Cabinet({ g }: { g: GameDef }) {
   const shadow = soon
     ? `${CAB_BEVEL}, 0 12px 24px -12px rgba(0,0,0,0.8)`
     : `${CAB_BEVEL}, 0 0 0 1px ${g.color}40, 0 16px 36px -14px ${g.color}70, 0 14px 28px -12px rgba(0,0,0,0.8)`
+  const cabStyle: CabVars = {
+    background: 'linear-gradient(180deg, #241543, #120a2c 60%, #0c0722)',
+    boxShadow: shadow,
+  }
+  if (!soon) cabStyle['--cab'] = g.color
   return (
     <button
       disabled={soon}
       onClick={() => { if (soon) return; navigate(g.type === 'battleship' ? '/battleship' : `/play/${g.key}`) }}
-      className={`cab group relative text-left rounded-[14px] border border-white/10 transition-transform duration-200 ${soon ? 'opacity-60 cursor-default' : 'hover:-translate-y-1 active:translate-y-0.5'}`}
-      style={{ background: 'linear-gradient(180deg, #241543, #120a2c 60%, #0c0722)', boxShadow: shadow }}
+      className={`cab group relative text-left rounded-[14px] border border-white/10 transition-transform duration-200 ${soon ? 'opacity-60 cursor-default' : 'cab-live hover:-translate-y-1 active:translate-y-0.5'}`}
+      style={cabStyle}
     >
       <div className="cab-marquee rounded-t-[13px]">
         <span
@@ -203,12 +228,11 @@ function Cabinet({ g }: { g: GameDef }) {
         </span>
       </div>
       <div
-        className="cab-screen relative h-40 grid place-items-center"
+        className="cab-screen relative h-40"
         style={{ background: `radial-gradient(120% 100% at 50% 0%, ${g.color}2e, transparent 70%), #050213` }}
       >
-        <span className="grid place-items-center w-20 h-20 rounded-2xl" style={{ color: g.color, background: `${g.color}1f`, boxShadow: soon ? 'none' : `0 0 30px ${g.color}77` }}>
-          <span className="[&>svg]:w-9 [&>svg]:h-9">{ICON[g.key]}</span>
-        </span>
+        <GameThumbnail g={g} />
+        <span aria-hidden className="cab-shine" />
         {g.key === 'daily' && !soon && (
           dailyDone
             ? <span className="absolute top-3 left-3 text-[9px] font-pixel px-2 py-1 rounded bg-neon-green text-[#04180f]">PLAYED</span>

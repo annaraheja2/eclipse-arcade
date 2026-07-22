@@ -47,8 +47,36 @@ body::after {
 }
 
 /* ===== Coin-op cabinet furniture ===== */
+/* Chrome-lit display lettering for the ECLIPSE ARCADE wordmark. The accent
+   comes in via --wm; the top-white → accent gradient stays bright end-to-end
+   so the letters clear AA on #0a0620 even before the glow. A slow sheen layer
+   sweeps across the clipped text (~0.2Hz — far under the 3Hz flash limit). */
+.wordmark {
+  font-family: 'Bungee', 'Press Start 2P', sans-serif;
+  letter-spacing: 0.04em;
+  background-image:
+    linear-gradient(115deg, rgba(255, 255, 255, 0) 42%, rgba(255, 255, 255, 0.85) 50%, rgba(255, 255, 255, 0) 58%),
+    linear-gradient(180deg, #fff 12%, var(--wm, #3df5ff) 58%, color-mix(in srgb, var(--wm, #3df5ff) 72%, #000) 100%);
+  background-size: 260% 100%, 100% 100%;
+  background-position: -140% 0, 0 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter:
+    drop-shadow(0 0 14px var(--wm-glow, rgba(61, 245, 255, 0.5)))
+    drop-shadow(0 0 36px var(--wm-glow, rgba(61, 245, 255, 0.35)))
+    drop-shadow(0 3px 0 rgba(0, 0, 0, 0.65));
+  animation: wmsheen 5.5s ease-in-out infinite;
+}
+@keyframes wmsheen {
+  0%, 55% { background-position: -140% 0, 0 0 }
+  100%    { background-position: 240% 0, 0 0 }
+}
+
 /* Lit marquee sign (lobby header) */
 .marquee-sign {
+  position: relative;
   border-radius: 18px;
   border: 2px solid rgba(255, 255, 255, 0.14);
   background: linear-gradient(180deg, #1e1244, #0d0724 70%);
@@ -58,6 +86,25 @@ body::after {
     0 0 46px rgba(162, 75, 255, 0.28),
     0 22px 50px -20px rgba(0, 0, 0, 0.9);
 }
+/* Rotating neon rim behind the sign — a casino light rope. Registered custom
+   property lets the conic angle itself animate; browsers without @property
+   simply show a static multicolor halo. Decorative and behind content. */
+@property --rim-a {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.marquee-sign::before {
+  content: '';
+  position: absolute; inset: -5px; z-index: -1; pointer-events: none;
+  border-radius: 23px;
+  background: conic-gradient(from var(--rim-a, 0deg),
+    #3df5ff, #a24bff 25%, #ff3df0 50%, #ffb43d 75%, #3df5ff);
+  filter: blur(11px);
+  opacity: 0.55;
+  animation: rimspin 9s linear infinite;
+}
+@keyframes rimspin { to { --rim-a: 360deg } }
 .bulb {
   width: 8px; height: 8px; border-radius: 9999px;
   background: radial-gradient(circle at 35% 30%, #fff2c4, #ffb43d 60%, #a86a12);
@@ -100,6 +147,47 @@ body::after {
   box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.06);
   border-radius: 0 0 13px 13px;
 }
+/* Playable cabinets get a rotating accent halo on hover/keyboard focus —
+   the "walk up and it lights up" arcade moment. Sits behind the cabinet
+   (z-index:-1) so it can never intercept clicks or hide the focus ring. */
+@property --cab-a {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.cab-live::before {
+  content: '';
+  position: absolute; inset: -4px; z-index: -1; pointer-events: none;
+  border-radius: 18px;
+  background: conic-gradient(from var(--cab-a, 0deg),
+    transparent 0deg 30deg, var(--cab, #3df5ff) 90deg, transparent 150deg 210deg,
+    var(--cab, #3df5ff) 270deg, transparent 330deg 360deg);
+  filter: blur(7px);
+  opacity: 0;
+  transition: opacity 250ms ease;
+  animation: cabspin 3.2s linear infinite paused;
+}
+.cab-live:hover::before, .cab-live:focus-visible::before {
+  opacity: 0.9;
+  animation-play-state: running;
+}
+@keyframes cabspin { to { --cab-a: 360deg } }
+/* screen sheen that glides across on hover — premium-glass feel */
+.cab-shine {
+  position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  border-radius: inherit;
+}
+.cab-shine::after {
+  content: '';
+  position: absolute; top: -20%; bottom: -20%; left: -35%; width: 30%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.13), transparent);
+  transform: skewX(-16deg) translateX(0);
+}
+.cab-live:hover .cab-shine::after, .cab-live:focus-visible .cab-shine::after {
+  animation: cabshine 900ms ease-out;
+}
+@keyframes cabshine { to { transform: skewX(-16deg) translateX(520%) } }
+
 /* decorative control-panel hardware */
 .joy {
   position: relative; width: 15px; height: 15px; border-radius: 9999px;
@@ -129,9 +217,69 @@ body::after {
   box-shadow: 0 1px 0 var(--edge, #135560), 0 2px 6px rgba(0, 0, 0, 0.5), 0 0 10px var(--glow, transparent);
 }
 
+/* ===== Cabinet-screen thumbnails (GameThumbnail.tsx) =====
+   All motion is slow (>=1.8s periods — well under the 3Hz flash ceiling),
+   transform/opacity only, and fully disabled under prefers-reduced-motion. */
+.tn { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.tn-wave { animation: tnWave 7s linear infinite; }
+@keyframes tnWave { to { transform: translateX(-50px) } }
+.tn-bob { transform-box: fill-box; transform-origin: center; animation: tnBob 4.5s ease-in-out infinite; }
+@keyframes tnBob { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-2.5px) } }
+.tn-ping { transform-box: fill-box; transform-origin: center; animation: tnPing 2.2s ease-out infinite; }
+@keyframes tnPing {
+  0%       { transform: scale(0.35); opacity: 0.9 }
+  70%, 100% { transform: scale(1.5); opacity: 0 }
+}
+.tn-flame { transform-box: fill-box; transform-origin: 50% 90%; animation: tnFlame 1.1s ease-in-out infinite; }
+@keyframes tnFlame { 0%, 100% { transform: scale(1) } 50% { transform: scale(0.82) } }
+.tn-drift { transform-box: fill-box; transform-origin: center; animation: tnDrift 3.6s ease-in-out infinite; }
+@keyframes tnDrift {
+  0%, 100% { transform: translate(0, 0) }
+  50%      { transform: translate(5px, -4px) }
+}
+.tn-slide { animation: tnSlide 2.8s ease-in-out infinite; }
+@keyframes tnSlide { 0%, 100% { transform: translateX(0) } 55%, 70% { transform: translateX(30px) } }
+.tn-glowpulse { animation: tnGlow 2.2s ease-in-out infinite; }
+@keyframes tnGlow { 0%, 100% { opacity: 1 } 50% { opacity: 0.55 } }
+.tn-cellblink { animation: tnCell 2.4s ease-in-out infinite; }
+@keyframes tnCell { 0%, 100% { fill-opacity: 0.8 } 50% { fill-opacity: 0.25 } }
+.tn-draw { stroke-dasharray: 72; animation: tnDraw 3.2s ease-in-out infinite; }
+@keyframes tnDraw {
+  0%        { stroke-dashoffset: 72; opacity: 1 }
+  45%, 75%  { stroke-dashoffset: 0;  opacity: 1 }
+  95%, 100% { stroke-dashoffset: 0;  opacity: 0 }
+}
+.tn-fit { transform-box: fill-box; transform-origin: center; animation: tnFit 5s ease-in-out infinite; }
+@keyframes tnFit { 0%, 100% { transform: rotate(-2.5deg) } 50% { transform: rotate(2deg) } }
+/* parks off-canvas (rect sits at x < -20 in the viewBox) between sweeps */
+.tn-shine { animation: tnShine 4.5s ease-in-out infinite; }
+@keyframes tnShine {
+  0%, 55% { transform: translateX(0) skewX(-18deg) }
+  100%    { transform: translateX(300px) skewX(-18deg) }
+}
+
+/* slow, faint spotlight beams sweeping the arcade floor behind everything */
+.spotlights {
+  transform-origin: 50% 0%;
+  background:
+    conic-gradient(from 199deg at 16% -12%, transparent 0 41%, rgba(61, 245, 255, 0.08) 47%, transparent 53%),
+    conic-gradient(from 155deg at 84% -12%, transparent 0 41%, rgba(255, 61, 240, 0.08) 47%, transparent 53%);
+  animation: spotsway 16s ease-in-out infinite alternate;
+}
+@keyframes spotsway {
+  from { transform: rotate(-2.5deg) scale(1.15) }
+  to   { transform: rotate(2.5deg) scale(1.15) }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  body::before, .bulb, .blink-attract { animation: none; }
+  body::before, .bulb, .blink-attract, .wordmark, .marquee-sign::before,
+  .cab-live::before, .cab-shine::after, .spotlights,
+  .tn-wave, .tn-bob, .tn-ping, .tn-flame, .tn-drift, .tn-slide,
+  .tn-glowpulse, .tn-cellblink, .tn-draw, .tn-fit, .tn-shine { animation: none; }
   .blink-attract { opacity: 1; }
+  /* pulse rings and sheens are motion-only accents — hide their static frame */
+  .tn-ping, .tn-shine { display: none; }
+  .tn-draw { stroke-dashoffset: 0; }
 }
 
 /* faint grid overlay for the arcade-floor feel */
