@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { User as UserIcon } from '../icons'
 
@@ -103,9 +104,13 @@ function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void })
           {user?.email}
         </span>
         {isAdmin && (
-          <span className="shrink-0 font-pixel text-[8px] px-1.5 py-1 rounded bg-neon-amber text-[#2a1a00]">
+          <Link
+            to="/admin"
+            onClick={() => onClose(false)}
+            className="shrink-0 font-pixel text-[8px] px-1.5 py-1 rounded bg-neon-amber text-[#2a1a00] hover:brightness-110"
+          >
             ADMIN
-          </span>
+          </Link>
         )}
       </div>
       {error && <p role="alert" className="mt-2 text-sm text-[#ff9dbd]">{error}</p>}

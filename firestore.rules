@@ -93,6 +93,16 @@ service cloud.firestore {
              ['coins', 'xp', 'streak', 'lastPlayed', 'bests', 'email', 'updatedAt']);
     }
 
+    // Arcade curriculum content: one whole-course doc per course (see
+    // src/lib/content.ts). Anyone can read — the game loads it signed-out;
+    // only arcade admins can write, and the stored updatedBy must be the
+    // writing admin's own email.
+    match /arcadeContent/{courseId} {
+      allow read: if true;
+      allow write: if isArcadeAdmin()
+        && request.resource.data.updatedBy == request.auth.token.email;
+    }
+
     // Anything not matched above is denied (Firestore's implicit default;
     // stated here for clarity).
     match /{document=**} {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { COURSES, type Unit, type Subunit, type Question } from '../data/subjects'
+import { COURSES, type Course, type Unit, type Subunit, type Question } from '../data/subjects'
+import { loadCourse } from '../lib/content'
 import {
   N, shipCells, placementOk, randomFleet, allSunk, isSunk, keyOf, aiPick,
   shipAt, isHoriz, anchorOf, moveShip, rotateShip, nearestValidAnchor,
@@ -18,7 +19,7 @@ const CY = '#3df5ff'
 const CY_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': string } = {
   '--btn': CY, '--edge': `color-mix(in srgb, ${CY} 50%, #000)`, '--glow': `${CY}88`,
 }
-const course = COURSES[0] // Algebra 1 (from profile later)
+const COURSE_ID = COURSES[0].id // Algebra 1 (from profile later)
 
 function impactSound(result: 'miss' | 'hit' | 'sunk') {
   sfxFire()
@@ -46,8 +47,17 @@ export default function Battleship() {
   const navigate = useNavigate()
   const { finishGame } = usePlayer()
   const [ph, setPh] = useState<Phase>('unit')
+  // Firestore-backed when configured; loadCourse falls back to the bundled
+  // course on any failure, so null only ever means "still loading".
+  const [course, setCourse] = useState<Course | null>(null)
   const [unit, setUnit] = useState<Unit | null>(null)
   const [sub, setSub] = useState<Subunit | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void loadCourse(COURSE_ID).then((c) => { if (!cancelled) setCourse(c) })
+    return () => { cancelled = true }
+  }, [])
 
   // placement — all ships start placed; player rearranges via drag / tap / keyboard.
   const [placed, setPlaced] = useState<Ship[]>([])
@@ -245,7 +255,11 @@ export default function Battleship() {
           <button aria-label={muted ? 'Unmute sound' : 'Mute sound'} onClick={() => { const m = !muted; setMuted(m); setMutedState(m) }} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">{muted ? <VolumeMute width={18} height={18} /> : <Volume width={18} height={18} />}</button>
         </div>
 
-        {ph === 'unit' && (
+        {ph === 'unit' && !course && (
+          <p className="text-center text-white/70 font-pixel text-[10px] py-16">LOADING COURSE…</p>
+        )}
+
+        {ph === 'unit' && course && (
           <Section title="CHOOSE A UNIT">
             <div className="grid gap-3 sm:grid-cols-2">
               {course.units.map((u) => (
