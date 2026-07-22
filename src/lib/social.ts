@@ -25,6 +25,7 @@
 // id derivation, adjudication — unit-tested), the Firestore boundary at the
 // bottom using the lazy-SDK pattern from lib/firebase.ts.
 import { applyFire, allSunk, N, type Ship, type Cell } from './battleship'
+import type { Difficulty } from '../data/subjects'
 import { getFirebaseDb } from './firebase'
 
 // ---------------------------------------------------------------------------
@@ -48,7 +49,20 @@ export interface Friendship {
   createdAtMs: number
 }
 
-export interface QueueEntry { uid: string; email: string; createdAtMs: number }
+/**
+ * A player's chosen topic, carried from the pre-matchmaking pickers into the
+ * queue/match. `difficulty` (mirrored from the subunit) is the ONLY field the
+ * server cross-checks: quick-match pairing requires both players to share it.
+ * The course/unit/subunit ids just let each client load its OWN questions.
+ */
+export interface Selection {
+  courseId: string
+  unitId: string
+  subunitId: string
+  difficulty: Difficulty
+}
+
+export interface QueueEntry { uid: string; email: string; sel: Selection; createdAtMs: number }
 
 export type MatchStatus = 'invite' | 'placing' | 'active' | 'done'
 export type EndReason = 'fleet-sunk' | 'forfeit' | 'timeout'
@@ -60,7 +74,11 @@ export interface Match {
   turn: string // uid whose move it is
   winner: string | null
   endReason: EndReason | null
-  courseId: string
+  // Each player's own topic selection. For a friend invite both entries are the
+  // inviter's pick (invitee plays the same subunit); for a quick match each
+  // holds that player's own same-difficulty pick. A client only ever trusts
+  // its OWN entry — to load its questions — and falls back gracefully if absent.
+  sel: Record<string, Selection>
   ready: Record<string, boolean> // uid -> fleet locked in
   createdAtMs: number
   updatedAtMs: number
@@ -138,6 +156,35 @@ function millisOf(v: unknown): number {
 const gridInt = (v: unknown): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < N
 
+const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
+
+/** Narrows an untrusted topic selection (queue field / match map value), or null. */
+export function toSelection(v: unknown): Selection | null {
+  if (!isRecord(v)) return null
+  const { courseId, unitId, subunitId, difficulty } = v
+  if (!str(courseId) || !str(unitId) || !str(subunitId)) return null
+  if (!str(difficulty) || !(DIFFICULTIES as readonly string[]).includes(difficulty)) return null
+  return { courseId, unitId, subunitId, difficulty: difficulty as Difficulty }
+}
+
+/** Plain, extra-field-free payload for Firestore writes. */
+function selData(sel: Selection): Selection {
+  return { courseId: sel.courseId, unitId: sel.unitId, subunitId: sel.subunitId, difficulty: sel.difficulty }
+}
+
+/**
+ * The oldest queued opponent at MY difficulty, or null if none is waiting.
+ * `candidates` is expected oldest-first (the query orders by createdAt); this
+ * preserves that order and only ever returns a same-difficulty entry, which is
+ * the sole pairing rule. Pure — unit-tested alongside the queue narrowing.
+ */
+export function pickOpponent(myDifficulty: Difficulty, candidates: readonly QueueEntry[]): QueueEntry | null {
+  for (const c of candidates) {
+    if (c.sel.difficulty === myDifficulty) return c
+  }
+  return null
+}
+
 const REQUEST_STATUSES: readonly RequestStatus[] = ['pending', 'accepted', 'declined']
 const MATCH_STATUSES: readonly MatchStatus[] = ['invite', 'placing', 'active', 'done']
 const END_REASONS: readonly EndReason[] = ['fleet-sunk', 'forfeit', 'timeout']
@@ -164,19 +211,29 @@ export function toFriendship(id: string, data: unknown): Friendship | null {
 /** Narrows an untrusted matchQueue doc, or null if malformed. */
 export function toQueueEntry(id: string, data: unknown): QueueEntry | null {
   if (!isRecord(data) || !str(data.uid) || data.uid !== id || !str(data.email)) return null
-  return { uid: data.uid, email: data.email, createdAtMs: millisOf(data.createdAt) }
+  // The selection lives as flat fields on the doc (rules validate each one).
+  const sel = toSelection({ courseId: data.courseId, unitId: data.unitId, subunitId: data.subunitId, difficulty: data.difficulty })
+  if (!sel) return null
+  return { uid: data.uid, email: data.email, sel, createdAtMs: millisOf(data.createdAt) }
 }
 
 /** Narrows an untrusted matches doc, or null if malformed. */
 export function toMatch(id: string, data: unknown): Match | null {
   if (!isRecord(data)) return null
-  const { players, status, turn, courseId } = data
+  const { players, status, turn } = data
   if (!Array.isArray(players) || players.length !== 2 || !players.every(str)) return null
   if (!str(status) || !(MATCH_STATUSES as readonly string[]).includes(status)) return null
-  if (!str(turn) || !str(courseId)) return null
+  if (!str(turn)) return null
   const emails: Record<string, string> = {}
   if (isRecord(data.emails)) {
     for (const [k, v] of Object.entries(data.emails)) if (str(v)) emails[k] = v
+  }
+  const sel: Record<string, Selection> = {}
+  if (isRecord(data.sel)) {
+    for (const [k, v] of Object.entries(data.sel)) {
+      const s = toSelection(v)
+      if (s) sel[k] = s
+    }
   }
   const ready: Record<string, boolean> = {}
   if (isRecord(data.ready)) {
@@ -189,7 +246,7 @@ export function toMatch(id: string, data: unknown): Match | null {
       : null
   return {
     id, players: [players[0], players[1]], emails, status: status as MatchStatus,
-    turn, winner, endReason, courseId, ready,
+    turn, winner, endReason, sel, ready,
     createdAtMs: millisOf(data.createdAt), updatedAtMs: millisOf(data.updatedAt),
   }
 }
@@ -265,7 +322,6 @@ export function shotMarks(shots: Shot[]): Record<string, 'hit' | 'miss'> {
 
 export interface StoredMatch {
   fleet: Ship[]
-  subunitId: string | null
 }
 
 const matchKey = (matchId: string) => `eclipse-arcade:match:${matchId}`
@@ -286,7 +342,7 @@ export function toStoredMatch(data: unknown): StoredMatch | null {
     fleet.push({ id: raw.id, size: raw.size, cells, hits: 0 })
   }
   if (fleet.length === 0) return null
-  return { fleet, subunitId: str(data.subunitId) ? data.subunitId : null }
+  return { fleet }
 }
 
 export function loadStoredMatch(matchId: string): StoredMatch | null {
@@ -305,7 +361,7 @@ export function saveStoredMatch(matchId: string, stored: StoredMatch): boolean {
   try {
     localStorage.setItem(
       matchKey(matchId),
-      JSON.stringify({ ...stored, fleet: stored.fleet.map((s) => ({ id: s.id, size: s.size, cells: s.cells })) })
+      JSON.stringify({ fleet: stored.fleet.map((s) => ({ id: s.id, size: s.size, cells: s.cells })) })
     )
     return true
   } catch { return false }
@@ -476,9 +532,13 @@ export function subscribeFriendships(
 
 // ----- quick-match queue -----
 
-export async function joinQueue(uid: string, email: string): Promise<void> {
+export async function joinQueue(uid: string, email: string, sel: Selection): Promise<void> {
   const { sdk, db } = await fs()
-  await sdk.setDoc(sdk.doc(db, QUEUE, uid), { uid, email, createdAt: sdk.serverTimestamp() })
+  await sdk.setDoc(sdk.doc(db, QUEUE, uid), {
+    uid, email,
+    courseId: sel.courseId, unitId: sel.unitId, subunitId: sel.subunitId, difficulty: sel.difficulty,
+    createdAt: sdk.serverTimestamp(),
+  })
 }
 
 /** Best-effort on cleanup paths — deleting an already-removed doc is a no-op. */
@@ -502,28 +562,45 @@ class PairAbort extends Error {}
  * return null and stay queued — our own queue doc is already up, so the next
  * joiner pairs with us and our match subscription picks the new match up.
  *
+ * DIFFICULTY MATCHING: only a candidate queued at MY difficulty is a valid
+ * opponent (pickOpponent filters the fetched page), and the transaction
+ * re-reads the candidate's fresh queue doc to re-confirm the difficulty still
+ * matches before committing. firestore.rules independently enforces the same
+ * equality (comparing both queue docs), so a hacked client cannot pair across
+ * difficulties even if it skips this check.
+ *
  * The queued (waiting) player gets the first turn.
  */
-export async function attemptPair(uid: string, email: string, courseId: string): Promise<string | null> {
+export async function attemptPair(uid: string, email: string, sel: Selection): Promise<string | null> {
   const { sdk, db } = await fs()
-  const snap = await sdk.getDocs(sdk.query(sdk.collection(db, QUEUE), sdk.orderBy('createdAt'), sdk.limit(8)))
-  const candidates: QueueEntry[] = []
+  // Widen the page (vs. the pre-difficulty limit of 8) so same-difficulty
+  // opponents aren't crowded out by other tiers queued ahead of them.
+  const snap = await sdk.getDocs(sdk.query(sdk.collection(db, QUEUE), sdk.orderBy('createdAt'), sdk.limit(24)))
+  const all: QueueEntry[] = []
   snap.forEach((d) => {
     const entry = toQueueEntry(d.id, d.data())
-    if (entry && entry.uid !== uid) candidates.push(entry)
+    if (entry && entry.uid !== uid) all.push(entry)
   })
+  // Only same-difficulty candidates, oldest first.
+  const candidates = all.filter((c) => c.sel.difficulty === sel.difficulty)
   for (const cand of candidates) {
     try {
       return await sdk.runTransaction(db, async (tx) => {
         const candRef = sdk.doc(db, QUEUE, cand.uid)
         const fresh = await tx.get(candRef)
         if (!fresh.exists()) throw new PairAbort()
+        // Re-confirm the candidate's difficulty from the authoritative fresh
+        // read — they may have re-queued at a different level since the page load.
+        const freshCand = toQueueEntry(cand.uid, fresh.data())
+        if (!freshCand || freshCand.sel.difficulty !== sel.difficulty) throw new PairAbort()
         const matchRef = sdk.doc(sdk.collection(db, MATCHES))
         tx.set(matchRef, {
           players: [uid, cand.uid],
           emails: { [uid]: email, [cand.uid]: cand.email },
           status: 'placing', turn: cand.uid, winner: null, endReason: null,
-          courseId, ready: {},
+          // Each player answers their OWN chosen subunit (same difficulty tier).
+          sel: { [uid]: selData(sel), [cand.uid]: selData(freshCand.sel) },
+          ready: {},
           createdAt: sdk.serverTimestamp(), updatedAt: sdk.serverTimestamp(),
         })
         tx.delete(candRef)
@@ -540,16 +617,21 @@ export async function attemptPair(uid: string, email: string, courseId: string):
 
 // ----- matches -----
 
-/** Creates a friend-invite match. The inviter (players[0]) moves first. */
+/**
+ * Creates a friend-invite match on the inviter's chosen subunit. The inviter
+ * (players[0]) moves first, and the invitee plays the SAME subunit — so both
+ * entries in `sel` carry the inviter's selection.
+ */
 export async function createInviteMatch(
-  me: { uid: string; email: string }, friend: { uid: string; email: string }, courseId: string
+  me: { uid: string; email: string }, friend: { uid: string; email: string }, sel: Selection
 ): Promise<string> {
   const { sdk, db } = await fs()
   const ref = await sdk.addDoc(sdk.collection(db, MATCHES), {
     players: [me.uid, friend.uid],
     emails: { [me.uid]: me.email, [friend.uid]: friend.email },
     status: 'invite', turn: me.uid, winner: null, endReason: null,
-    courseId, ready: {},
+    sel: { [me.uid]: selData(sel), [friend.uid]: selData(sel) },
+    ready: {},
     createdAt: sdk.serverTimestamp(), updatedAt: sdk.serverTimestamp(),
   })
   return ref.id

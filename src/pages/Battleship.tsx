@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { COURSES, COURSE_LIST, type Course, type Unit, type Subunit, type Question } from '../data/subjects'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { COURSE_LIST, type Course, type Unit, type Subunit, type Question } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import {
   randomFleet, allSunk, isSunk, keyOf, aiPick, applyFire,
@@ -17,7 +17,7 @@ import { isFirebaseConfigured } from '../lib/firebase'
 import {
   subscribeFriendships, subscribeMyMatches, createInviteMatch,
   joinQueue, leaveQueue, attemptPair,
-  type Friendship,
+  type Friendship, type Selection,
 } from '../lib/social'
 import { ArrowLeft, Volume, VolumeMute, Target } from '../icons'
 import { sfxFire, sfxHit, sfxMiss, sfxSink, sfxWin, setMuted, isMuted } from '../lib/sound'
@@ -27,17 +27,16 @@ const CY = '#3df5ff'
 const CY_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': string } = {
   '--btn': CY, '--edge': `color-mix(in srgb, ${CY} 50%, #000)`, '--glow': `${CY}88`,
 }
-// PvP (invites + quick match) stays on this single course for now; only the
-// vs-AI flow lets the player pick from all courses (see the 'course' phase),
-// where their profile's preferred math level is pre-highlighted.
-const COURSE_ID = COURSES[0].id // Algebra 1
-
 function impactSound(result: 'miss' | 'hit' | 'sunk') {
   sfxFire()
   setTimeout(() => (result === 'miss' ? sfxMiss() : result === 'sunk' ? sfxSink() : sfxHit()), 320)
 }
 
 type Phase = 'mode' | 'friend' | 'queue' | 'course' | 'unit' | 'subunit' | 'place' | 'battle' | 'over'
+// Which opponent the course→unit→subunit pickers are feeding: the local AI, a
+// friend invite, or the quick-match queue. Chosen on the mode screen; the
+// subunit pick then routes to the matching next phase.
+type Intent = 'ai' | 'friend' | 'quick'
 interface Battle { enemy: Ship[]; placed: Ship[]; pShots: Shots; eShots: Shots; phase: 'q' | 'aim'; q: Question; msg: string; busy: boolean; lastP?: string; lastE?: string }
 
 const randomQ = (s: Subunit): Question => s.questions[Math.floor(Math.random() * s.questions.length)]
@@ -50,9 +49,14 @@ export default function Battleship() {
   // The player's preferred math level pre-selects in the vs-AI course picker.
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
   const [ph, setPh] = useState<Phase>('mode')
-  // vs-AI course selection. Firestore-backed when configured; loadCourse falls
-  // back to the bundled course on any failure, so course=null while aiCourseId
-  // is set only ever means "still loading".
+  // What the pickers are choosing FOR (set on the mode screen).
+  const [intent, setIntent] = useState<Intent>('ai')
+  // The picked topic, carried into a friend invite / the quick-match queue.
+  const [pvpSel, setPvpSel] = useState<Selection | null>(null)
+  // Course selection. Firestore-backed when configured; loadCourse falls back
+  // to the bundled course on any failure, so course=null while aiCourseId is
+  // set only ever means "still loading". (Named aiCourseId for history; it now
+  // also feeds friend/quick selections.)
   const [aiCourseId, setAiCourseId] = useState<string | null>(null)
   const [course, setCourse] = useState<Course | null>(null)
   const [unit, setUnit] = useState<Unit | null>(null)
@@ -79,6 +83,20 @@ export default function Battleship() {
   const [friends, setFriends] = useState<Friendship[] | null>(null)
   const [onlineError, setOnlineError] = useState('')
   const [invitingUid, setInvitingUid] = useState<string | null>(null)
+  // Set when the Friends page routed us here to challenge a specific friend:
+  // we run the topic pickers, then invite THIS friend directly (skip the list).
+  const [inviteTarget, setInviteTarget] = useState<{ uid: string; email: string } | null>(null)
+
+  const location = useLocation()
+  useEffect(() => {
+    const st = location.state as { pvpInvite?: { uid: string; email: string } } | null
+    if (!st?.pvpInvite) return
+    setIntent('friend')
+    setInviteTarget(st.pvpInvite)
+    setPh('course')
+    // Clear the router state so a refresh or a back-nav can't re-trigger the invite.
+    navigate('/battleship', { replace: true })
+  }, [location.state, navigate])
 
   useEffect(() => {
     if (ph !== 'friend' || !user) return
@@ -91,16 +109,15 @@ export default function Battleship() {
     )
   }, [ph, user])
 
-  async function inviteFriend(f: Friendship) {
+  async function sendInvite(targetUid: string, targetEmail: string, sel: Selection) {
     if (!user || invitingUid) return
-    const idx = f.uids[0] === user.uid ? 1 : 0
-    setInvitingUid(f.uids[idx])
+    setInvitingUid(targetUid)
     setOnlineError('')
     try {
       const id = await createInviteMatch(
         { uid: user.uid, email: (user.email ?? '').toLowerCase() },
-        { uid: f.uids[idx], email: f.emails[idx] },
-        COURSE_ID
+        { uid: targetUid, email: targetEmail },
+        sel
       )
       navigate(`/battleship/pvp/${id}`)
     } catch (err) {
@@ -110,14 +127,23 @@ export default function Battleship() {
     }
   }
 
+  // Friend-list entry point: the topic (pvpSel) was chosen before this list.
+  function inviteFriend(f: Friendship) {
+    if (!user || !pvpSel) return
+    const idx = f.uids[0] === user.uid ? 1 : 0
+    void sendInvite(f.uids[idx], f.emails[idx], pvpSel)
+  }
+
   // Quick match: establish the match-subscription BASELINE first (so a match
   // created the instant we become discoverable can't be mistaken for a
-  // pre-existing one), then put our queue doc up and try to pair with the
-  // oldest waiting player. If nobody's there we stay queued; the next
-  // joiner's transaction creates the match, which our subscription spots
-  // (any placing match not present in the baseline snapshot).
+  // pre-existing one), then put our queue doc up (carrying our chosen
+  // difficulty + subunit) and try to pair with the oldest waiting player AT THE
+  // SAME DIFFICULTY. If nobody matches we stay queued; the next same-difficulty
+  // joiner's transaction creates the match, which our subscription spots (any
+  // placing match not present in the baseline snapshot).
   useEffect(() => {
-    if (ph !== 'queue' || !user) return
+    if (ph !== 'queue' || !user || !pvpSel) return
+    const sel = pvpSel
     let active = true
     const uid = user.uid
     const email = (user.email ?? '').toLowerCase()
@@ -138,8 +164,8 @@ export default function Battleship() {
       try {
         await baseline // don't join until the baseline snapshot is captured
         if (!active) return
-        await joinQueue(uid, email)
-        const matchId = await attemptPair(uid, email, COURSE_ID)
+        await joinQueue(uid, email, sel)
+        const matchId = await attemptPair(uid, email, sel)
         if (matchId && active) { active = false; navigate(`/battleship/pvp/${matchId}`) }
       } catch (err) {
         console.error('[eclipse-arcade] quick match failed:', err)
@@ -152,7 +178,7 @@ export default function Battleship() {
       unsub()
       leaveQueue(uid).catch((err: unknown) => console.error('[eclipse-arcade] leave queue failed:', err))
     }
-  }, [ph, user, navigate])
+  }, [ph, user, navigate, pvpSel])
 
   // ----- vs-AI battle (unchanged) -----
 
@@ -210,12 +236,28 @@ export default function Battleship() {
     }, 900)
   }
 
+  // The topic pickers feed all three intents; the subunit pick routes onward.
+  function chooseSubunit(s: Subunit) {
+    if (!aiCourseId || !unit) return
+    setSub(s)
+    if (intent === 'ai') { setPlaced(randomFleet()); setPh('place'); return }
+    const sel: Selection = { courseId: aiCourseId, unitId: unit.id, subunitId: s.id, difficulty: s.difficulty }
+    setPvpSel(sel)
+    if (intent === 'friend') {
+      if (inviteTarget) { void sendInvite(inviteTarget.uid, inviteTarget.email, sel); return }
+      setPh('friend') // pick which friend to challenge
+      return
+    }
+    setPh('queue') // quick match
+  }
+
   const back = () => navigate('/')
   function goBack() {
     if (ph === 'mode') { back(); return }
-    if (ph === 'friend' || ph === 'queue' || ph === 'course') { setPh('mode'); return }
+    if (ph === 'course') { setPh('mode'); return }
     if (ph === 'unit') { setPh('course'); return }
     if (ph === 'subunit') { setUnit(null); setPh('unit'); return }
+    if (ph === 'friend' || ph === 'queue') { setPh('subunit'); return }
     if (ph === 'place') { setSub(null); setPlaced([]); setPh('subunit'); return }
     setPh('mode')
   }
@@ -244,11 +286,11 @@ export default function Battleship() {
             {onlineError && <p role="alert" className="text-center text-sm text-[#ff9dbd] mb-4">{onlineError}</p>}
             <div className="grid gap-3">
               <ModeButton color={CY} title="VS AI" desc="Battle the computer — answer questions to earn your shots."
-                onClick={() => setPh('course')} />
-              <ModeButton color="#ff3df0" title="VS FRIEND" desc="Challenge a friend to a live head-to-head battle."
-                disabled={!onlineReady} onClick={() => setPh('friend')} />
-              <ModeButton color="#3dffa2" title="QUICK MATCH" desc="Get paired with another player who's looking for a battle."
-                disabled={!onlineReady} onClick={() => setPh('queue')} />
+                onClick={() => { setIntent('ai'); setInviteTarget(null); setPh('course') }} />
+              <ModeButton color="#ff3df0" title="VS FRIEND" desc="Pick a topic, then challenge a friend to a live head-to-head battle."
+                disabled={!onlineReady} onClick={() => { setIntent('friend'); setInviteTarget(null); setPh('course') }} />
+              <ModeButton color="#3dffa2" title="QUICK MATCH" desc="Pick a topic and get paired with a player at the same difficulty."
+                disabled={!onlineReady} onClick={() => { setIntent('quick'); setInviteTarget(null); setPh('course') }} />
             </div>
             {!online && (
               <p className="text-center text-sm text-white/65 mt-4">Online play is unavailable in this build.</p>
@@ -269,6 +311,11 @@ export default function Battleship() {
 
         {ph === 'friend' && (
           <Section title="CHALLENGE A FRIEND">
+            {sub && (
+              <p className="text-center text-sm text-white/65 mb-4">
+                Both of you play <span className="font-semibold text-white/90">{sub.name}</span> ({sub.difficulty}).
+              </p>
+            )}
             {onlineError && <p role="alert" className="text-center text-sm text-[#ff9dbd] mb-4">{onlineError}</p>}
             {friends === null && !onlineError && (
               <p className="text-center text-white/70 font-pixel text-[10px] py-10">LOADING FRIENDS…</p>
@@ -303,9 +350,11 @@ export default function Battleship() {
           <Section title="QUICK MATCH">
             <div className="text-center py-10">
               <p className="font-pixel text-[11px] text-neon-green mb-3" aria-live="polite">
-                <span className="blink-attract">SEARCHING FOR AN OPPONENT…</span>
+                <span className="blink-attract">SEARCHING FOR A {(pvpSel?.difficulty ?? '').toUpperCase()} OPPONENT…</span>
               </p>
-              <p className="text-sm text-white/65 mb-6">You'll be dropped into the battle as soon as someone joins.</p>
+              <p className="text-sm text-white/65 mb-6">
+                You'll be paired with a player at the same difficulty. Each of you answers your own topic to earn shots.
+              </p>
               <Btn onClick={() => setPh('mode')}>CANCEL</Btn>
             </div>
           </Section>
@@ -361,14 +410,15 @@ export default function Battleship() {
               <div className="grid gap-3 sm:grid-cols-2">
                 {unit.subunits.map((s) => {
                   const empty = s.questions.length === 0
+                  const modeLabel = intent === 'ai' ? 'vs AI' : intent === 'friend' ? 'vs friend' : 'quick match'
                   return (
-                    <button key={s.id} onClick={() => { setSub(s); setPlaced(randomFleet()); setPh('place') }} disabled={empty}
+                    <button key={s.id} onClick={() => chooseSubunit(s)} disabled={empty}
                       className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 transition enabled:hover:border-neon-cyan/60 disabled:opacity-45 disabled:cursor-default">
                       <div className="flex items-center justify-between">
                         <span className="font-bold">{s.name}</span>
                         <DiffBadge d={s.difficulty} />
                       </div>
-                      <div className="text-xs text-white/60 mt-1 uppercase tracking-wide">{empty ? 'No questions yet' : `${s.type} · vs AI`}</div>
+                      <div className="text-xs text-white/60 mt-1 uppercase tracking-wide">{empty ? 'No questions yet' : `${s.type} · ${modeLabel}`}</div>
                     </button>
                   )
                 })}

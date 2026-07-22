@@ -2,16 +2,15 @@
 // rejoin Battleship matches. Everything here requires sign-in; the Firestore
 // helpers live in lib/social.ts.
 import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
 import AccountControl from '../components/AccountControl'
 import VerifyEmailNotice from '../components/VerifyEmailNotice'
-import { COURSES } from '../data/subjects'
 import {
   normalizeEmail, sendFriendRequest, hasPendingRequest, respondToRequest, removeFriend,
   subscribeIncomingRequests, subscribeFriendships, subscribeMyMatches,
-  createInviteMatch, acceptInvite, deleteInviteMatch,
+  acceptInvite, deleteInviteMatch,
   type FriendRequest, type Friendship, type Match,
 } from '../lib/social'
 import { displayNameFor } from '../lib/username'
@@ -108,7 +107,7 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
       )}
       <AddFriend uid={uid} email={email} friends={friends ?? []} />
       <RequestsSection uid={uid} requests={requests} usernames={usernames} />
-      <FriendsSection uid={uid} email={email} friends={friends} matches={matches ?? []} usernames={usernames} navigate={navigate} />
+      <FriendsSection uid={uid} friends={friends} matches={matches ?? []} usernames={usernames} navigate={navigate} />
     </div>
   )
 }
@@ -275,29 +274,22 @@ function RequestsSection({ uid, requests, usernames }: {
 
 // ----- friends list -----
 
-function FriendsSection({ uid, email, friends, matches, usernames, navigate }: {
-  uid: string; email: string; friends: Friendship[] | null; matches: Match[]
-  usernames: Record<string, string>; navigate: (to: string) => void
+function FriendsSection({ uid, friends, matches, usernames, navigate }: {
+  uid: string; friends: Friendship[] | null; matches: Match[]
+  usernames: Record<string, string>; navigate: NavigateFunction
 }) {
   const [error, setError] = useState('')
   const [busyUid, setBusyUid] = useState<string | null>(null)
   const [confirmUnfriendId, setConfirmUnfriendId] = useState<string | null>(null)
 
-  async function invite(friendUid: string, friendEmail: string) {
+  function invite(friendUid: string, friendEmail: string) {
     // An invite to this friend already pending? Jump back into it instead of
     // stacking a duplicate challenge.
     const existing = matches.find((m) => m.status === 'invite' && m.players[0] === uid && m.players[1] === friendUid)
     if (existing) { navigate(`/battleship/pvp/${existing.id}`); return }
-    setError('')
-    setBusyUid(friendUid)
-    try {
-      const id = await createInviteMatch({ uid, email }, { uid: friendUid, email: friendEmail }, COURSES[0].id)
-      navigate(`/battleship/pvp/${id}`)
-    } catch (err) {
-      console.error('[eclipse-arcade] battleship invite failed:', err)
-      setError('Could not create the invite — try again.')
-      setBusyUid(null)
-    }
+    // Hand off to Battleship's topic pickers (course → unit → subunit), which
+    // then create the invite on the chosen subunit for THIS friend.
+    navigate('/battleship', { state: { pvpInvite: { uid: friendUid, email: friendEmail } } })
   }
 
   async function unfriend(f: Friendship, friendUid: string) {

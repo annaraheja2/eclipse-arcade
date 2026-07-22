@@ -6,7 +6,7 @@
 // their turn we adjudicate their shots against our local fleet.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import type { Course, Subunit, Question } from '../data/subjects'
+import type { Course, Subunit, Question, Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import { FLEET, allSunk, type Ship } from '../lib/battleship'
 import BattleGrid from '../components/BattleGrid'
@@ -34,7 +34,19 @@ const CY_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': str
 const STALE_MS = 60_000
 const FIRED_MSG = 'Shot away — waiting for the impact report…'
 
-const randomQ = (s: Subunit): Question => s.questions[Math.floor(Math.random() * s.questions.length)]
+// If a player's chosen subunit was deleted or emptied since the match started,
+// they still need SOMETHING to answer to keep firing — never a dead end. This
+// generic prompt renders as a fill question (see QuestionPanel field-sniffing).
+const FALLBACK_QUESTION: Question = {
+  prompt: 'Your topic is unavailable. Type FIRE to launch your shot.',
+  fill: 'fire',
+}
+
+/** A random question from the subunit, or the always-available fallback. */
+const dealQuestion = (sub: Subunit | null): Question =>
+  sub && sub.questions.length > 0
+    ? sub.questions[Math.floor(Math.random() * sub.questions.length)]
+    : FALLBACK_QUESTION
 
 function findSubunit(course: Course, id: string): Subunit | null {
   for (const u of course.units) {
@@ -65,7 +77,6 @@ export default function BattleshipPvp() {
   // My side of the match — never leaves this device (see trust model).
   const [stored, setStored] = useState<StoredMatch | null>(() => (matchId ? loadStoredMatch(matchId) : null))
   const [placed, setPlaced] = useState<Ship[]>([])
-  const [subunitId, setSubunitId] = useState<string | null>(stored?.subunitId ?? null)
   const [qPhase, setQPhase] = useState<'q' | 'aim'>('q')
   const [question, setQuestion] = useState<Question | null>(null)
 
@@ -81,12 +92,27 @@ export default function BattleshipPvp() {
     return () => { unsubMatch(); unsubShots() }
   }, [user, matchId])
 
+  // MY selection (course + subunit + difficulty), chosen before matchmaking and
+  // carried on the match. A client trusts ONLY its own entry — never the
+  // opponent's — and degrades gracefully if it's absent (see dealQuestion).
+  const myUid = user?.uid ?? ''
+  const mySel = match?.sel[myUid] ?? null
+  const mySelCourseId = mySel?.courseId ?? null
+  // `courseSettled` flips true once the load resolves OR fails — so a garbage/
+  // unknown course id (e.g. a griefed selection, where loadCourse rejects)
+  // doesn't strand the player waiting; the fallback question kicks in instead.
+  const [courseSettled, setCourseSettled] = useState(false)
   useEffect(() => {
-    if (!match) return
+    setCourse(null)
+    setCourseSettled(false)
+    if (!mySelCourseId) { setCourseSettled(true); return }
     let cancelled = false
-    void loadCourse(match.courseId).then((c) => { if (!cancelled) setCourse(c) })
+    loadCourse(mySelCourseId)
+      .then((c) => { if (!cancelled) setCourse(c) })
+      .catch((err: unknown) => { if (!cancelled) console.warn('[eclipse-arcade] PvP course load failed — using fallback questions:', err) })
+      .finally(() => { if (!cancelled) setCourseSettled(true) })
     return () => { cancelled = true }
-  }, [match?.courseId]) // reload only when the course id itself changes
+  }, [mySelCourseId]) // reload only when the course id itself changes
 
   // Staleness clock — 5s resolution is plenty for a 60s threshold.
   useEffect(() => {
@@ -95,7 +121,6 @@ export default function BattleshipPvp() {
   }, [])
 
   // ----- derived state -----
-  const myUid = user?.uid ?? ''
   const oppUid = match ? opponentOf(match, myUid) : null
   const oppEmail = (oppUid && match?.emails[oppUid]) || 'your opponent'
   // Show the opponent by handle (falling back to email); the public usernames
@@ -112,7 +137,7 @@ export default function BattleshipPvp() {
   const pendingMine = myShots.some((s) => s.result === 'pending')
   const myTurn = match?.status === 'active' && match.turn === myUid && !pendingMine
   const enemySunk = myShots.filter((s) => s.result === 'sunk').length
-  const sub = subunitId && course ? findSubunit(course, subunitId) : null
+  const sub = mySel && course ? findSubunit(course, mySel.subunitId) : null
   const iAmReady = !!(match && match.ready[myUid])
   const oppReady = !!(match && oppUid && match.ready[oppUid])
 
@@ -163,14 +188,17 @@ export default function BattleshipPvp() {
   // ----- my turn: deal a fresh question exactly once per turn -----
   const turnKeyRef = useRef('')
   useEffect(() => {
-    if (!match || match.status !== 'active' || !sub || !myTurn) return
+    if (!match || match.status !== 'active' || !myTurn) return
+    // With a selection, wait for its course load to SETTLE so we serve the real
+    // topic; without one (missing/griefed sel) fall through to the fallback.
+    if (mySel && !courseSettled) return
     const key = `${match.turn}:${shots.length}:${match.updatedAtMs}`
     if (turnKeyRef.current === key) return
     turnKeyRef.current = key
-    setQuestion(randomQ(sub))
+    setQuestion(dealQuestion(sub))
     setQPhase('q')
     setMsg('')
-  }, [match, myTurn, shots.length, sub])
+  }, [match, myTurn, shots.length, mySel, courseSettled, sub])
 
   // ----- sounds for shot events (silent on the initial snapshot/refresh) -----
   const seenShots = useRef<Map<string, Shot['result']> | null>(null)
@@ -214,7 +242,7 @@ export default function BattleshipPvp() {
 
   const lockIn = () => {
     if (placed.length === 0 || !user) return
-    const next: StoredMatch = { fleet: placed, subunitId }
+    const next: StoredMatch = { fleet: placed }
     if (!saveStoredMatch(matchId, next)) {
       // An unsaved fleet plus a refresh is an unrecoverable match — block READY.
       setActionError('Could not save your fleet on this device — free up storage or leave private browsing, then try again.')
@@ -349,34 +377,9 @@ export default function BattleshipPvp() {
           </Section>
         )
       }
-      if (!course) return <Loading label="LOADING COURSE…" />
-      if (!sub) {
-        return (
-          <Section title="PICK YOUR TOPIC">
-            <p className="text-center text-sm text-white/65 mb-4">These are the questions YOU answer to earn shots — {oppName} picks their own.</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {course.units.flatMap((u) => u.subunits.map((s) => {
-                const empty = s.questions.length === 0
-                return (
-                  <button key={s.id} onClick={() => setSubunitId(s.id)} disabled={empty}
-                    className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 transition enabled:hover:border-neon-cyan/60 disabled:opacity-45 disabled:cursor-default">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold">{s.name}</span>
-                      <span className="text-[9px] font-pixel px-2 py-1 rounded" style={{
-                        background: `${s.difficulty === 'easy' ? '#3dffa2' : s.difficulty === 'medium' ? '#ffb43d' : '#ff4d8d'}22`,
-                        color: s.difficulty === 'easy' ? '#3dffa2' : s.difficulty === 'medium' ? '#ffb43d' : '#ff4d8d',
-                      }}>{s.difficulty.toUpperCase()}</span>
-                    </div>
-                    <div className="text-xs text-white/60 mt-1 uppercase tracking-wide">{u.name} · {empty ? 'no questions yet' : s.type}</div>
-                  </button>
-                )
-              }))}
-            </div>
-          </Section>
-        )
-      }
       return (
         <Section title="DEPLOY YOUR FLEET">
+          <TopicBanner sub={sub} difficulty={mySel?.difficulty ?? null} />
           {actionError && <ErrorLine text={actionError} />}
           <FleetPlacement placed={placed} onChange={setPlaced}
             actions={
@@ -412,6 +415,8 @@ export default function BattleshipPvp() {
             <EnemyPips sunk={enemySunk} />
             <FleetPips ships={myFleet} color={CY} label={`FLEET ${myFleet.filter((s) => s.hits < s.size).length}`} align="right" />
           </div>
+
+          {myTurn && qPhase === 'q' && <TopicBanner sub={sub} difficulty={mySel?.difficulty ?? null} />}
 
           <div className="text-center mb-2">
             <div className="font-pixel text-[10px] text-white/60">ENEMY WATERS — {oppName.toUpperCase()}</div>
@@ -537,6 +542,19 @@ function StaleNotice({ email, onAbandon, busy }: { email: string; onAbandon: () 
         className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-neon-amber text-[#2a1a00] disabled:opacity-60">
         ABANDON MATCH
       </button>
+    </div>
+  )
+}
+
+// The topic THIS player answers to earn shots — chosen before matchmaking. The
+// opponent answers their own (same difficulty), so we say so.
+function TopicBanner({ sub, difficulty }: { sub: Subunit | null; difficulty: Difficulty | null }) {
+  const d = difficulty ?? sub?.difficulty ?? null
+  const dc = d === 'easy' ? '#3dffa2' : d === 'medium' ? '#ffb43d' : d === 'hard' ? '#ff4d8d' : '#8ea0c0'
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2 mb-5 text-center">
+      <span className="text-xs text-white/70">Your questions: <span className="font-semibold text-white/90">{sub ? sub.name : 'Fallback (topic unavailable)'}</span></span>
+      {d && <span className="text-[9px] font-pixel px-2 py-1 rounded" style={{ background: `${dc}22`, color: dc }}>{d.toUpperCase()}</span>}
     </div>
   )
 }

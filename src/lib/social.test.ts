@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   friendshipId, requestId, friendRequestIdsFor, normalizeEmail, opponentOf,
   toFriendRequest, toFriendship, toQueueEntry, toMatch, toShot, toStoredMatch,
+  toSelection, pickOpponent,
   adjudicateShot, fleetWithHits, shotMarks, sortShots, priorResultAt,
-  type Friendship, type Match, type Shot,
+  type Friendship, type Match, type Shot, type QueueEntry, type Selection,
 } from './social'
 import type { Ship } from './battleship'
 
@@ -72,49 +73,93 @@ describe('toFriendship', () => {
   })
 })
 
+describe('toSelection', () => {
+  const valid = { courseId: 'algebra-1', unitId: 'linear', subunitId: 'plot', difficulty: 'medium' }
+  it('accepts a well-formed selection', () => {
+    expect(toSelection(valid)).toEqual({ courseId: 'algebra-1', unitId: 'linear', subunitId: 'plot', difficulty: 'medium' })
+  })
+  it('rejects a bad difficulty or a missing/nonstring id', () => {
+    expect(toSelection({ ...valid, difficulty: 'insane' })).toBeNull()
+    expect(toSelection({ ...valid, difficulty: undefined })).toBeNull()
+    expect(toSelection({ ...valid, subunitId: 7 })).toBeNull()
+    expect(toSelection({ ...valid, courseId: undefined })).toBeNull()
+    expect(toSelection(null)).toBeNull()
+  })
+})
+
 describe('toQueueEntry', () => {
-  it('requires the doc id to match the uid field', () => {
-    expect(toQueueEntry('u1', { uid: 'u1', email: 'a@b.com', createdAt: ts(2) }))
-      .toEqual({ uid: 'u1', email: 'a@b.com', createdAtMs: 2 })
-    expect(toQueueEntry('u1', { uid: 'u2', email: 'a@b.com' })).toBeNull()
-    expect(toQueueEntry('u1', { uid: 'u1' })).toBeNull()
+  const flat = { uid: 'u1', email: 'a@b.com', courseId: 'algebra-1', unitId: 'linear', subunitId: 'plot', difficulty: 'easy', createdAt: ts(2) }
+  it('requires the doc id to match the uid field and a valid selection', () => {
+    expect(toQueueEntry('u1', flat)).toEqual({
+      uid: 'u1', email: 'a@b.com',
+      sel: { courseId: 'algebra-1', unitId: 'linear', subunitId: 'plot', difficulty: 'easy' },
+      createdAtMs: 2,
+    })
+    expect(toQueueEntry('u1', { ...flat, uid: 'u2' })).toBeNull()
+    expect(toQueueEntry('u1', { uid: 'u1', email: 'a@b.com' })).toBeNull() // no selection
+    expect(toQueueEntry('u1', { ...flat, difficulty: 'brutal' })).toBeNull()
+  })
+})
+
+describe('pickOpponent', () => {
+  const entry = (uid: string, difficulty: Selection['difficulty'], createdAtMs: number): QueueEntry => ({
+    uid, email: `${uid}@x.com`, createdAtMs,
+    sel: { courseId: 'algebra-1', unitId: 'u', subunitId: 's', difficulty },
+  })
+  it('pairs only with a same-difficulty candidate, oldest first', () => {
+    const candidates = [entry('a', 'hard', 1), entry('b', 'medium', 2), entry('c', 'medium', 3)]
+    expect(pickOpponent('medium', candidates)?.uid).toBe('b') // b is older than c
+    expect(pickOpponent('hard', candidates)?.uid).toBe('a')
+  })
+  it('returns null when no candidate shares the difficulty', () => {
+    const candidates = [entry('a', 'hard', 1), entry('b', 'hard', 2)]
+    expect(pickOpponent('easy', candidates)).toBeNull()
+    expect(pickOpponent('medium', [])).toBeNull()
   })
 })
 
 describe('toMatch', () => {
+  const sel = { courseId: 'algebra-1', unitId: 'u', subunitId: 's', difficulty: 'easy' }
   const valid = {
     players: ['a', 'b'], emails: { a: 'a@x.com', b: 'b@x.com' },
     status: 'active', turn: 'a', winner: null, endReason: null,
-    courseId: 'algebra-1', ready: { a: true, b: true },
+    sel: { a: sel, b: sel }, ready: { a: true, b: true },
     createdAt: ts(10), updatedAt: ts(20),
   }
-  it('accepts a well-formed doc', () => {
+  it('accepts a well-formed doc and narrows each player selection', () => {
     const m = toMatch('m1', valid)
     expect(m).not.toBeNull()
     expect(m!.players).toEqual(['a', 'b'])
     expect(m!.status).toBe('active')
     expect(m!.winner).toBeNull()
     expect(m!.updatedAtMs).toBe(20)
+    expect(m!.sel.a.difficulty).toBe('easy')
+    expect(m!.sel.b.subunitId).toBe('s')
   })
-  it('treats a missing winner/endReason as null and drops junk email/ready entries', () => {
-    const m = toMatch('m1', { ...valid, winner: undefined, endReason: 'bogus', emails: { a: 'a@x.com', b: 9 }, ready: { a: 'yes' } })
+  it('treats a missing winner/endReason as null and drops junk email/ready/sel entries', () => {
+    const m = toMatch('m1', { ...valid, winner: undefined, endReason: 'bogus', emails: { a: 'a@x.com', b: 9 }, ready: { a: 'yes' }, sel: { a: sel, b: { difficulty: 'nope' } } })
     expect(m!.winner).toBeNull()
     expect(m!.endReason).toBeNull()
     expect(m!.emails).toEqual({ a: 'a@x.com' })
     expect(m!.ready).toEqual({})
+    expect(Object.keys(m!.sel)).toEqual(['a']) // b's malformed selection is dropped
   })
   it('rejects malformed docs', () => {
     expect(toMatch('m1', { ...valid, players: ['a'] })).toBeNull()
     expect(toMatch('m1', { ...valid, players: ['a', 'b', 'c'] })).toBeNull()
     expect(toMatch('m1', { ...valid, status: 'paused' })).toBeNull()
     expect(toMatch('m1', { ...valid, turn: 3 })).toBeNull()
-    expect(toMatch('m1', { ...valid, courseId: undefined })).toBeNull()
+  })
+  it('tolerates a missing sel map (empty), leaving clients to fall back', () => {
+    const m = toMatch('m1', { ...valid, sel: undefined })
+    expect(m).not.toBeNull()
+    expect(m!.sel).toEqual({})
   })
 })
 
 describe('opponentOf', () => {
   const m = toMatch('m1', {
-    players: ['a', 'b'], emails: {}, status: 'active', turn: 'a', courseId: 'c', ready: {},
+    players: ['a', 'b'], emails: {}, status: 'active', turn: 'a', sel: {}, ready: {},
   }) as Match
   it('returns the other player, or null for a non-participant', () => {
     expect(opponentOf(m, 'a')).toBe('b')
@@ -141,14 +186,11 @@ describe('toShot', () => {
 describe('toStoredMatch', () => {
   const fleet = [{ id: 'destroyer-1', size: 2, cells: [{ r: 0, c: 0 }, { r: 0, c: 1 }] }]
   it('accepts a stored fleet and zeroes hits', () => {
-    const sm = toStoredMatch({ fleet, subunitId: 'one-step' })
+    const sm = toStoredMatch({ fleet })
     expect(sm).not.toBeNull()
     expect(sm!.fleet[0].hits).toBe(0)
-    expect(sm!.subunitId).toBe('one-step')
   })
-  it('defaults subunitId and rejects malformed fleets', () => {
-    const sm = toStoredMatch({ fleet })
-    expect(sm!.subunitId).toBeNull()
+  it('rejects malformed fleets', () => {
     expect(toStoredMatch({ fleet: [] })).toBeNull()
     expect(toStoredMatch({ fleet: [{ id: 'x', size: 2, cells: [{ r: 0, c: 0 }] }] })).toBeNull() // size/cells mismatch
     expect(toStoredMatch({ fleet: [{ id: 'x', size: 1, cells: [{ r: 9, c: 0 }] }] })).toBeNull() // off-board

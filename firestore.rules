@@ -238,14 +238,21 @@ service cloud.firestore {
       allow delete: if signedIn() && request.auth.uid in resource.data.uids;
     }
 
-    // Quick-match queue: one doc per waiting player, id = uid.
+    // Quick-match queue: one doc per waiting player, id = uid. The doc now
+    // carries the player's chosen topic + difficulty; `difficulty` is the field
+    // the matches-create rule cross-checks so pairing is same-difficulty only.
     match /matchQueue/{uid} {
       allow read: if signedIn();
       allow create, update: if verified()
         && request.auth.uid == uid
         && request.resource.data.uid == uid
         && request.resource.data.email == myEmail()
-        && request.resource.data.keys().hasOnly(['uid', 'email', 'createdAt']);
+        && request.resource.data.difficulty in ['easy', 'medium', 'hard']
+        && request.resource.data.courseId is string
+        && request.resource.data.unitId is string
+        && request.resource.data.subunitId is string
+        && request.resource.data.keys().hasOnly(
+             ['uid', 'email', 'difficulty', 'courseId', 'unitId', 'subunitId', 'createdAt']);
       // Any signed-in user may delete entries: the pairing transaction
       // atomically removes BOTH its own and its opponent's queue doc.
       allow delete: if signedIn();
@@ -256,6 +263,16 @@ service cloud.firestore {
         return signedIn() && request.auth.uid in resource.data.players;
       }
       function pairIdOf(a, b) { return a < b ? a + '_' + b : b + '_' + a; }
+      function queuePath(u) { return /databases/$(database)/documents/matchQueue/$(u); }
+      // A per-player topic selection carried on the match. Only type-checked —
+      // the AUTHORITATIVE same-difficulty constraint is enforced below by
+      // comparing the two players' queue docs, not these fields.
+      function validSel(s) {
+        return s.courseId is string
+          && s.unitId is string
+          && s.subunitId is string
+          && s.difficulty in ['easy', 'medium', 'hard'];
+      }
       allow read: if isParticipant();
       // players[0] is always the creator (inviter / quick-match pairer).
       // Relationship gating: an 'invite' requires an existing friendship with
@@ -266,7 +283,7 @@ service cloud.firestore {
       allow create: if verified()
         && request.resource.data.keys().hasOnly(
              ['players', 'emails', 'status', 'turn', 'winner', 'endReason',
-              'courseId', 'ready', 'createdAt', 'updatedAt'])
+              'sel', 'ready', 'createdAt', 'updatedAt'])
         && request.resource.data.players.size() == 2
         && request.resource.data.players[0] == request.auth.uid
         && request.resource.data.players[0] != request.resource.data.players[1]
@@ -278,17 +295,30 @@ service cloud.firestore {
         // creator supplies it (from a friendship or the queue) and the client
         // only ever shows it, never trusts it for authorization.
         && request.resource.data.emails[request.auth.uid] == myEmail()
+        // Each player carries a well-typed topic selection. A client trusts
+        // only its OWN entry (to load its questions) and degrades gracefully,
+        // so this is a shape check — difficulty MATCHING is enforced below.
+        && request.resource.data.sel is map
+        && request.resource.data.players[0] in request.resource.data.sel
+        && request.resource.data.players[1] in request.resource.data.sel
+        && validSel(request.resource.data.sel[request.resource.data.players[0]])
+        && validSel(request.resource.data.sel[request.resource.data.players[1]])
         && ((request.resource.data.status == 'invite'
               && exists(/databases/$(database)/documents/friendships/$(pairIdOf(request.resource.data.players[0], request.resource.data.players[1]))))
-            // Quick-match: BOTH the victim (players[1]) AND the creator
-            // (players[0]) must be genuinely queued, so a verified user can't
-            // spam placing-matches at a queued player. exists() sees
-            // PRE-transaction state, so attemptPair (which created its own
-            // queue doc first, then deletes both in the pairing transaction)
-            // still passes.
+            // Quick-match: BOTH the creator (players[0]) AND the opponent
+            // (players[1]) must be genuinely queued — so a verified user can't
+            // spam placing-matches at a queued player — AND their two queue
+            // docs must carry the SAME difficulty, which is what makes pairing
+            // same-difficulty-only unbypassable server-side (a hacked client
+            // that skips the client filter still cannot pair across tiers).
+            // exists()/get() see PRE-transaction state, so attemptPair (which
+            // created its own queue doc first, then deletes both in the pairing
+            // transaction) still passes.
             || (request.resource.data.status == 'placing'
-              && exists(/databases/$(database)/documents/matchQueue/$(request.resource.data.players[0]))
-              && exists(/databases/$(database)/documents/matchQueue/$(request.resource.data.players[1]))));
+              && exists(queuePath(request.resource.data.players[0]))
+              && exists(queuePath(request.resource.data.players[1]))
+              && get(queuePath(request.resource.data.players[0])).data.difficulty
+                   == get(queuePath(request.resource.data.players[1])).data.difficulty));
       // Participants drive the state machine FORWARD only (accept, ready,
       // turn flips, shot adjudication side-effects, forfeit/timeout). It never
       // rewinds: 'invite' is not a permitted target (which would re-open the
