@@ -1,174 +1,255 @@
-// Top-down warship art. Five distinct silhouettes (carrier / cruiser / submarine /
-// destroyer / patrol) keyed off the ship id. Art is authored horizontally with the
-// bow to the right in a viewBox that matches the ship's true N-cell footprint, and
-// vertical ships rotate the whole drawing in SVG space (bow up) — so a length-N
-// ship always fills exactly N cells with undistorted art.
+// Top-down "molded plastic" warship art in the spirit of the classic tabletop
+// Battleship pieces: matte gray hulls with bevelled edges lit from the top-left,
+// raised gray superstructure with ambient occlusion at its base, faint peg-hole
+// hints at each cell center, and only a whisper of cyan rim-light so the pieces
+// still belong on the neon board. Art is authored horizontally (bow right) in a
+// viewBox matching the true N-cell footprint; vertical ships rotate the whole
+// drawing in SVG space (bow up) so a length-N ship always spans exactly N cells,
+// undistorted, in both orientations.
 import { useId } from 'react'
 import { shipClass } from '../lib/battleship'
 
 const H = 40
 
 interface Ink {
-  top: string; bot: string; line: string
-  feat: string; featDark: string
-  deckTop: string; deckBot: string
-  subTop: string; subBot: string
-  detail: string; accent: string
+  hullTop: string; hullBot: string   // molded hull volume, lit -> shaded
+  deckTop: string; deckBot: string   // flat deck / spine platform
+  raiseTop: string; raiseBot: string // raised superstructure
+  subTop: string; subBot: string     // submarine hull — sits lower, darker
+  edge: string                       // molded part line
+  hi: string                         // bevel catching the light
+  ao: string                         // occlusion where raised parts meet deck
+  dark: string                       // turrets, barrels, fins
+  mark: string                       // deck markings
+  peg: string                        // peg-hole hint
+  accent: string                     // cyan rim / detail light
+  shadow: string                     // contact shadow grounding the piece
 }
 const LIVE: Ink = {
-  top: '#a9b9c9', bot: '#5f6e7d', line: '#141e28',
-  feat: '#7e8fa1', featDark: '#42505e',
-  deckTop: '#5a6773', deckBot: '#3a444e',
-  subTop: '#47596d', subBot: '#1f2e3d',
-  detail: '#d7e7f4', accent: '#3df5ff',
+  hullTop: '#c9ced4', hullBot: '#6d737b',
+  deckTop: '#aeb4bb', deckBot: '#82888f',
+  raiseTop: '#d8dce0', raiseBot: '#8d939b',
+  subTop: '#8b9299', subBot: '#3f454d',
+  edge: '#2e343c',
+  hi: 'rgba(255,255,255,0.6)',
+  ao: 'rgba(8,12,18,0.4)',
+  dark: '#4a5058',
+  mark: 'rgba(38,44,52,0.55)',
+  peg: 'rgba(18,23,30,0.5)',
+  accent: '#3df5ff',
+  shadow: 'rgba(2,8,16,0.55)',
 }
 const SUNK: Ink = {
-  top: '#5a4646', bot: '#2c1f1f', line: '#120c0c',
-  feat: '#5d4646', featDark: '#382a2a',
-  deckTop: '#443535', deckBot: '#291f1f',
-  subTop: '#463636', subBot: '#211818',
-  detail: '#7a6060', accent: 'rgba(255,255,255,0.18)',
+  hullTop: '#6b615e', hullBot: '#332c2a',
+  deckTop: '#5a504d', deckBot: '#3d3532',
+  raiseTop: '#6e6360', raiseBot: '#453c39',
+  subTop: '#4e4543', subBot: '#241f1e',
+  edge: '#191413',
+  hi: 'rgba(255,255,255,0.14)',
+  ao: 'rgba(0,0,0,0.5)',
+  dark: '#2e2726',
+  mark: 'rgba(0,0,0,0.35)',
+  peg: 'rgba(0,0,0,0.35)',
+  accent: 'rgba(255,190,170,0.3)',
+  shadow: 'rgba(0,0,0,0.6)',
 }
 
-function Carrier({ W, ink, g }: { W: number; ink: Ink; g: string }) {
-  const x = (f: number) => Math.round(W * f)
+interface Art { W: number; ink: Ink; g: string }
+
+// Soft contact shadow, offset toward bottom-right (light comes from top-left).
+function Shadow({ W, ink, g, deep }: Art & { deep?: boolean }) {
+  return (
+    <ellipse cx={W / 2 + 1.5} cy="30.5" rx={W / 2 - 9} ry="3.4"
+      fill={ink.shadow} opacity={deep ? 0.85 : 0.6} filter={`url(#${g}-b)`} />
+  )
+}
+
+// Faint peg-hole hints on the piece, one per grid cell — the tabletop nod.
+// Cell centers in SVG space: first at H/2, last at W - H/2.
+function Pegs({ W, n, ink, dim }: { W: number; n: number; ink: Ink; dim?: boolean }) {
+  const pitch = (W - H) / (n - 1)
+  return (
+    <g opacity={dim ? 0.3 : 0.45}>
+      {Array.from({ length: n }, (_, i) => {
+        const cx = H / 2 + i * pitch
+        return (
+          <g key={i}>
+            <circle cx={cx} cy="20" r="1.8" fill={ink.peg} />
+            <path d={`M ${cx - 1.8} 20 a 1.8 1.8 0 0 0 3.6 0`} fill="none"
+              stroke={ink.hi} strokeWidth="0.5" opacity="0.6" />
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
+// Round gun turret with twin barrels pointing toward the bow (+1) or stern (-1).
+function Turret({ cx, r, toward, ink, g }: { cx: number; r: number; toward: 1 | -1; ink: Ink; g: string }) {
+  const tip = cx + toward * (r + r * 2.6)
   return (
     <g>
-      {/* hull peeking beneath the flight deck */}
-      <path d={`M5 12 L${W - 10} 12 Q ${W - 4} 20 ${W - 10} 28 L5 28 Z`} fill={ink.bot} />
+      <circle cx={cx + 0.9} cy="20.9" r={r + 0.4} fill={ink.ao} />
+      <line x1={cx + toward * (r - 1)} y1={20 - r * 0.42} x2={tip} y2={20 - r * 0.42}
+        stroke={ink.dark} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1={cx + toward * (r - 1)} y1={20 + r * 0.42} x2={tip} y2={20 + r * 0.42}
+        stroke={ink.dark} strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx={cx} cy="20" r={r} fill={`url(#${g}-r)`} stroke={ink.edge} strokeWidth="0.8" />
+      <circle cx={cx - r * 0.18} cy={20 - r * 0.18} r={r * 0.5} fill={ink.raiseTop} opacity="0.9" />
+    </g>
+  )
+}
+
+function Carrier({ W, ink, g }: Art) {
+  const x = (f: number) => W * f
+  const deck = `M4 12 Q4 9.5 7 9.5 L${W - 24} 9.5 Q${W - 10} 12.5 ${W - 10} 20 Q${W - 10} 27.5 ${W - 24} 30.5 L7 30.5 Q4 30.5 4 28 Z`
+  return (
+    <g>
+      <Shadow W={W} ink={ink} g={g} />
+      {/* pointed hull peeking past the flight deck at the bow */}
+      <path d={`M${W - 26} 13.5 Q${W - 5} 14.5 ${W - 3} 20 Q${W - 5} 25.5 ${W - 26} 26.5 Z`}
+        fill={`url(#${g}-h)`} stroke={ink.edge} strokeWidth="0.8" />
       {/* flight deck */}
-      <path
-        d={`M2 13 Q2 11 4 11 L${W - 16} 10 Q ${W - 3} 13 ${W - 3} 20 Q ${W - 3} 27 ${W - 16} 30 L4 29 Q2 29 2 27 Z`}
-        fill={`url(#${g}-d)`} stroke={ink.line} strokeWidth="1"
-      />
-      {/* runway centerline + angled deck */}
-      <line x1="9" y1="20" x2={W - 20} y2="20" stroke={ink.detail} strokeWidth="1.6" strokeDasharray="6 5" opacity="0.5" />
-      <line x1="10" y1="27" x2={x(0.55)} y2="13" stroke={ink.detail} strokeWidth="0.8" opacity="0.18" />
-      {/* elevators */}
-      <rect x={x(0.24)} y="12.3" width="7.5" height="4.6" rx="0.8" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.16)" strokeWidth="0.5" />
-      <rect x={x(0.36)} y="23.1" width="7.5" height="4.6" rx="0.8" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.16)" strokeWidth="0.5" />
-      {/* island superstructure */}
-      <rect x={x(0.6)} y="11.5" width="12" height="7.5" rx="1.5" fill={ink.feat} stroke={ink.line} strokeWidth="0.8" />
-      <rect x={x(0.6) + 2} y="13" width="5" height="4.5" rx="1" fill={ink.top} />
-      <circle cx={x(0.6) + 9.5} cy="15.2" r="1.1" fill={ink.accent} />
-      {/* deck-edge running light */}
-      <line x1="7" y1="11.7" x2={W - 18} y2="10.8" stroke={ink.accent} strokeWidth="0.7" opacity="0.35" />
+      <path d={deck} fill={`url(#${g}-d)`} stroke={ink.edge} strokeWidth="1.1" />
+      <path d={deck} fill="none" stroke={ink.accent} strokeWidth="0.5" opacity="0.3" />
+      {/* bevel: lit top edge, shaded bottom edge */}
+      <path d={`M7 10.7 L${W - 25} 10.7`} stroke={ink.hi} strokeWidth="1" opacity="0.55" strokeLinecap="round" />
+      <path d={`M7 29.3 L${W - 25} 29.3`} stroke={ink.ao} strokeWidth="1" opacity="0.7" strokeLinecap="round" />
+      {/* runway centerline + faint angled-deck line */}
+      <line x1="10" y1="15.5" x2={W - 18} y2="15.5" stroke={ink.mark} strokeWidth="1.4" strokeDasharray="5.5 4.5" opacity="0.8" />
+      <line x1="11" y1="28" x2={x(0.6)} y2="13" stroke={ink.mark} strokeWidth="0.8" opacity="0.35" />
+      <Pegs W={W} n={4} ink={ink} />
+      {/* deck elevator */}
+      <rect x={x(0.2)} y="10.8" width="8" height="4.2" rx="0.8" fill={ink.deckBot} stroke={ink.edge} strokeWidth="0.4" opacity="0.8" />
+      {/* island superstructure, offset to starboard */}
+      <rect x={x(0.56) + 1} y="22.6" width="14" height="7.4" rx="1.6" fill={ink.ao} />
+      <rect x={x(0.56)} y="21.6" width="14" height="7.4" rx="1.6" fill={`url(#${g}-r)`} stroke={ink.edge} strokeWidth="0.8" />
+      <rect x={x(0.56) + 1.8} y="23" width="7" height="4.4" rx="1" fill={ink.raiseTop} />
+      <circle cx={x(0.56) + 11.4} cy="25.3" r="2.2" fill={ink.accent} opacity="0.18" />
+      <circle cx={x(0.56) + 11.4} cy="25.3" r="1" fill={ink.accent} opacity="0.9" />
     </g>
   )
 }
 
-function Cruiser({ W, ink, g }: { W: number; ink: Ink; g: string }) {
-  const x = (f: number) => Math.round(W * f)
+function Cruiser({ W, ink, g }: Art) {
+  const x = (f: number) => W * f
+  const hull = `M4 20 Q4.5 12.5 15 11 L${x(0.6)} 11 Q${x(0.8)} 11.5 ${W - 3.5} 20 Q${x(0.8)} 28.5 ${x(0.6)} 29 L15 29 Q4.5 27.5 4 20 Z`
   return (
     <g>
-      {/* hull — pointed bow, rounded stern */}
+      <Shadow W={W} ink={ink} g={g} />
+      <path d={hull} fill={`url(#${g}-h)`} stroke={ink.edge} strokeWidth="1.1" />
+      <path d={hull} fill="none" stroke={ink.accent} strokeWidth="0.5" opacity="0.3" />
+      <path d={`M15 12.4 L${x(0.62)} 12.4`} stroke={ink.hi} strokeWidth="1" opacity="0.5" strokeLinecap="round" />
+      <path d={`M15 27.6 L${x(0.62)} 27.6`} stroke={ink.ao} strokeWidth="1" opacity="0.65" strokeLinecap="round" />
+      {/* raised centerline spine, tapering toward the bow */}
       <path
-        d={`M2.5 20 Q3 12 16 10.5 L${x(0.62)} 10.5 L${W - 2.5} 20 L${x(0.62)} 29.5 L16 29.5 Q3 28 2.5 20 Z`}
-        fill={`url(#${g}-h)`} stroke={ink.line} strokeWidth="1"
+        d={`M${x(0.1)} 20 Q${x(0.1)} 15.4 ${x(0.16)} 15.2 L${x(0.72)} 15.2 L${x(0.82)} 20 L${x(0.72)} 24.8 L${x(0.16)} 24.8 Q${x(0.1)} 24.6 ${x(0.1)} 20 Z`}
+        fill={`url(#${g}-d)`} stroke={ink.edge} strokeWidth="0.6" strokeOpacity="0.55" opacity="0.95"
       />
-      {/* deck inset */}
-      <path
-        d={`M9 20 Q9 14.5 18 13.5 L${x(0.6)} 13.5 L${W - 9} 20 L${x(0.6)} 26.5 L18 26.5 Q9 25.5 9 20 Z`}
-        fill="rgba(12,22,32,0.22)"
-      />
-      {/* superstructure */}
-      <rect x={x(0.34)} y="14.5" width={x(0.19)} height="11" rx="1.5" fill={ink.feat} stroke={ink.line} strokeWidth="0.7" />
-      <rect x={x(0.38)} y="17" width={x(0.1)} height="6" rx="1" fill={ink.top} />
-      {/* fore turret — barrels toward the bow */}
-      <line x1={x(0.71) + 2.5} y1="18.4" x2={x(0.71) + 9.5} y2="18.4" stroke={ink.line} strokeWidth="1.1" />
-      <line x1={x(0.71) + 2.5} y1="21.6" x2={x(0.71) + 9.5} y2="21.6" stroke={ink.line} strokeWidth="1.1" />
-      <circle cx={x(0.71)} cy="20" r="3.6" fill={ink.featDark} stroke={ink.line} strokeWidth="0.7" />
-      {/* aft turret — barrels toward the stern */}
-      <line x1={x(0.2) - 2.5} y1="18.4" x2={x(0.2) - 9.5} y2="18.4" stroke={ink.line} strokeWidth="1.1" />
-      <line x1={x(0.2) - 2.5} y1="21.6" x2={x(0.2) - 9.5} y2="21.6" stroke={ink.line} strokeWidth="1.1" />
-      <circle cx={x(0.2)} cy="20" r="3.6" fill={ink.featDark} stroke={ink.line} strokeWidth="0.7" />
-      {/* deck-edge light */}
-      <line x1="18" y1="11.6" x2={x(0.6)} y2="11.6" stroke={ink.accent} strokeWidth="0.7" opacity="0.3" />
+      <Pegs W={W} n={3} ink={ink} />
+      {/* fore + aft twin-barrel turrets */}
+      <Turret cx={W - 28} r={4.2} toward={1} ink={ink} g={g} />
+      <Turret cx={25} r={4.2} toward={-1} ink={ink} g={g} />
+      {/* central bridge tower */}
+      <rect x={W / 2 - 8} y="15.5" width="18" height="10.5" rx="2" fill={ink.ao} />
+      <rect x={W / 2 - 9} y="14.5" width="18" height="10.5" rx="2" fill={`url(#${g}-r)`} stroke={ink.edge} strokeWidth="0.8" />
+      <rect x={W / 2 - 5.5} y="16.5" width="11" height="6.5" rx="1.2" fill={ink.raiseTop} />
+      <circle cx={W / 2} cy="20" r="1.8" fill={ink.accent} opacity="0.18" />
+      <circle cx={W / 2} cy="20" r="0.9" fill={ink.accent} opacity="0.9" />
     </g>
   )
 }
 
-function Submarine({ W, ink, g }: { W: number; ink: Ink; g: string }) {
-  const x = (f: number) => Math.round(W * f)
+function Submarine({ W, ink, g }: Art) {
+  const x = (f: number) => W * f
+  const hull = `M${W - 4} 20 Q${W - 4} 13.5 ${x(0.7)} 12.5 L${x(0.2)} 14 Q6 15.5 6 20 Q6 24.5 ${x(0.2)} 26 L${x(0.7)} 27.5 Q${W - 4} 26.5 ${W - 4} 20 Z`
   return (
     <g>
-      {/* teardrop hull — rounded bow, tapered stern */}
-      <path
-        d={`M${W - 3} 20 Q ${W - 3} 13 ${x(0.72)} 12 L${x(0.2)} 13.5 Q 3.5 15 3.5 20 Q 3.5 25 ${x(0.2)} 26.5 L${x(0.72)} 28 Q ${W - 3} 27 ${W - 3} 20 Z`}
-        fill={`url(#${g}-s)`} stroke={ink.line} strokeWidth="1"
-      />
-      {/* spine */}
-      <line x1="10" y1="20" x2={W - 8} y2="20" stroke="rgba(150,195,230,0.28)" strokeWidth="1" />
+      <Shadow W={W} ink={ink} g={g} deep />
       {/* stern fins */}
-      <path d={`M7 16.5 l-4.5 -3.5 l0.6 4.4 Z`} fill={ink.featDark} />
-      <path d={`M7 23.5 l-4.5 3.5 l0.6 -4.4 Z`} fill={ink.featDark} />
+      <path d="M9 16.5 l-5.5 -4 l1 4.8 Z" fill={ink.dark} stroke={ink.edge} strokeWidth="0.5" />
+      <path d="M9 23.5 l-5.5 4 l1 -4.8 Z" fill={ink.dark} stroke={ink.edge} strokeWidth="0.5" />
       {/* bow dive planes */}
-      <path d={`M${x(0.8)} 13 l4 -2.6 l1.6 2 Z`} fill={ink.featDark} />
-      <path d={`M${x(0.8)} 27 l4 2.6 l1.6 -2 Z`} fill={ink.featDark} />
-      {/* sail (conning tower) */}
-      <rect x={x(0.44)} y="14.8" width={x(0.15)} height="10.4" rx="3" fill={ink.subBot} stroke={ink.line} strokeWidth="0.8" />
-      <circle cx={x(0.44) + x(0.15) - 3} cy="17.6" r="1.2" fill={ink.accent} />
+      <path d={`M${x(0.78)} 13.4 l4.5 -2.8 l1.4 2.2 Z`} fill={ink.dark} stroke={ink.edge} strokeWidth="0.5" />
+      <path d={`M${x(0.78)} 26.6 l4.5 2.8 l1.4 -2.2 Z`} fill={ink.dark} stroke={ink.edge} strokeWidth="0.5" />
+      {/* rounded teardrop hull — darker, riding lower than the surface ships */}
+      <path d={hull} fill={`url(#${g}-s)`} stroke={ink.edge} strokeWidth="1.1" />
+      <path d={hull} fill="none" stroke={ink.accent} strokeWidth="0.5" opacity="0.22" />
+      <path d={`M${x(0.22)} 15.2 Q${x(0.45)} 13.8 ${x(0.68)} 13.9`} fill="none" stroke={ink.hi} strokeWidth="1" opacity="0.3" strokeLinecap="round" />
+      {/* anti-slip deck strip */}
+      <rect x={x(0.16)} y="17.8" width={x(0.58)} height="4.4" rx="2.2" fill={ink.mark} opacity="0.45" />
+      <Pegs W={W} n={3} ink={ink} dim />
+      {/* sail (conning tower) + periscope light */}
+      <ellipse cx={W / 2 + 0.8} cy="20.8" rx="7.6" ry="5.6" fill={ink.ao} />
+      <rect x={W / 2 - 7} y="14.8" width="14" height="10.4" rx="4" fill={`url(#${g}-d)`} stroke={ink.edge} strokeWidth="0.8" />
+      <rect x={W / 2 - 4.5} y="16.6" width="9" height="4.4" rx="2" fill={ink.deckTop} opacity="0.85" />
+      <circle cx={W / 2 + 3.5} cy="17.6" r="1.9" fill={ink.accent} opacity="0.18" />
+      <circle cx={W / 2 + 3.5} cy="17.6" r="0.9" fill={ink.accent} opacity="0.9" />
     </g>
   )
 }
 
-function Destroyer({ W, ink, g }: { W: number; ink: Ink; g: string }) {
-  const x = (f: number) => Math.round(W * f)
+function Destroyer({ W, ink, g }: Art) {
+  const x = (f: number) => W * f
+  const hull = `M4 20 Q4.5 13.8 13 12.5 L${x(0.52)} 12.5 L${W - 3.5} 20 L${x(0.52)} 27.5 L13 27.5 Q4.5 26.2 4 20 Z`
   return (
     <g>
-      {/* sleek hull, long raked bow */}
+      <Shadow W={W} ink={ink} g={g} />
+      <path d={hull} fill={`url(#${g}-h)`} stroke={ink.edge} strokeWidth="1.1" />
+      <path d={hull} fill="none" stroke={ink.accent} strokeWidth="0.5" opacity="0.3" />
+      <path d={`M13 13.8 L${x(0.54)} 13.8`} stroke={ink.hi} strokeWidth="1" opacity="0.5" strokeLinecap="round" />
+      <path d={`M13 26.2 L${x(0.54)} 26.2`} stroke={ink.ao} strokeWidth="1" opacity="0.65" strokeLinecap="round" />
+      {/* raised spine, raked with the bow */}
       <path
-        d={`M2.5 20 Q3 13.5 12 12 L${x(0.52)} 12 L${W - 2.5} 20 L${x(0.52)} 28 L12 28 Q3 26.5 2.5 20 Z`}
-        fill={`url(#${g}-h)`} stroke={ink.line} strokeWidth="1"
+        d={`M${x(0.12)} 20 Q${x(0.12)} 15.9 ${x(0.19)} 15.7 L${x(0.5)} 15.7 L${x(0.6)} 20 L${x(0.5)} 24.3 L${x(0.19)} 24.3 Q${x(0.12)} 24.1 ${x(0.12)} 20 Z`}
+        fill={`url(#${g}-d)`} stroke={ink.edge} strokeWidth="0.6" strokeOpacity="0.55" opacity="0.95"
       />
-      {/* deck inset */}
-      <path
-        d={`M8 20 Q8 15.5 14 14.8 L${x(0.5)} 14.8 L${W - 8} 20 L${x(0.5)} 25.2 L14 25.2 Q8 24.5 8 20 Z`}
-        fill="rgba(12,22,32,0.2)"
-      />
-      {/* angular bridge */}
-      <path d={`M${x(0.26)} 15 L${x(0.46)} 15 L${x(0.5)} 20 L${x(0.46)} 25 L${x(0.26)} 25 Z`} fill={ink.feat} stroke={ink.line} strokeWidth="0.7" />
-      <rect x={x(0.3)} y="17.5" width={x(0.1)} height="5" rx="1" fill={ink.top} />
-      {/* fore gun */}
-      <line x1={x(0.63) + 2} y1="19" x2={x(0.63) + 8.5} y2="19" stroke={ink.line} strokeWidth="1" />
-      <line x1={x(0.63) + 2} y1="21" x2={x(0.63) + 8.5} y2="21" stroke={ink.line} strokeWidth="1" />
-      <circle cx={x(0.63)} cy="20" r="3" fill={ink.featDark} stroke={ink.line} strokeWidth="0.7" />
-      {/* deck-edge light */}
-      <line x1="12" y1="13" x2={x(0.5)} y2="13" stroke={ink.accent} strokeWidth="0.7" opacity="0.3" />
+      <Pegs W={W} n={2} ink={ink} />
+      {/* forward turret */}
+      <Turret cx={W - 26} r={3.2} toward={1} ink={ink} g={g} />
+      {/* compact bridge, just aft of center */}
+      <rect x={x(0.24) + 1} y="16.3" width={x(0.22)} height="9.4" rx="1.8" fill={ink.ao} />
+      <rect x={x(0.24)} y="15.3" width={x(0.22)} height="9.4" rx="1.8" fill={`url(#${g}-r)`} stroke={ink.edge} strokeWidth="0.7" />
+      <rect x={x(0.27)} y="17" width={x(0.14)} height="5.6" rx="1" fill={ink.raiseTop} />
+      <circle cx={x(0.35)} cy="20" r="1.6" fill={ink.accent} opacity="0.18" />
+      <circle cx={x(0.35)} cy="20" r="0.8" fill={ink.accent} opacity="0.9" />
     </g>
   )
 }
 
-function Patrol({ W, ink }: { W: number; ink: Ink }) {
-  const x = (f: number) => Math.round(W * f)
+function Patrol({ W, ink, g }: Art) {
+  const x = (f: number) => W * f
+  const hull = `M5 20 Q5 14.2 16 13.2 L${x(0.55)} 13.2 Q${W - 5} 14.5 ${W - 4} 20 Q${W - 5} 25.5 ${x(0.55)} 26.8 L16 26.8 Q5 25.8 5 20 Z`
   return (
     <g>
-      {/* tubby gunboat hull — rounded bow */}
-      <path
-        d={`M3.5 20 Q4 14.8 15 14 L${x(0.62)} 14 Q ${W - 4} 15.5 ${W - 3} 20 Q ${W - 4} 24.5 ${x(0.62)} 26 L15 26 Q4 25.2 3.5 20 Z`}
-        fill={ink.top} stroke={ink.line} strokeWidth="1"
-      />
-      <path
-        d={`M3.5 20 Q4 22.8 10 24.2 L${x(0.62)} 25 Q ${W - 4} 24 ${W - 3} 20 L3.5 20 Z`}
-        fill={ink.bot} opacity="0.85"
-      />
+      <Shadow W={W} ink={ink} g={g} />
+      <path d={hull} fill={`url(#${g}-h)`} stroke={ink.edge} strokeWidth="1.1" />
+      <path d={hull} fill="none" stroke={ink.accent} strokeWidth="0.5" opacity="0.3" />
+      <path d={`M16 14.5 L${x(0.56)} 14.5`} stroke={ink.hi} strokeWidth="1" opacity="0.5" strokeLinecap="round" />
+      <path d={`M16 25.5 L${x(0.56)} 25.5`} stroke={ink.ao} strokeWidth="1" opacity="0.65" strokeLinecap="round" />
       {/* aft working deck */}
-      <rect x="10" y="16.5" width={x(0.18)} height="7" rx="1.2" fill="rgba(12,22,32,0.2)" />
-      {/* cabin with windshield */}
-      <rect x={x(0.34)} y="15.8" width={x(0.24)} height="8.4" rx="2" fill={ink.feat} stroke={ink.line} strokeWidth="0.7" />
-      <rect x={x(0.34) + x(0.24) - 2.4} y="16.8" width="1.6" height="6.4" rx="0.8" fill={ink.accent} opacity="0.55" />
+      <rect x="11" y="16.6" width={x(0.18)} height="6.8" rx="1.2" fill={ink.mark} opacity="0.35" />
+      <Pegs W={W} n={2} ink={ink} />
+      {/* little cabin with windshield facing the bow */}
+      <rect x={x(0.32) + 1} y="16.3" width={x(0.3)} height="9.4" rx="2.4" fill={ink.ao} />
+      <rect x={x(0.32)} y="15.3" width={x(0.3)} height="9.4" rx="2.4" fill={`url(#${g}-r)`} stroke={ink.edge} strokeWidth="0.7" />
+      <rect x={x(0.35)} y="17" width={x(0.18)} height="5.6" rx="1.2" fill={ink.raiseTop} />
+      <rect x={x(0.32) + x(0.3) - 2.6} y="16.8" width="1.7" height="6.4" rx="0.85" fill={ink.accent} opacity="0.45" />
       {/* fore deck gun */}
-      <line x1={x(0.72) + 1.5} y1="20" x2={x(0.72) + 7} y2="20" stroke={ink.line} strokeWidth="1" />
-      <circle cx={x(0.72)} cy="20" r="2.4" fill={ink.featDark} stroke={ink.line} strokeWidth="0.7" />
+      <line x1={x(0.74)} y1="20" x2={x(0.74) + 8} y2="20" stroke={ink.dark} strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx={x(0.74)} cy="20" r="2.5" fill={`url(#${g}-r)`} stroke={ink.edge} strokeWidth="0.7" />
     </g>
   )
 }
 
-function Cracks({ W }: { W: number }) {
+// Scorched fissures + soot for the sunk variant.
+function Wreck({ W }: { W: number }) {
   return (
     <g>
-      <line x1={W * 0.3} y1="13" x2={W * 0.42} y2="27" stroke="#ff5a5a" strokeWidth="1.3" opacity="0.75" />
-      <line x1={W * 0.68} y1="26" x2={W * 0.6} y2="13" stroke="#ff5a5a" strokeWidth="1.3" opacity="0.75" />
+      <ellipse cx={W * 0.35} cy="19" rx="4.5" ry="3" fill="rgba(0,0,0,0.45)" />
+      <ellipse cx={W * 0.66} cy="21" rx="3.8" ry="2.6" fill="rgba(0,0,0,0.4)" />
+      <path d={`M${W * 0.3} 13 L${W * 0.34} 17 L${W * 0.31} 21 L${W * 0.37} 24 L${W * 0.34} 27`} stroke="#ff7a54" strokeWidth="1.1" fill="none" opacity="0.7" strokeLinejoin="round" />
+      <path d={`M${W * 0.68} 26 L${W * 0.64} 22 L${W * 0.67} 18.5 L${W * 0.62} 16 L${W * 0.65} 13`} stroke="#ff7a54" strokeWidth="1.1" fill="none" opacity="0.7" strokeLinejoin="round" />
     </g>
   )
 }
@@ -184,21 +265,27 @@ export default function Warship({ shipId, aspect, horiz, sunk }: {
     <>
       <defs>
         <linearGradient id={`${gid}-h`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={ink.top} /><stop offset="1" stopColor={ink.bot} />
+          <stop offset="0" stopColor={ink.hullTop} /><stop offset="1" stopColor={ink.hullBot} />
         </linearGradient>
         <linearGradient id={`${gid}-d`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor={ink.deckTop} /><stop offset="1" stopColor={ink.deckBot} />
         </linearGradient>
+        <linearGradient id={`${gid}-r`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={ink.raiseTop} /><stop offset="1" stopColor={ink.raiseBot} />
+        </linearGradient>
         <linearGradient id={`${gid}-s`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor={ink.subTop} /><stop offset="1" stopColor={ink.subBot} />
         </linearGradient>
+        <filter id={`${gid}-b`} x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="1.6" />
+        </filter>
       </defs>
       {cls === 'carrier' ? <Carrier W={W} ink={ink} g={gid} />
         : cls === 'cruiser' ? <Cruiser W={W} ink={ink} g={gid} />
         : cls === 'submarine' ? <Submarine W={W} ink={ink} g={gid} />
         : cls === 'destroyer' ? <Destroyer W={W} ink={ink} g={gid} />
-        : <Patrol W={W} ink={ink} />}
-      {sunk && <Cracks W={W} />}
+        : <Patrol W={W} ink={ink} g={gid} />}
+      {sunk && <Wreck W={W} />}
     </>
   )
   return horiz ? (
