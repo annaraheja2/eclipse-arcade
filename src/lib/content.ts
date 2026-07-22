@@ -55,13 +55,16 @@ function validateSubunit(v: unknown): Subunit | null {
 
 function validateUnit(v: unknown): Unit | null {
   if (!isRecord(v) || typeof v.id !== 'string' || typeof v.name !== 'string' || !Array.isArray(v.subunits)) return null
+  if (v.description !== undefined && typeof v.description !== 'string') return null
   const subunits: Subunit[] = []
   for (const raw of v.subunits) {
     const s = validateSubunit(raw)
     if (!s) return null
     subunits.push(s)
   }
-  return { id: v.id, name: v.name, subunits }
+  const unit: Unit = { id: v.id, name: v.name, subunits }
+  if (typeof v.description === 'string') unit.description = v.description
+  return unit
 }
 
 /**
@@ -103,6 +106,24 @@ export function draftIssue(course: Course): string | null {
     }
   }
   return null
+}
+
+// ---------------------------------------------------------------------------
+// Id generation for the admin structural editor (pure)
+// ---------------------------------------------------------------------------
+
+/** Lowercase, hyphen-separated, alphanumeric slug. Never empty. */
+export function slugify(name: string): string {
+  const base = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return base || 'item'
+}
+
+/** `base`, or `base-2`, `base-3`… — the first not already in `taken`. */
+export function uniqueId(base: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(base)) return base
+  let n = 2
+  while (taken.has(`${base}-${n}`)) n++
+  return `${base}-${n}`
 }
 
 // ---------------------------------------------------------------------------

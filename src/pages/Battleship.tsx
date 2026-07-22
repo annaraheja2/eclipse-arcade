@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { COURSES, type Course, type Unit, type Subunit, type Question } from '../data/subjects'
+import { COURSES, COURSE_LIST, type Course, type Unit, type Subunit, type Question } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import {
   randomFleet, allSunk, isSunk, keyOf, aiPick, applyFire,
@@ -27,14 +27,16 @@ const CY = '#3df5ff'
 const CY_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': string } = {
   '--btn': CY, '--edge': `color-mix(in srgb, ${CY} 50%, #000)`, '--glow': `${CY}88`,
 }
-const COURSE_ID = COURSES[0].id // Algebra 1 (from profile later)
+// PvP (invites + quick match) stays on this single course for now; only the
+// vs-AI flow lets the player pick from all courses (see the 'course' phase).
+const COURSE_ID = COURSES[0].id // Algebra 1
 
 function impactSound(result: 'miss' | 'hit' | 'sunk') {
   sfxFire()
   setTimeout(() => (result === 'miss' ? sfxMiss() : result === 'sunk' ? sfxSink() : sfxHit()), 320)
 }
 
-type Phase = 'mode' | 'friend' | 'queue' | 'unit' | 'subunit' | 'place' | 'battle' | 'over'
+type Phase = 'mode' | 'friend' | 'queue' | 'course' | 'unit' | 'subunit' | 'place' | 'battle' | 'over'
 interface Battle { enemy: Ship[]; placed: Ship[]; pShots: Shots; eShots: Shots; phase: 'q' | 'aim'; q: Question; msg: string; busy: boolean; lastP?: string; lastE?: string }
 
 const randomQ = (s: Subunit): Question => s.questions[Math.floor(Math.random() * s.questions.length)]
@@ -45,17 +47,21 @@ export default function Battleship() {
   const { finishGame } = usePlayer()
   const { user, loading: authLoading, emailVerified } = useAuth()
   const [ph, setPh] = useState<Phase>('mode')
-  // Firestore-backed when configured; loadCourse falls back to the bundled
-  // course on any failure, so null only ever means "still loading".
+  // vs-AI course selection. Firestore-backed when configured; loadCourse falls
+  // back to the bundled course on any failure, so course=null while aiCourseId
+  // is set only ever means "still loading".
+  const [aiCourseId, setAiCourseId] = useState<string | null>(null)
   const [course, setCourse] = useState<Course | null>(null)
   const [unit, setUnit] = useState<Unit | null>(null)
   const [sub, setSub] = useState<Subunit | null>(null)
 
   useEffect(() => {
+    if (!aiCourseId) return
     let cancelled = false
-    void loadCourse(COURSE_ID).then((c) => { if (!cancelled) setCourse(c) })
+    setCourse(null)
+    void loadCourse(aiCourseId).then((c) => { if (!cancelled) setCourse(c) })
     return () => { cancelled = true }
-  }, [])
+  }, [aiCourseId])
 
   const [placed, setPlaced] = useState<Ship[]>([])
   const [battle, setBattle] = useState<Battle | null>(null)
@@ -203,7 +209,8 @@ export default function Battleship() {
   const back = () => navigate('/')
   function goBack() {
     if (ph === 'mode') { back(); return }
-    if (ph === 'friend' || ph === 'queue' || ph === 'unit') { setPh('mode'); return }
+    if (ph === 'friend' || ph === 'queue' || ph === 'course') { setPh('mode'); return }
+    if (ph === 'unit') { setPh('course'); return }
     if (ph === 'subunit') { setUnit(null); setPh('unit'); return }
     if (ph === 'place') { setSub(null); setPlaced([]); setPh('subunit'); return }
     setPh('mode')
@@ -233,7 +240,7 @@ export default function Battleship() {
             {onlineError && <p role="alert" className="text-center text-sm text-[#ff9dbd] mb-4">{onlineError}</p>}
             <div className="grid gap-3">
               <ModeButton color={CY} title="VS AI" desc="Battle the computer — answer questions to earn your shots."
-                onClick={() => setPh('unit')} />
+                onClick={() => setPh('course')} />
               <ModeButton color="#ff3df0" title="VS FRIEND" desc="Challenge a friend to a live head-to-head battle."
                 disabled={!onlineReady} onClick={() => setPh('friend')} />
               <ModeButton color="#3dffa2" title="QUICK MATCH" desc="Get paired with another player who's looking for a battle."
@@ -300,6 +307,19 @@ export default function Battleship() {
           </Section>
         )}
 
+        {ph === 'course' && (
+          <Section title="CHOOSE A COURSE">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {COURSE_LIST.map((c) => (
+                <button key={c.id} onClick={() => { setAiCourseId(c.id); setUnit(null); setSub(null); setPh('unit') }}
+                  className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-neon-cyan/60 transition">
+                  <div className="font-bold">{c.name}</div>
+                </button>
+              ))}
+            </div>
+          </Section>
+        )}
+
         {ph === 'unit' && !course && (
           <p className="text-center text-white/70 font-pixel text-[10px] py-16">LOADING COURSE…</p>
         )}
@@ -307,31 +327,42 @@ export default function Battleship() {
         {ph === 'unit' && course && (
           <Section title="CHOOSE A UNIT">
             <div className="grid gap-3 sm:grid-cols-2">
-              {course.units.map((u) => (
-                <button key={u.id} onClick={() => { setUnit(u); setPh('subunit') }}
-                  className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-neon-cyan/60 transition">
-                  <div className="font-bold">{u.name}</div>
-                  <div className="text-xs text-white/60 mt-1">{u.subunits.length} topics</div>
-                </button>
-              ))}
+              {course.units.map((u) => {
+                const empty = u.subunits.length === 0
+                return (
+                  <button key={u.id} onClick={() => { setUnit(u); setPh('subunit') }} disabled={empty}
+                    className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 transition enabled:hover:border-neon-cyan/60 disabled:opacity-45 disabled:cursor-default">
+                    <div className="font-bold">{u.name}</div>
+                    {u.description && <div className="text-xs text-white/55 mt-1">{u.description}</div>}
+                    <div className="text-xs text-white/60 mt-1">{empty ? 'No topics yet' : `${u.subunits.length} topics`}</div>
+                  </button>
+                )
+              })}
             </div>
           </Section>
         )}
 
         {ph === 'subunit' && unit && (
           <Section title={`${unit.name.toUpperCase()} — PICK A TOPIC`}>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {unit.subunits.map((s) => (
-                <button key={s.id} onClick={() => { setSub(s); setPlaced(randomFleet()); setPh('place') }}
-                  className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-neon-cyan/60 transition">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold">{s.name}</span>
-                    <DiffBadge d={s.difficulty} />
-                  </div>
-                  <div className="text-xs text-white/60 mt-1 uppercase tracking-wide">{s.type} · vs AI</div>
-                </button>
-              ))}
-            </div>
+            {unit.subunits.length === 0 ? (
+              <p className="text-center text-sm text-white/60 py-8">This unit has no topics yet — pick another unit.</p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {unit.subunits.map((s) => {
+                  const empty = s.questions.length === 0
+                  return (
+                    <button key={s.id} onClick={() => { setSub(s); setPlaced(randomFleet()); setPh('place') }} disabled={empty}
+                      className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 transition enabled:hover:border-neon-cyan/60 disabled:opacity-45 disabled:cursor-default">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold">{s.name}</span>
+                        <DiffBadge d={s.difficulty} />
+                      </div>
+                      <div className="text-xs text-white/60 mt-1 uppercase tracking-wide">{empty ? 'No questions yet' : `${s.type} · vs AI`}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </Section>
         )}
 

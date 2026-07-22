@@ -1,26 +1,28 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { COURSES, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
-import { fetchRemoteCourse, saveCourse, draftIssue } from '../lib/content'
+import { COURSES, type Course, type Unit, type Subunit, type Question, type Difficulty, type AnswerType } from '../data/subjects'
+import { fetchRemoteCourse, saveCourse, draftIssue, slugify, uniqueId } from '../lib/content'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useAuth } from '../lib/auth'
 import AccountControl from '../components/AccountControl'
 import { ArrowLeft } from '../icons'
 
-// Admin question editor: edits arcadeContent/{courseId} in Firestore as one
-// whole doc (see lib/content.ts). The isAdmin gate here is CLIENT gating for
-// the UI only — firestore.rules (isArcadeAdmin) is the real enforcement; a
-// non-admin who bypasses this page simply gets permission-denied on save.
+// Admin content editor: edits arcadeContent/{courseId} in Firestore as one whole
+// doc (see lib/content.ts). Structure (units + subunits) and questions are both
+// editable here. The isAdmin gate is CLIENT gating for the UI only —
+// firestore.rules (isArcadeAdmin) is the real enforcement; a non-admin who
+// bypasses this page simply gets permission-denied on save.
 
 const AM = '#ffb43d'
 const AM_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow': string } = {
   '--btn': AM, '--edge': `color-mix(in srgb, ${AM} 50%, #000)`, '--glow': `${AM}88`,
 }
 const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard']
+const ANSWER_TYPES: readonly AnswerType[] = ['graph', 'slider', 'fill']
 
 const clone = (c: Course): Course => JSON.parse(JSON.stringify(c)) as Course
 
-function newQuestion(type: Subunit['type']): Question {
+function newQuestion(type: AnswerType): Question {
   switch (type) {
     case 'graph': return { prompt: '', x: 0, y: 0, range: 8 }
     case 'slider': return { prompt: '', answer: 0, min: 0, max: 10, step: 1 }
@@ -28,12 +30,48 @@ function newQuestion(type: Subunit['type']): Question {
   }
 }
 
-// Immutable nested update: replace subunit (ui, si) via `fn`.
+// Every subunit id currently in the course — the pool a new subunit's id must
+// avoid (subunit ids are course-unique: findSubunit searches all units).
+function subunitIds(c: Course): Set<string> {
+  const ids = new Set<string>()
+  for (const u of c.units) for (const s of u.subunits) ids.add(s.id)
+  return ids
+}
+
+function newSubunit(c: Course, name: string, type: AnswerType, difficulty: Difficulty): Subunit {
+  return { id: uniqueId(slugify(name), subunitIds(c)), name: name.trim(), difficulty, type, questions: [] }
+}
+
+function newUnit(c: Course, name: string, description: string): Unit {
+  const id = uniqueId(slugify(name), new Set(c.units.map((u) => u.id)))
+  const unit: Unit = { id, name: name.trim(), subunits: [] }
+  const desc = description.trim()
+  if (desc !== '') unit.description = desc
+  return unit
+}
+
+// Rebuilds a unit's description — empty string drops the optional field entirely.
+function withDescription(unit: Unit, desc: string): Unit {
+  const next: Unit = { id: unit.id, name: unit.name, subunits: unit.subunits }
+  if (desc !== '') next.description = desc
+  return next
+}
+
+// Immutable reorder: swap element `i` with its neighbour in `dir`.
+function moved<T>(arr: readonly T[], i: number, dir: -1 | 1): T[] {
+  const to = i + dir
+  if (to < 0 || to >= arr.length) return [...arr]
+  const next = [...arr]
+  ;[next[i], next[to]] = [next[to], next[i]]
+  return next
+}
+
+// Immutable nested updates.
+function withUnit(c: Course, ui: number, fn: (u: Unit) => Unit): Course {
+  return { ...c, units: c.units.map((u, i) => (i !== ui ? u : fn(u))) }
+}
 function withSubunit(c: Course, ui: number, si: number, fn: (s: Subunit) => Subunit): Course {
-  return {
-    ...c,
-    units: c.units.map((u, i) => (i !== ui ? u : { ...u, subunits: u.subunits.map((s, j) => (j !== si ? s : fn(s))) })),
-  }
+  return withUnit(c, ui, (u) => ({ ...u, subunits: u.subunits.map((s, j) => (j !== si ? s : fn(s))) }))
 }
 
 export default function Admin() {
@@ -46,12 +84,12 @@ export default function Admin() {
           <Link to="/" aria-label="Back to arcade" className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">
             <ArrowLeft width={18} height={18} />
           </Link>
-          <h1 className="font-pixel text-[12px]" style={{ color: AM }}>QUESTION EDITOR</h1>
+          <h1 className="font-pixel text-[12px]" style={{ color: AM }}>CONTENT EDITOR</h1>
           <div className="w-10 h-10 grid place-items-center">{isFirebaseConfigured && <AccountControl />}</div>
         </div>
 
         {!isFirebaseConfigured ? (
-          <Gate title="EDITOR OFFLINE">Firebase is not configured — the question editor needs the live backend.</Gate>
+          <Gate title="EDITOR OFFLINE">Firebase is not configured — the content editor needs the live backend.</Gate>
         ) : loading ? (
           <p className="text-center text-white/70 font-pixel text-[10px] py-16">CHECKING ACCESS…</p>
         ) : !user || !isAdmin ? (
@@ -186,22 +224,33 @@ function Editor({ email }: { email: string }) {
 
       <div className="space-y-3">
         {draft.units.map((unit, ui) => (
-          <details key={unit.id} open={ui === 0} className="rounded-xl border border-white/10 bg-white/[0.03]">
-            <summary className="cursor-pointer select-none px-4 py-3 font-pixel text-[10px] tracking-wider text-white/90 hover:text-white">
-              {unit.name.toUpperCase()}
-            </summary>
-            <div className="px-4 pb-4 space-y-3">
-              {unit.subunits.map((sub, si) => (
-                <SubunitEditor
-                  key={sub.id} sub={sub}
-                  onPatch={(patch) => update((c) => withSubunit(c, ui, si, (s) => ({ ...s, ...patch })))}
-                  onQuestions={(fn) => update((c) => withSubunit(c, ui, si, (s) => ({ ...s, questions: fn(s.questions) })))}
-                />
-              ))}
-            </div>
-          </details>
+          <UnitEditor
+            key={unit.id}
+            unit={unit}
+            open={ui === 0}
+            isFirst={ui === 0}
+            isLast={ui === draft.units.length - 1}
+            onPatch={(patch) => update((c) => withUnit(c, ui, (u) => ({ ...u, ...patch })))}
+            onDescription={(desc) => update((c) => withUnit(c, ui, (u) => withDescription(u, desc)))}
+            onMove={(dir) => update((c) => ({ ...c, units: moved(c.units, ui, dir) }))}
+            onDelete={() => {
+              if (!window.confirm(`Delete unit "${unit.name}" and its ${unit.subunits.length} topic(s)?`)) return
+              update((c) => ({ ...c, units: c.units.filter((_, i) => i !== ui) }))
+            }}
+            onAddSubunit={(name, type, difficulty) =>
+              update((c) => withUnit(c, ui, (u) => ({ ...u, subunits: [...u.subunits, newSubunit(c, name, type, difficulty)] })))}
+            onPatchSubunit={(si, patch) => update((c) => withSubunit(c, ui, si, (s) => ({ ...s, ...patch })))}
+            onSubunitQuestions={(si, fn) => update((c) => withSubunit(c, ui, si, (s) => ({ ...s, questions: fn(s.questions) })))}
+            onMoveSubunit={(si, dir) => update((c) => withUnit(c, ui, (u) => ({ ...u, subunits: moved(u.subunits, si, dir) })))}
+            onDeleteSubunit={(si, sub) => {
+              if (!window.confirm(`Delete topic "${sub.name}" and its ${sub.questions.length} question(s)?`)) return
+              update((c) => withUnit(c, ui, (u) => ({ ...u, subunits: u.subunits.filter((_, j) => j !== si) })))
+            }}
+          />
         ))}
       </div>
+
+      <AddUnitForm onAdd={(name, description) => update((c) => ({ ...c, units: [...c.units, newUnit(c, name, description)] }))} />
 
       {/* Save bar — fixed so the action and its status are always reachable. */}
       <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-[#0d0724]/95 backdrop-blur px-5 py-3">
@@ -239,12 +288,90 @@ function Editor({ email }: { email: string }) {
   )
 }
 
-function SubunitEditor({ sub, onPatch, onQuestions }: {
+function UnitEditor({
+  unit, open, isFirst, isLast,
+  onPatch, onDescription, onMove, onDelete,
+  onAddSubunit, onPatchSubunit, onSubunitQuestions, onMoveSubunit, onDeleteSubunit,
+}: {
+  unit: Unit
+  open: boolean
+  isFirst: boolean
+  isLast: boolean
+  onPatch: (patch: Partial<Pick<Unit, 'name'>>) => void
+  onDescription: (desc: string) => void
+  onMove: (dir: -1 | 1) => void
+  onDelete: () => void
+  onAddSubunit: (name: string, type: AnswerType, difficulty: Difficulty) => void
+  onPatchSubunit: (si: number, patch: Partial<Subunit>) => void
+  onSubunitQuestions: (si: number, fn: (qs: Question[]) => Question[]) => void
+  onMoveSubunit: (si: number, dir: -1 | 1) => void
+  onDeleteSubunit: (si: number, sub: Subunit) => void
+}) {
+  const nameId = `unit-name-${unit.id}`
+  const descId = `unit-desc-${unit.id}`
+  return (
+    <details open={open} className="rounded-xl border border-white/10 bg-white/[0.03]">
+      <summary className="cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-3">
+        <span className="font-pixel text-[10px] tracking-wider text-white/90">{unit.name.toUpperCase()}</span>
+        <span className="font-pixel text-[8px] text-white/50 shrink-0">{unit.subunits.length} TOPICS</span>
+      </summary>
+      <div className="px-4 pb-4 space-y-3">
+        <div className="rounded-lg border border-white/10 bg-[#0d0724] p-3">
+          <div className="flex items-start justify-between gap-3 mb-2.5">
+            <span className="font-pixel text-[8px] tracking-wider text-white/60 pt-2">UNIT</span>
+            <div className="flex items-center gap-1.5">
+              <MiniBtn label={`Move unit ${unit.name} up`} disabled={isFirst} onClick={() => onMove(-1)}>UP</MiniBtn>
+              <MiniBtn label={`Move unit ${unit.name} down`} disabled={isLast} onClick={() => onMove(1)}>DN</MiniBtn>
+              <MiniBtn label={`Delete unit ${unit.name}`} danger onClick={onDelete}>DEL</MiniBtn>
+            </div>
+          </div>
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <LabeledField id={nameId} label="UNIT NAME">
+              <input
+                id={nameId} type="text" value={unit.name} onChange={(e) => onPatch({ name: e.target.value })}
+                className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+              />
+            </LabeledField>
+            <LabeledField id={descId} label="DESCRIPTION (OPT)">
+              <input
+                id={descId} type="text" value={unit.description ?? ''} onChange={(e) => onDescription(e.target.value)}
+                className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+              />
+            </LabeledField>
+          </div>
+        </div>
+
+        {unit.subunits.length === 0 && (
+          <p className="text-sm text-white/50 px-1">No topics yet — add one below.</p>
+        )}
+        {unit.subunits.map((sub, si) => (
+          <SubunitEditor
+            key={sub.id} sub={sub}
+            isFirst={si === 0} isLast={si === unit.subunits.length - 1}
+            onPatch={(patch) => onPatchSubunit(si, patch)}
+            onQuestions={(fn) => onSubunitQuestions(si, fn)}
+            onMove={(dir) => onMoveSubunit(si, dir)}
+            onDelete={() => onDeleteSubunit(si, sub)}
+          />
+        ))}
+
+        <AddSubunitForm onAdd={onAddSubunit} />
+      </div>
+    </details>
+  )
+}
+
+function SubunitEditor({ sub, isFirst, isLast, onPatch, onQuestions, onMove, onDelete }: {
   sub: Subunit
+  isFirst: boolean
+  isLast: boolean
   onPatch: (patch: Partial<Subunit>) => void
   onQuestions: (fn: (qs: Question[]) => Question[]) => void
+  onMove: (dir: -1 | 1) => void
+  onDelete: () => void
 }) {
   const diffId = `diff-${sub.id}`
+  const nameId = `sub-name-${sub.id}`
   return (
     <details className="rounded-lg border border-white/10 bg-white/[0.03]">
       <summary className="cursor-pointer select-none px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
@@ -255,12 +382,28 @@ function SubunitEditor({ sub, onPatch, onQuestions }: {
         </span>
       </summary>
       <div className="px-3 pb-3">
+        <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+          <div className="flex-1 min-w-[160px]">
+            <LabeledField id={nameId} label="TOPIC NAME">
+              <input
+                id={nameId} type="text" value={sub.name} onChange={(e) => onPatch({ name: e.target.value })}
+                className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+              />
+            </LabeledField>
+          </div>
+          <div className="flex items-center gap-1.5 pt-5">
+            <MiniBtn label={`Move topic ${sub.name} up`} disabled={isFirst} onClick={() => onMove(-1)}>UP</MiniBtn>
+            <MiniBtn label={`Move topic ${sub.name} down`} disabled={isLast} onClick={() => onMove(1)}>DN</MiniBtn>
+            <MiniBtn label={`Delete topic ${sub.name}`} danger onClick={onDelete}>DEL</MiniBtn>
+          </div>
+        </div>
         <div className="flex items-center gap-2 mb-3">
           <label htmlFor={diffId} className="font-pixel text-[8px] tracking-wider text-white/80">DIFFICULTY</label>
           <select id={diffId} value={sub.difficulty} onChange={(e) => onPatch({ difficulty: e.target.value as Difficulty })}
             className="rounded-lg bg-white/5 border border-white/15 px-2 py-1.5 text-xs text-white">
             {DIFFICULTIES.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
+          <span className="font-pixel text-[8px] tracking-wider text-white/50">TYPE FIXED: {sub.type.toUpperCase()}</span>
         </div>
         <ol className="space-y-3">
           {sub.questions.map((q, qi) => (
@@ -292,10 +435,98 @@ function SubunitEditor({ sub, onPatch, onQuestions }: {
   )
 }
 
+function AddUnitForm({ onAdd }: { onAdd: (name: string, description: string) => void }) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const add = () => {
+    if (name.trim() === '') return
+    onAdd(name, description)
+    setName('')
+    setDescription('')
+  }
+  return (
+    <div className="mt-4 rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-4">
+      <h3 className="font-pixel text-[9px] tracking-wider text-white/70 mb-3">ADD UNIT</h3>
+      <div className="grid gap-2.5 sm:grid-cols-2 mb-3">
+        <LabeledField id="new-unit-name" label="UNIT NAME">
+          <input
+            id="new-unit-name" type="text" value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+          />
+        </LabeledField>
+        <LabeledField id="new-unit-desc" label="DESCRIPTION (OPT)">
+          <input
+            id="new-unit-desc" type="text" value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+          />
+        </LabeledField>
+      </div>
+      <button
+        onClick={add} disabled={name.trim() === ''}
+        className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 hover:border-neon-amber/40 disabled:opacity-40"
+      >
+        + ADD UNIT
+      </button>
+    </div>
+  )
+}
+
+function AddSubunitForm({ onAdd }: { onAdd: (name: string, type: AnswerType, difficulty: Difficulty) => void }) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState<AnswerType>('slider')
+  const [difficulty, setDifficulty] = useState<Difficulty>('easy')
+  const add = () => {
+    if (name.trim() === '') return
+    onAdd(name, type, difficulty)
+    setName('')
+  }
+  return (
+    <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.02] p-3">
+      <h4 className="font-pixel text-[8px] tracking-wider text-white/60 mb-2.5">ADD TOPIC</h4>
+      <div className="grid gap-2.5 sm:grid-cols-3 mb-3">
+        <LabeledField id="new-sub-name" label="TOPIC NAME">
+          <input
+            id="new-sub-name" type="text" value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+          />
+        </LabeledField>
+        <LabeledField id="new-sub-type" label="ANSWER TYPE">
+          <select
+            id="new-sub-type" value={type} onChange={(e) => setType(e.target.value as AnswerType)}
+            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+          >
+            {ANSWER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </LabeledField>
+        <LabeledField id="new-sub-diff" label="DIFFICULTY">
+          <select
+            id="new-sub-diff" value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}
+            className="w-full rounded-lg bg-white/5 border border-white/15 px-2.5 py-2 text-sm text-white"
+          >
+            {DIFFICULTIES.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </LabeledField>
+      </div>
+      <button
+        onClick={add} disabled={name.trim() === ''}
+        className="font-pixel text-[8px] px-3 py-2 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 hover:border-neon-amber/40 disabled:opacity-40"
+      >
+        + ADD TOPIC
+      </button>
+    </div>
+  )
+}
+
 function QuestionEditor({ q, index, type, subId, count, onPatch, onMove, onDelete }: {
   q: Question
   index: number
-  type: Subunit['type']
+  type: AnswerType
   subId: string
   count: number
   onPatch: (patch: Partial<Question>) => void

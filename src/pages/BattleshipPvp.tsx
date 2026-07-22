@@ -354,19 +354,22 @@ export default function BattleshipPvp() {
           <Section title="PICK YOUR TOPIC">
             <p className="text-center text-sm text-white/65 mb-4">These are the questions YOU answer to earn shots — {oppName} picks their own.</p>
             <div className="grid gap-3 sm:grid-cols-2">
-              {course.units.flatMap((u) => u.subunits.map((s) => (
-                <button key={s.id} onClick={() => setSubunitId(s.id)}
-                  className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 hover:border-neon-cyan/60 transition">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold">{s.name}</span>
-                    <span className="text-[9px] font-pixel px-2 py-1 rounded" style={{
-                      background: `${s.difficulty === 'easy' ? '#3dffa2' : s.difficulty === 'medium' ? '#ffb43d' : '#ff4d8d'}22`,
-                      color: s.difficulty === 'easy' ? '#3dffa2' : s.difficulty === 'medium' ? '#ffb43d' : '#ff4d8d',
-                    }}>{s.difficulty.toUpperCase()}</span>
-                  </div>
-                  <div className="text-xs text-white/60 mt-1 uppercase tracking-wide">{u.name} · {s.type}</div>
-                </button>
-              )))}
+              {course.units.flatMap((u) => u.subunits.map((s) => {
+                const empty = s.questions.length === 0
+                return (
+                  <button key={s.id} onClick={() => setSubunitId(s.id)} disabled={empty}
+                    className="text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 transition enabled:hover:border-neon-cyan/60 disabled:opacity-45 disabled:cursor-default">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold">{s.name}</span>
+                      <span className="text-[9px] font-pixel px-2 py-1 rounded" style={{
+                        background: `${s.difficulty === 'easy' ? '#3dffa2' : s.difficulty === 'medium' ? '#ffb43d' : '#ff4d8d'}22`,
+                        color: s.difficulty === 'easy' ? '#3dffa2' : s.difficulty === 'medium' ? '#ffb43d' : '#ff4d8d',
+                      }}>{s.difficulty.toUpperCase()}</span>
+                    </div>
+                    <div className="text-xs text-white/60 mt-1 uppercase tracking-wide">{u.name} · {empty ? 'no questions yet' : s.type}</div>
+                  </button>
+                )
+              }))}
             </div>
           </Section>
         )
