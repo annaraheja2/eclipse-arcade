@@ -14,6 +14,8 @@ import {
   createInviteMatch, acceptInvite, deleteInviteMatch,
   type FriendRequest, type Friendship, type Match,
 } from '../lib/social'
+import { displayNameFor } from '../lib/username'
+import { useUsernames } from '../lib/useUsernames'
 import { ArrowLeft } from '../icons'
 
 const CY = '#3df5ff'
@@ -90,23 +92,31 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
   const incomingInvites = (matches ?? []).filter((m) => m.status === 'invite' && m.players[0] !== uid)
   const liveMatches = (matches ?? []).filter((m) => m.status === 'placing' || m.status === 'active')
 
+  // Reverse-lookup handles for everyone shown, so people appear by username
+  // (falling back to email) — see displayNameFor.
+  const usernames = useUsernames([
+    ...(requests ?? []).map((r) => r.fromUid),
+    ...(friends ?? []).flatMap((f) => f.uids),
+    ...(matches ?? []).flatMap((m) => m.players),
+  ])
+
   return (
     <div className="space-y-10">
       {feedError && <p role="alert" className="text-center text-sm text-[#ff9dbd]">{feedError}</p>}
       {(incomingInvites.length > 0 || liveMatches.length > 0) && (
-        <MatchesSection uid={uid} invites={incomingInvites} live={liveMatches} navigate={navigate} />
+        <MatchesSection uid={uid} invites={incomingInvites} live={liveMatches} usernames={usernames} navigate={navigate} />
       )}
       <AddFriend uid={uid} email={email} friends={friends ?? []} />
-      <RequestsSection uid={uid} requests={requests} />
-      <FriendsSection uid={uid} email={email} friends={friends} matches={matches ?? []} navigate={navigate} />
+      <RequestsSection uid={uid} requests={requests} usernames={usernames} />
+      <FriendsSection uid={uid} email={email} friends={friends} matches={matches ?? []} usernames={usernames} navigate={navigate} />
     </div>
   )
 }
 
 // ----- battleship invites + in-progress matches -----
 
-function MatchesSection({ uid, invites, live, navigate }: {
-  uid: string; invites: Match[]; live: Match[]; navigate: (to: string) => void
+function MatchesSection({ uid, invites, live, usernames, navigate }: {
+  uid: string; invites: Match[]; live: Match[]; usernames: Record<string, string>; navigate: (to: string) => void
 }) {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -130,7 +140,7 @@ function MatchesSection({ uid, invites, live, navigate }: {
         {invites.map((m) => (
           <li key={m.id} className="flex items-center justify-between gap-3 rounded-xl border border-neon-magenta/40 bg-neon-magenta/10 p-4">
             <span className="text-sm text-white/90 truncate">
-              <span className="font-semibold">{m.emails[m.players[0]] ?? 'A player'}</span> challenges you to Battleship
+              <span className="font-semibold">{displayNameFor(usernames[m.players[0]], m.emails[m.players[0]])}</span> challenges you to Battleship
             </span>
             <span className="flex gap-2 shrink-0">
               <button
@@ -153,7 +163,7 @@ function MatchesSection({ uid, invites, live, navigate }: {
           return (
             <li key={m.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
               <span className="text-sm text-white/90 truncate">
-                Battle vs <span className="font-semibold">{m.emails[opp] ?? 'a player'}</span>
+                Battle vs <span className="font-semibold">{displayNameFor(usernames[opp], m.emails[opp])}</span>
                 <span className="ml-2 font-pixel text-[8px] text-neon-green">{m.status === 'active' ? 'LIVE' : 'PLACING'}</span>
               </span>
               <Link to={`/battleship/pvp/${m.id}`} className="arcade-btn shrink-0 font-pixel text-[9px] px-4 py-2.5 rounded-lg text-[#0a0620]" style={CY_BTN}>
@@ -220,7 +230,9 @@ function AddFriend({ uid, email, friends }: { uid: string; email: string; friend
 
 // ----- incoming requests -----
 
-function RequestsSection({ uid, requests }: { uid: string; requests: FriendRequest[] | null }) {
+function RequestsSection({ uid, requests, usernames }: {
+  uid: string; requests: FriendRequest[] | null; usernames: Record<string, string>
+}) {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
 
@@ -242,7 +254,7 @@ function RequestsSection({ uid, requests }: { uid: string; requests: FriendReque
         <ul className="grid gap-3">
           {requests.map((r) => (
             <li key={r.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-              <span className="text-sm text-white/90 truncate">{r.fromEmail}</span>
+              <span className="text-sm text-white/90 truncate">{displayNameFor(usernames[r.fromUid], r.fromEmail)}</span>
               <span className="flex gap-2 shrink-0">
                 <button onClick={() => void respond(r, true)} disabled={busyId !== null}
                   className="arcade-btn font-pixel text-[9px] px-4 py-2.5 rounded-lg text-[#0a0620] disabled:opacity-60" style={CY_BTN}>
@@ -263,8 +275,9 @@ function RequestsSection({ uid, requests }: { uid: string; requests: FriendReque
 
 // ----- friends list -----
 
-function FriendsSection({ uid, email, friends, matches, navigate }: {
-  uid: string; email: string; friends: Friendship[] | null; matches: Match[]; navigate: (to: string) => void
+function FriendsSection({ uid, email, friends, matches, usernames, navigate }: {
+  uid: string; email: string; friends: Friendship[] | null; matches: Match[]
+  usernames: Record<string, string>; navigate: (to: string) => void
 }) {
   const [error, setError] = useState('')
   const [busyUid, setBusyUid] = useState<string | null>(null)
@@ -306,12 +319,13 @@ function FriendsSection({ uid, email, friends, matches, navigate }: {
         <ul className="grid gap-3">
           {friends.map((f) => {
             const idx = f.uids[0] === uid ? 1 : 0
+            const name = displayNameFor(usernames[f.uids[idx]], f.emails[idx])
             return (
               <li key={f.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                <span className="text-sm text-white/90 truncate">{f.emails[idx]}</span>
+                <span className="text-sm text-white/90 truncate">{name}</span>
                 {confirmUnfriendId === f.id ? (
                   <span className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm text-white/80">Remove {f.emails[idx]}?</span>
+                    <span className="text-sm text-white/80">Remove {name}?</span>
                     <button onClick={() => void unfriend(f, f.uids[idx])} disabled={busyUid !== null}
                       className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-[#ff4d8d] text-[#2a0512] disabled:opacity-60">
                       CONFIRM

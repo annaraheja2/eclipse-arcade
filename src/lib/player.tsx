@@ -9,6 +9,7 @@ export interface PlayerState {
   streak: number
   lastPlayed: string // yyyy-mm-dd
   bests: Record<string, number> // gameKey -> best total score
+  username?: string // display-case handle; server-reserved (see lib/username.ts)
 }
 
 const KEY = 'eclipse-arcade:player'
@@ -60,13 +61,18 @@ export function mergePlayerState(local: PlayerState, cloud: PlayerState): Player
   for (const [k, v] of Object.entries(local.bests)) {
     bests[k] = Math.max(bests[k] ?? 0, v)
   }
-  return {
+  const merged: PlayerState = {
     coins: Math.max(local.coins, cloud.coins),
     xp: Math.max(local.xp, cloud.xp),
     streak: Math.max(local.streak, cloud.streak),
     lastPlayed: local.lastPlayed > cloud.lastPlayed ? local.lastPlayed : cloud.lastPlayed,
     bests,
   }
+  // The handle is server-authoritative (the usernames reservation), so prefer
+  // the cloud copy; fall back to local so a just-claimed handle isn't dropped.
+  const username = cloud.username ?? local.username
+  if (username !== undefined) merged.username = username
+  return merged
 }
 
 // Firestore docs are untrusted input — narrow to a well-formed PlayerState.
@@ -84,13 +90,15 @@ export function toPlayerState(data: unknown): PlayerState {
       if (typeof v === 'number' && Number.isFinite(v)) bests[k] = v
     }
   }
-  return {
+  const state: PlayerState = {
     coins: num(d.coins),
     xp: num(d.xp),
     streak: num(d.streak),
     lastPlayed: typeof d.lastPlayed === 'string' && DATE_RE.test(d.lastPlayed) ? d.lastPlayed : '',
     bests,
   }
+  if (typeof d.username === 'string' && d.username.length > 0) state.username = d.username
+  return state
 }
 
 // Firestore is loaded lazily (see lib/firebase.ts) — this helper pairs the SDK
@@ -99,21 +107,30 @@ async function firestoreSdk() {
   const [sdk, db] = await Promise.all([import('firebase/firestore'), getFirebaseDb()])
   return { sdk, db }
 }
+type FsSdk = Awaited<ReturnType<typeof firestoreSdk>>['sdk']
 
-// The players/{uid} doc mirrors PlayerState plus { email, updatedAt }.
+// The players/{uid} doc mirrors PlayerState plus { email, updatedAt }. Built
+// field-by-field (not spread) so an absent `username` is never written as
+// `undefined` — Firestore rejects undefined values.
+function cloudPayload(sdk: FsSdk, user: User, state: PlayerState): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    coins: state.coins, xp: state.xp, streak: state.streak,
+    lastPlayed: state.lastPlayed, bests: state.bests,
+    email: user.email, updatedAt: sdk.serverTimestamp(),
+  }
+  if (state.username) payload.username = state.username
+  return payload
+}
+
 async function writeCloud(user: User, state: PlayerState): Promise<void> {
   const { sdk, db } = await firestoreSdk()
-  const ref = sdk.doc(db, 'players', user.uid)
-  await sdk.setDoc(
-    ref,
-    { ...state, email: user.email, updatedAt: sdk.serverTimestamp() },
-    { merge: true }
-  )
+  await sdk.setDoc(sdk.doc(db, 'players', user.uid), cloudPayload(sdk, user, state), { merge: true })
 }
 
 interface Ctx {
   player: PlayerState
   finishGame: (gameKey: string, score: number) => { xp: number; coins: number; best: boolean }
+  setUsername: (username: string) => void
 }
 const PlayerCtx = createContext<Ctx | null>(null)
 
@@ -163,11 +180,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setPlayer(next)
         save(next)
       }
-      await sdk.setDoc(
-        ref,
-        { ...next, email: user.email, updatedAt: sdk.serverTimestamp() },
-        { merge: true }
-      )
+      await sdk.setDoc(ref, cloudPayload(sdk, user, next), { merge: true })
     }
     sync().catch((err: unknown) => console.error('[eclipse-arcade] cloud sync failed:', err))
     return () => { stale = true }
@@ -202,7 +215,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return { xp, coins, best: score > prevBest }
   }, [])
 
-  return <PlayerCtx.Provider value={{ player, finishGame }}>{children}</PlayerCtx.Provider>
+  // The username WRITE is owned by claimUsername (it must be transactional with
+  // the usernames reservation collection, which finishGame can't do atomically).
+  // This only mirrors the confirmed handle into local state/localStorage so the
+  // UI updates immediately — no extra cloud write.
+  const setUsername = useCallback((username: string) => {
+    const next = { ...playerRef.current, username }
+    playerRef.current = next
+    setPlayer(next)
+    save(next)
+  }, [])
+
+  return <PlayerCtx.Provider value={{ player, finishGame, setUsername }}>{children}</PlayerCtx.Provider>
 }
 
 export function usePlayer(): Ctx {

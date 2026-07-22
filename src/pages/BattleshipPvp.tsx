@@ -23,6 +23,7 @@ import {
   acceptInvite, deleteInviteMatch, setReady, fireShot, resolveShot, passTurn, endMatch,
   type Match, type Shot, type StoredMatch,
 } from '../lib/social'
+import { useUsernames } from '../lib/useUsernames'
 import { ArrowLeft, Volume, VolumeMute, Target } from '../icons'
 import { sfxFire, sfxHit, sfxMiss, sfxSink, sfxWin, setMuted, isMuted } from '../lib/sound'
 
@@ -97,6 +98,10 @@ export default function BattleshipPvp() {
   const myUid = user?.uid ?? ''
   const oppUid = match ? opponentOf(match, myUid) : null
   const oppEmail = (oppUid && match?.emails[oppUid]) || 'your opponent'
+  // Show the opponent by handle (falling back to email); the public usernames
+  // collection is the only place another player's handle is readable.
+  const oppUsernames = useUsernames(oppUid ? [oppUid] : [])
+  const oppName = (oppUid && oppUsernames[oppUid]) || oppEmail
   const iAmCreator = match?.players[0] === myUid
   const myShots = shots.filter((s) => s.by === myUid)
   const oppShots = shots.filter((s) => s.by !== myUid)
@@ -301,7 +306,7 @@ export default function BattleshipPvp() {
         <Section title="INVITE SENT">
           <div className="text-center py-8">
             <p className="font-pixel text-[11px] text-neon-cyan mb-3" aria-live="polite">
-              <span className="blink-attract">WAITING FOR {oppEmail.toUpperCase()}…</span>
+              <span className="blink-attract">WAITING FOR {oppName.toUpperCase()}…</span>
             </p>
             <p className="text-sm text-white/65 mb-6">The battle starts as soon as they accept.</p>
             {actionError && <ErrorLine text={actionError} />}
@@ -311,7 +316,7 @@ export default function BattleshipPvp() {
       ) : (
         <Section title="CHALLENGE RECEIVED">
           <div className="text-center py-8">
-            <p className="text-white/90 mb-6"><span className="font-semibold">{oppEmail}</span> challenges you to Battleship.</p>
+            <p className="text-white/90 mb-6"><span className="font-semibold">{oppName}</span> challenges you to Battleship.</p>
             {actionError && <ErrorLine text={actionError} />}
             <div className="flex justify-center gap-3">
               <button onClick={accept} disabled={busy}
@@ -330,14 +335,14 @@ export default function BattleshipPvp() {
         return (
           <Section title="FLEET DEPLOYED">
             <p className="font-pixel text-[10px] text-neon-cyan text-center mb-4" aria-live="polite">
-              <span className="blink-attract">WAITING FOR {oppEmail.toUpperCase()}…</span>
+              <span className="blink-attract">WAITING FOR {oppName.toUpperCase()}…</span>
             </p>
             {stored && (
               <div className="flex justify-center mb-6">
                 <BattleGrid ships={stored.fleet} shots={{}} showShips disabled />
               </div>
             )}
-            {staleOpponent && <StaleNotice email={oppEmail} onAbandon={abandonStale} busy={busy} />}
+            {staleOpponent && <StaleNotice email={oppName} onAbandon={abandonStale} busy={busy} />}
             {actionError && <ErrorLine text={actionError} />}
             <div className="flex justify-center"><ForfeitControl confirm={confirmForfeit} setConfirm={setConfirmForfeit} onForfeit={forfeit} busy={busy} /></div>
           </Section>
@@ -347,7 +352,7 @@ export default function BattleshipPvp() {
       if (!sub) {
         return (
           <Section title="PICK YOUR TOPIC">
-            <p className="text-center text-sm text-white/65 mb-4">These are the questions YOU answer to earn shots — {oppEmail} picks their own.</p>
+            <p className="text-center text-sm text-white/65 mb-4">These are the questions YOU answer to earn shots — {oppName} picks their own.</p>
             <div className="grid gap-3 sm:grid-cols-2">
               {course.units.flatMap((u) => u.subunits.map((s) => (
                 <button key={s.id} onClick={() => setSubunitId(s.id)}
@@ -394,7 +399,7 @@ export default function BattleshipPvp() {
       const statusLine = msg !== '' ? msg
         : myTurn
           ? (qPhase === 'q' ? 'Your turn — answer to earn a shot.' : 'Direct your fire — tap the enemy waters.')
-          : pendingMine ? FIRED_MSG : `${oppEmail} is taking their turn…`
+          : pendingMine ? FIRED_MSG : `${oppName} is taking their turn…`
       const lastMine = myShots.length > 0 ? myShots[myShots.length - 1] : undefined
       const lastTheirs = resolvedOppShots.length > 0 ? resolvedOppShots[resolvedOppShots.length - 1] : undefined
       return (
@@ -405,7 +410,7 @@ export default function BattleshipPvp() {
           </div>
 
           <div className="text-center mb-2">
-            <div className="font-pixel text-[10px] text-white/60">ENEMY WATERS — {oppEmail.toUpperCase()}</div>
+            <div className="font-pixel text-[10px] text-white/60">ENEMY WATERS — {oppName.toUpperCase()}</div>
           </div>
           <div className="flex justify-center mb-4">
             <BattleGrid ships={[]} shots={enemyMarks} showShips={false}
@@ -415,7 +420,7 @@ export default function BattleshipPvp() {
 
           <div className="min-h-6 text-center font-pixel text-[11px] mb-2" style={{ color: CY }} aria-live="polite">{statusLine}</div>
           {actionError && <ErrorLine text={actionError} />}
-          {staleOpponent && <StaleNotice email={oppEmail} onAbandon={abandonStale} busy={busy} />}
+          {staleOpponent && <StaleNotice email={oppName} onAbandon={abandonStale} busy={busy} />}
 
           {myTurn && qPhase === 'q' && question
             ? <QuestionPanel q={question} color={CY} onSubmit={onAnswer} />
@@ -442,10 +447,10 @@ export default function BattleshipPvp() {
     const won = match.winner === myUid
     const detail =
       match.endReason === 'forfeit'
-        ? (won ? `${oppEmail} forfeited the battle.` : 'You forfeited the battle.')
+        ? (won ? `${oppName} forfeited the battle.` : 'You forfeited the battle.')
         : match.endReason === 'timeout'
-          ? (won ? `${oppEmail} went inactive — the match was closed.` : 'The match was closed for inactivity.')
-          : won ? `You sank ${oppEmail}'s fleet.` : `${oppEmail} sank your fleet.`
+          ? (won ? `${oppName} went inactive — the match was closed.` : 'The match was closed for inactivity.')
+          : won ? `You sank ${oppName}'s fleet.` : `${oppName} sank your fleet.`
     return (
       <div className="text-center py-12">
         <div className="font-pixel text-2xl mb-4" style={{ color: won ? '#3dffa2' : '#ff4d8d' }} aria-live="polite">

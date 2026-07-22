@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type K
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { usePlayer } from '../lib/player'
+import { displayNameFor } from '../lib/username'
 import VerifyEmailNotice from './VerifyEmailNotice'
+import UsernamePicker from './UsernamePicker'
 import { User as UserIcon } from '../icons'
 
 // The HUD account button, rendered only when Firebase is configured (the Lobby
@@ -10,8 +13,10 @@ import { User as UserIcon } from '../icons'
 // modal; signed in it opens a small account popover with sign-out.
 export default function AccountControl() {
   const { user, loading } = useAuth()
+  const { player, setUsername } = usePlayer()
   const [modalOpen, setModalOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   const closeModal = () => {
@@ -20,7 +25,7 @@ export default function AccountControl() {
   }
 
   if (user) {
-    const initial = (user.email ?? '?').charAt(0).toUpperCase()
+    const initial = displayNameFor(player.username, user.email).charAt(0).toUpperCase()
     return (
       <div className="relative">
         <button
@@ -39,6 +44,16 @@ export default function AccountControl() {
               setMenuOpen(false)
               if (restoreFocus) triggerRef.current?.focus()
             }}
+            onSetUsername={() => { setMenuOpen(false); setPickerOpen(true) }}
+          />
+        )}
+        {pickerOpen && user.email && (
+          <UsernamePicker
+            uid={user.uid}
+            email={user.email}
+            current={player.username}
+            onClose={() => { setPickerOpen(false); triggerRef.current?.focus() }}
+            onSaved={(u) => { setUsername(u); setPickerOpen(false); triggerRef.current?.focus() }}
           />
         )}
       </div>
@@ -64,8 +79,12 @@ export default function AccountControl() {
 
 // onClose(false) skips restoring focus to the trigger — used when the popover
 // closes because focus already moved somewhere else (tab-out).
-function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void }) {
+function AccountMenu({ onClose, onSetUsername }: {
+  onClose: (restoreFocus?: boolean) => void
+  onSetUsername: () => void
+}) {
   const { user, isAdmin, emailVerified, signOut } = useAuth()
+  const { player } = usePlayer()
   const [error, setError] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -85,6 +104,9 @@ function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void })
     else onClose()
   }
 
+  // Show the handle when set; email is shown as a secondary line for reference.
+  const name = displayNameFor(player.username, user?.email)
+
   return (
     <div
       ref={panelRef}
@@ -101,8 +123,8 @@ function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void })
       className="absolute right-0 top-12 z-30 w-64 rounded-xl border border-white/15 bg-[#120a2c] p-4 shadow-[0_0_24px_rgba(61,245,255,0.25),0_16px_40px_-12px_rgba(0,0,0,0.9)]"
     >
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-sm text-white/90 truncate" title={user?.email ?? undefined}>
-          {user?.email}
+        <span className="text-sm font-semibold text-white/90 truncate" title={user?.email ?? undefined}>
+          {name}
         </span>
         {isAdmin && (
           <Link
@@ -114,6 +136,9 @@ function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void })
           </Link>
         )}
       </div>
+      {player.username && user?.email && (
+        <p className="mt-0.5 text-xs text-white/60 truncate" title={user.email}>{user.email}</p>
+      )}
       {error && <p role="alert" className="mt-2 text-sm text-[#ff9dbd]">{error}</p>}
       {/* Unverified email accounts can't use online play — Google users are
           always verified and see nothing here (see lib/social.ts). */}
@@ -121,8 +146,14 @@ function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void })
         <VerifyEmailNotice className="mt-3" message="Verify your email to play online." />
       )}
       <button
+        onClick={onSetUsername}
+        className="mt-3.5 w-full font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/85 hover:bg-white/10 transition"
+      >
+        {player.username ? 'CHANGE USERNAME' : 'SET USERNAME'}
+      </button>
+      <button
         onClick={handleSignOut}
-        className="arcade-btn mt-3.5 w-full font-pixel text-[10px] px-4 py-2.5 rounded-lg text-[#0a0620]"
+        className="arcade-btn mt-2.5 w-full font-pixel text-[10px] px-4 py-2.5 rounded-lg text-[#0a0620]"
         style={btnVars('#3df5ff')}
       >
         SIGN OUT
@@ -131,23 +162,27 @@ function AccountMenu({ onClose }: { onClose: (restoreFocus?: boolean) => void })
   )
 }
 
-type Mode = 'signin' | 'signup'
+type Mode = 'signin' | 'signup' | 'reset'
 
 function SignInModal({ onClose }: { onClose: () => void }) {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth()
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth()
   const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const googleBtnRef = useRef<HTMLButtonElement>(null)
+  const resetInputRef = useRef<HTMLInputElement>(null)
 
   // Initial focus lands on the primary action (Google sign-in), not the Close
-  // button that happens to come first in DOM order.
+  // button that happens to come first in DOM order. Entering the reset view
+  // moves focus to its email input.
   useEffect(() => {
-    googleBtnRef.current?.focus()
-  }, [])
+    if (mode === 'reset') resetInputRef.current?.focus()
+    else googleBtnRef.current?.focus()
+  }, [mode])
 
   // Keyboard: Esc closes; Tab is trapped inside the dialog.
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -179,6 +214,25 @@ function SignInModal({ onClose }: { onClose: () => void }) {
     void runAuth(() => authFn(email, password))
   }
 
+  const onResetSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setResetSent(false)
+    setBusy(true)
+    const res = await resetPassword(email)
+    setBusy(false)
+    // A neutral success is shown for a real send AND an unknown address
+    // (account-enumeration guard in lib/auth.tsx). Only genuine errors (invalid
+    // email, network, not-configured) surface here.
+    if (res.status === 'ok') setResetSent(true)
+    else if (res.status === 'error') setError(res.message)
+  }
+
+  const goToReset = () => { setMode('reset'); setError(''); setResetSent(false) }
+  const backToSignin = () => { setMode('signin'); setError(''); setResetSent(false) }
+
+  const title = mode === 'signin' ? 'PLAYER SIGN-IN' : mode === 'signup' ? 'NEW PLAYER' : 'RESET PASSWORD'
+
   return createPortal(
     <div
       className="fixed inset-0 z-40 grid place-items-center p-4 bg-black/70"
@@ -194,7 +248,7 @@ function SignInModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-start justify-between gap-4">
           <h2 id="signin-title" className="font-pixel text-[12px] tracking-wider text-neon-cyan neon-text pt-1">
-            {mode === 'signin' ? 'PLAYER SIGN-IN' : 'NEW PLAYER'}
+            {title}
           </h2>
           <button
             onClick={onClose}
@@ -207,64 +261,118 @@ function SignInModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <button
-          ref={googleBtnRef}
-          onClick={() => void runAuth(signInWithGoogle)}
-          disabled={busy}
-          className="arcade-btn mt-5 w-full font-pixel text-[10px] px-4 py-3 rounded-lg text-[#0a0620] disabled:opacity-60"
-          style={btnVars('#3df5ff')}
-        >
-          SIGN IN WITH GOOGLE
-        </button>
+        {mode === 'reset' ? (
+          <>
+            <p className="mt-4 text-sm text-white/75">
+              Enter your account email and we'll send a link to reset your password.
+            </p>
+            <form onSubmit={(e) => void onResetSubmit(e)} className="mt-4 space-y-4">
+              <Field label="EMAIL" id="reset-email">
+                <input
+                  id="reset-email"
+                  ref={resetInputRef}
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(''); setResetSent(false) }}
+                  className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2.5 text-sm text-white placeholder:text-white/40"
+                  placeholder="player@example.com"
+                />
+              </Field>
+              {error && <p role="alert" className="text-sm text-[#ff9dbd]">{error}</p>}
+              <button
+                type="submit"
+                disabled={busy}
+                className="arcade-btn w-full font-pixel text-[10px] px-4 py-3 rounded-lg text-[#0a0620] disabled:opacity-60"
+                style={btnVars('#ff3df0')}
+              >
+                {busy ? 'SENDING…' : 'SEND RESET LINK'}
+              </button>
+            </form>
+            {resetSent && (
+              <p role="status" className="mt-3 text-sm text-neon-green">
+                If an account exists for that email, a reset link is on its way.
+              </p>
+            )}
+            <button
+              onClick={backToSignin}
+              className="mt-4 w-full text-center text-sm text-white/80 hover:text-white underline underline-offset-4"
+            >
+              Back to sign in
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              ref={googleBtnRef}
+              onClick={() => void runAuth(signInWithGoogle)}
+              disabled={busy}
+              className="arcade-btn mt-5 w-full font-pixel text-[10px] px-4 py-3 rounded-lg text-[#0a0620] disabled:opacity-60"
+              style={btnVars('#3df5ff')}
+            >
+              SIGN IN WITH GOOGLE
+            </button>
 
-        <div className="my-5 flex items-center gap-3" aria-hidden>
-          <span className="h-px flex-1 bg-white/15" />
-          <span className="font-pixel text-[8px] text-white/60">OR</span>
-          <span className="h-px flex-1 bg-white/15" />
-        </div>
+            <div className="my-5 flex items-center gap-3" aria-hidden>
+              <span className="h-px flex-1 bg-white/15" />
+              <span className="font-pixel text-[8px] text-white/60">OR</span>
+              <span className="h-px flex-1 bg-white/15" />
+            </div>
 
-        <form onSubmit={onSubmit} className="space-y-4">
-          <Field label="EMAIL" id="auth-email">
-            <input
-              id="auth-email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2.5 text-sm text-white placeholder:text-white/40"
-              placeholder="player@example.com"
-            />
-          </Field>
-          <Field label="PASSWORD" id="auth-password">
-            <input
-              id="auth-password"
-              type="password"
-              autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2.5 text-sm text-white"
-            />
-          </Field>
-          {error && <p role="alert" className="text-sm text-[#ff9dbd]">{error}</p>}
-          <button
-            type="submit"
-            disabled={busy}
-            className="arcade-btn w-full font-pixel text-[10px] px-4 py-3 rounded-lg text-[#0a0620] disabled:opacity-60"
-            style={btnVars('#ff3df0')}
-          >
-            {mode === 'signin' ? 'SIGN IN' : 'CREATE ACCOUNT'}
-          </button>
-        </form>
+            <form onSubmit={onSubmit} className="space-y-4">
+              <Field label="EMAIL" id="auth-email">
+                <input
+                  id="auth-email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2.5 text-sm text-white placeholder:text-white/40"
+                  placeholder="player@example.com"
+                />
+              </Field>
+              <Field label="PASSWORD" id="auth-password">
+                <input
+                  id="auth-password"
+                  type="password"
+                  autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2.5 text-sm text-white"
+                />
+              </Field>
+              {error && <p role="alert" className="text-sm text-[#ff9dbd]">{error}</p>}
+              <button
+                type="submit"
+                disabled={busy}
+                className="arcade-btn w-full font-pixel text-[10px] px-4 py-3 rounded-lg text-[#0a0620] disabled:opacity-60"
+                style={btnVars('#ff3df0')}
+              >
+                {mode === 'signin' ? 'SIGN IN' : 'CREATE ACCOUNT'}
+              </button>
+            </form>
 
-        <button
-          onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError('') }}
-          className="mt-4 w-full text-center text-sm text-white/80 hover:text-white underline underline-offset-4"
-        >
-          {mode === 'signin' ? 'New player? Create an account' : 'Have an account? Sign in'}
-        </button>
+            {mode === 'signin' && (
+              <button
+                onClick={goToReset}
+                className="mt-3 w-full text-center text-sm text-white/80 hover:text-white underline underline-offset-4"
+              >
+                Forgot password?
+              </button>
+            )}
+
+            <button
+              onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError('') }}
+              className="mt-4 w-full text-center text-sm text-white/80 hover:text-white underline underline-offset-4"
+            >
+              {mode === 'signin' ? 'New player? Create an account' : 'Have an account? Sign in'}
+            </button>
+          </>
+        )}
       </div>
     </div>,
     document.body

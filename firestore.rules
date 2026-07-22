@@ -89,8 +89,39 @@ service cloud.firestore {
       allow write: if request.auth != null
         && request.auth.uid == uid
         && request.resource.data.email == request.auth.token.email
+        // Defense-in-depth: username is OPTIONAL on this doc (finishGame writes
+        // omit it), but when present the mirrored handle must be a string.
+        && (!('username' in request.resource.data)
+            || request.resource.data.username is string)
         && request.resource.data.keys().hasOnly(
-             ['coins', 'xp', 'streak', 'lastPlayed', 'bests', 'email', 'updatedAt']);
+             ['coins', 'xp', 'streak', 'lastPlayed', 'bests', 'email', 'updatedAt', 'username']);
+    }
+
+    // Unique, server-reserved usernames. UNIQUENESS MECHANISM: the doc id IS the
+    // lowercased handle (usernameLower), and creates are gated to
+    // id == username.lower() — so a handle maps to exactly one doc, and a
+    // create fails if that doc already exists. There is deliberately NO update
+    // rule: a rename is delete-old + create-new, done atomically in the
+    // claimUsername transaction (see src/lib/username.ts), which reads the
+    // target doc to serialize concurrent claims. Reads are PUBLIC — needed for
+    // availability checks and uid->handle display lookups.
+    match /usernames/{name} {
+      allow read: if true;
+      // FORMAT is enforced server-side (mirrors validateUsername) so a direct-SDK
+      // caller can't reserve a malformed/overlong handle: matches() is a
+      // full-string RE2 match, so this requires start-with-letter then
+      // letters/digits/underscores, within 3–20 chars. The client's extra rules
+      // (no double/trailing underscore) stay client-only.
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.uid
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 3
+        && request.resource.data.username.size() <= 20
+        && request.resource.data.username.matches('[A-Za-z][A-Za-z0-9_]*')
+        && name == request.resource.data.username.lower()
+        && request.resource.data.keys().hasOnly(['uid', 'username', 'createdAt']);
+      // A user may release ONLY their own reservation (so they can change it).
+      allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
     }
 
     // Arcade curriculum content: one whole-course doc per course (see

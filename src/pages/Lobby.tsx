@@ -4,6 +4,7 @@ import { Moon, Search, Coin, Flame, Bolt, Users, Bell, User } from '../icons'
 import { GAMES, type GameDef } from '../lib/games'
 import GameThumbnail from '../components/GameThumbnail'
 import AccountControl from '../components/AccountControl'
+import UsernamePrompt from '../components/UsernamePrompt'
 import { usePlayer, levelFromXp, isStreakAtRisk, todayStr } from '../lib/player'
 import { isFirebaseConfigured } from '../lib/firebase'
 
@@ -35,6 +36,7 @@ export default function Lobby() {
         <Hud />
         <main className="max-w-6xl mx-auto px-6 pb-24">
           <Hero />
+          {isFirebaseConfigured && <UsernamePrompt />}
           <section>
             <SectionHeader>SELECT A GAME</SectionHeader>
             <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-3">

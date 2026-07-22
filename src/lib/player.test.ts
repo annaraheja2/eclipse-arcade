@@ -76,6 +76,21 @@ describe('mergePlayerState', () => {
     expect(local.bests).toEqual(played.bests)
     expect(cloud.bests).toEqual({ pinpoint: 9999 })
   })
+
+  it('prefers the cloud username (server-authoritative reservation)', () => {
+    const local: PlayerState = { ...empty, username: 'LocalName' }
+    const cloud: PlayerState = { ...empty, username: 'CloudName' }
+    expect(mergePlayerState(local, cloud).username).toBe('CloudName')
+  })
+
+  it('falls back to a just-claimed local username when the cloud has none', () => {
+    const local: PlayerState = { ...empty, username: 'AceRunner' }
+    expect(mergePlayerState(local, empty).username).toBe('AceRunner')
+  })
+
+  it('leaves username unset when neither side has one', () => {
+    expect(mergePlayerState(empty, empty).username).toBeUndefined()
+  })
 })
 
 describe('toPlayerState', () => {
@@ -90,5 +105,19 @@ describe('toPlayerState', () => {
 
   it('keeps a well-formed lastPlayed', () => {
     expect(toPlayerState({ lastPlayed: '2026-07-21' }).lastPlayed).toBe('2026-07-21')
+  })
+
+  it('keeps a well-formed string username', () => {
+    expect(toPlayerState({ username: 'AceRunner' }).username).toBe('AceRunner')
+  })
+
+  it('drops a non-string username', () => {
+    // A malformed cloud doc must not smuggle a non-string handle into state.
+    expect(toPlayerState({ username: 42 }).username).toBeUndefined()
+    expect(toPlayerState({ username: { evil: true } }).username).toBeUndefined()
+  })
+
+  it('drops an empty-string username', () => {
+    expect(toPlayerState({ username: '' }).username).toBeUndefined()
   })
 })

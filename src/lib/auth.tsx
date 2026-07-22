@@ -27,6 +27,7 @@ interface AuthCtx {
   signInWithGoogle: () => Promise<AuthResult>
   signInWithEmail: (email: string, password: string) => Promise<AuthResult>
   signUpWithEmail: (email: string, password: string) => Promise<AuthResult>
+  resetPassword: (email: string) => Promise<AuthResult>
   resendVerification: () => Promise<AuthResult>
   signOut: () => Promise<AuthResult>
 }
@@ -144,6 +145,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }),
     []
   )
+  // Sends a password-reset email. Typed AuthResult with friendly errors.
+  const resetPassword = useCallback(
+    (email: string): Promise<AuthResult> => {
+      if (!isFirebaseConfigured) return Promise.resolve(NOT_CONFIGURED)
+      return (async (): Promise<AuthResult> => {
+        try {
+          const { sdk, auth } = await authSdk()
+          await sdk.sendPasswordResetEmail(auth, email)
+          return { status: 'ok' }
+        } catch (err) {
+          // ACCOUNT-ENUMERATION GUARD: an unknown address returns the SAME
+          // neutral success as a real send, so an attacker can't probe which
+          // emails have accounts. (Firebase's newer email-enumeration
+          // protection already masks this, but we don't rely on that project
+          // setting.) auth/invalid-email and unexpected errors still surface via
+          // toResult — never swallowed.
+          if (firebaseCode(err) === 'auth/user-not-found') return { status: 'ok' }
+          return toResult(err)
+        }
+      })()
+    },
+    []
+  )
   // Re-sends the verification link to the currently signed-in user. Typed
   // AuthResult with friendly errors — never swallowed.
   const resendVerification = useCallback(
@@ -177,9 +201,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       user, loading, isAdmin, emailVerified,
-      signInWithGoogle, signInWithEmail, signUpWithEmail, resendVerification, signOut,
+      signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, resendVerification, signOut,
     }),
-    [user, loading, isAdmin, emailVerified, signInWithGoogle, signInWithEmail, signUpWithEmail, resendVerification, signOut]
+    [user, loading, isAdmin, emailVerified, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, resendVerification, signOut]
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
