@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { Moon, Search, Coin, Flame, Bolt, Users, Bell, User } from '../icons'
 import { GAMES, type GameDef } from '../lib/games'
 import GameThumbnail from '../components/GameThumbnail'
+import AccountControl from '../components/AccountControl'
 import { usePlayer, levelFromXp, isStreakAtRisk, todayStr } from '../lib/player'
+import { isFirebaseConfigured } from '../lib/firebase'
 
 // React.CSSProperties has no index signature for custom properties; these widen it
 // only for the accent vars consumed by `.arcade-btn` / `.cab-live` / `.wordmark`
@@ -78,9 +80,13 @@ function Hud() {
         <div className="flex items-center gap-2.5 shrink-0">
           <IconBtn><Users width={18} height={18} /></IconBtn>
           <IconBtn dot><Bell width={18} height={18} /></IconBtn>
-          <button className="grid place-items-center w-10 h-10 rounded-xl bg-gradient-to-br from-neon-cyan to-neon-blue text-[#06121a] shadow-[0_0_16px_rgba(61,245,255,0.6)]">
-            <User width={18} height={18} />
-          </button>
+          {isFirebaseConfigured ? (
+            <AccountControl />
+          ) : (
+            <button className="grid place-items-center w-10 h-10 rounded-xl bg-gradient-to-br from-neon-cyan to-neon-blue text-[#06121a] shadow-[0_0_16px_rgba(61,245,255,0.6)]">
+              <User width={18} height={18} />
+            </button>
+          )}
         </div>
       </div>
     </header>

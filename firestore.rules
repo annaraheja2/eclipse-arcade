@@ -1,0 +1,102 @@
+rules_version = '2';
+
+// ============================================================================
+// SHARED Eclipse Firebase project (eclipse-learning-97944)
+//
+// This one project backs BOTH Eclipse family apps:
+//   - Eclipse Learning (~/app/studyreel-web): content, shorts, users, reflections
+//   - Eclipse Arcade  (this repo):            players
+//
+// This file is the deployable source of truth for the WHOLE project — it must
+// contain both apps' rules. Deploying a partial (single-app) ruleset would
+// break the other app. Keep studyreel-web/firestore.rules in sync or retire it
+// in favor of this file.
+//
+// These rules are the REAL enforcement; the client-side checks
+// (src/lib/admin.ts, isAdmin in src/lib/auth.tsx) are UI gating only and must
+// never be trusted.
+// ============================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Owner/master accounts for Eclipse Learning — semantics IDENTICAL to the
+    // ruleset currently deployed for studyreel-web (no email_verified check),
+    // so publishing this file cannot change any live Learning behavior.
+    //
+    // KNOWN GAP (deliberate, pending verification): without email_verified, an
+    // email/password signup merely CLAIMING one of these addresses would pass.
+    // Add `&& request.auth.token.email_verified == true` here ONLY after
+    // confirming in the Auth console that all three owner accounts use the
+    // Google provider (auto-verified) — otherwise a live owner gets locked out.
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'annaraheja2@gmail.com',
+          'alexleyvalp@gmail.com',
+          'f.nguyen088@gmail.com'
+        ];
+    }
+
+    // Eclipse Arcade admins — a NEW surface, so the email_verified hardening is
+    // safe here (worst case an unverified admin loses only the extra admin
+    // reads; no existing behavior can break). Google sign-in is always
+    // verified. f.nguyen088@gmail.com is a Learning owner but has NOT been
+    // confirmed as an arcade admin — if that changes, add them here.
+    function isArcadeAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['annaraheja2@gmail.com', 'alexleyvalp@gmail.com'];
+    }
+
+    // ------------------- Eclipse Learning (studyreel-web) -------------------
+    // Clause-for-clause identical to studyreel-web/firestore.rules.
+
+    // Course content: anyone can read (even signed-out visitors); only owners can edit.
+    match /content/{doc} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    // Short videos feed: anyone can watch; only owners (creators) can post/delete.
+    match /shorts/{id} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    // Each signed-in user can read & write ONLY their own progress document.
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // "Explain it back" reflections. Students create their own; owners read all.
+    match /reflections/{id} {
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow read: if isOwner()
+                  || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow delete: if isOwner();
+    }
+
+    // --------------------------- Eclipse Arcade -----------------------------
+
+    // Each player owns exactly their own arcade progress doc; arcade admins can
+    // additionally read any player (admin write/moderation arrives in a later
+    // phase). Writes are shape-constrained and the stored email must match the
+    // signed-in account, so a player cannot stamp someone else's address into a
+    // field admins will later read.
+    match /players/{uid} {
+      allow read: if (request.auth != null && request.auth.uid == uid) || isArcadeAdmin();
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly(
+             ['coins', 'xp', 'streak', 'lastPlayed', 'bests', 'email', 'updatedAt']);
+    }
+
+    // Anything not matched above is denied (Firestore's implicit default;
+    // stated here for clarity).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
