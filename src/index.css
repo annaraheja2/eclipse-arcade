@@ -56,7 +56,7 @@ body::after {
   letter-spacing: 0.04em;
   background-image:
     linear-gradient(115deg, rgba(255, 255, 255, 0) 42%, rgba(255, 255, 255, 0.85) 50%, rgba(255, 255, 255, 0) 58%),
-    linear-gradient(180deg, #fff 12%, var(--wm, #3df5ff) 58%, color-mix(in srgb, var(--wm, #3df5ff) 72%, #000) 100%);
+    linear-gradient(180deg, #fff 12%, var(--wm, #3df5ff) 58%, color-mix(in srgb, var(--wm, #3df5ff) 80%, #000) 100%);
   background-size: 260% 100%, 100% 100%;
   background-position: -140% 0, 0 0;
   background-repeat: no-repeat;
@@ -117,7 +117,7 @@ body::after {
 }
 /* attract-mode blink (INSERT COIN) — ~0.9Hz, decorative flavor only */
 .blink-attract { animation: attractblink 1.1s ease-in-out infinite; }
-@keyframes attractblink { 0%, 55% { opacity: 1 } 70%, 88% { opacity: 0.15 } 100% { opacity: 1 } }
+@keyframes attractblink { 0%, 55% { opacity: 1 } 70%, 88% { opacity: 0.55 } 100% { opacity: 1 } }
 
 /* Cabinet-framed game tiles */
 .cab-marquee {
