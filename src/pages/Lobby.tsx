@@ -48,6 +48,7 @@ export default function Lobby() {
 }
 
 function Hud() {
+  const navigate = useNavigate()
   const { player } = usePlayer()
   const { level, pct } = levelFromXp(player.xp)
   return (
@@ -78,7 +79,7 @@ function Hud() {
           </div>
         </div>
         <div className="flex items-center gap-2.5 shrink-0">
-          <IconBtn><Users width={18} height={18} /></IconBtn>
+          <IconBtn label="Friends" onClick={() => navigate('/friends')}><Users width={18} height={18} /></IconBtn>
           <IconBtn dot><Bell width={18} height={18} /></IconBtn>
           {isFirebaseConfigured ? (
             <AccountControl />
@@ -103,9 +104,9 @@ function Chip({ color, icon, label, value }: { color: string; icon: ReactNode; l
   )
 }
 
-function IconBtn({ children, dot }: { children: ReactNode; dot?: boolean }) {
+function IconBtn({ children, dot, label, onClick }: { children: ReactNode; dot?: boolean; label?: string; onClick?: () => void }) {
   return (
-    <button className="relative grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 transition">
+    <button aria-label={label} onClick={onClick} className="relative grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 transition">
       {children}
       {dot && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-neon-pink shadow-[0_0_8px_#ff4d8d]" />}
     </button>

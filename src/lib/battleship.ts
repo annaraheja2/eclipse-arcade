@@ -113,6 +113,17 @@ export function nearestValidAnchor(
 export const isSunk = (sh: Ship) => sh.hits >= sh.size
 export const allSunk = (ships: Ship[]) => ships.every(isSunk)
 
+// Immutable fire resolution: returns the next fleet plus the shot result.
+// Shared by the vs-AI battle loop and the PvP defender's shot adjudication.
+export function applyFire(ships: Ship[], r: number, c: number): { ships: Ship[]; result: 'miss' | 'hit' | 'sunk' } {
+  let result: 'miss' | 'hit' | 'sunk' = 'miss'
+  const next = ships.map((sh) => {
+    if (sh.cells.some((x) => x.r === r && x.c === c)) { const hits = sh.hits + 1; result = hits >= sh.size ? 'sunk' : 'hit'; return { ...sh, hits } }
+    return sh
+  })
+  return { ships: next, result }
+}
+
 // Fire at a cell already known not to be previously shot. Mutates hit count.
 export function resolveFire(ships: Ship[], r: number, c: number): 'miss' | 'hit' | 'sunk' {
   const sh = shipAt(ships, r, c)

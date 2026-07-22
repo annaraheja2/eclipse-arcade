@@ -103,6 +103,109 @@ service cloud.firestore {
         && request.resource.data.updatedBy == request.auth.token.email;
     }
 
+    // ---------------- Eclipse Arcade — online play (PvP Battleship) ----------------
+    // Trust model (see src/lib/social.ts): no game server; fleets never leave
+    // the client. The shooter files a 'pending' shot; the DEFENDER adjudicates.
+
+    function signedIn() { return request.auth != null; }
+
+    // Friend requests are addressed by (lowercased) email.
+    match /friendRequests/{requestId} {
+      allow read: if signedIn()
+        && (resource.data.fromUid == request.auth.uid
+            || resource.data.toEmail == request.auth.token.email);
+      allow create: if signedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.fromEmail == request.auth.token.email
+        && request.resource.data.toEmail is string
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasOnly(
+             ['fromUid', 'fromEmail', 'toEmail', 'status', 'createdAt']);
+      // Only the recipient settles a request, exactly once, status-only.
+      allow update: if signedIn()
+        && resource.data.toEmail == request.auth.token.email
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['accepted', 'declined']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+    }
+
+    // Doc id = the two uids sorted and '_'-joined; created by the accepter.
+    match /friendships/{pairId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.uids;
+      allow create: if signedIn()
+        && request.auth.uid in request.resource.data.uids
+        && request.resource.data.uids.size() == 2
+        && request.resource.data.uids[0] < request.resource.data.uids[1]
+        && pairId == request.resource.data.uids[0] + '_' + request.resource.data.uids[1]
+        && request.resource.data.keys().hasOnly(['uids', 'emails', 'createdAt']);
+    }
+
+    // Quick-match queue: one doc per waiting player, id = uid.
+    match /matchQueue/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'createdAt']);
+      // Any signed-in user may delete entries: the pairing transaction
+      // atomically removes BOTH its own and its opponent's queue doc.
+      allow delete: if signedIn();
+    }
+
+    match /matches/{matchId} {
+      function isParticipant() {
+        return signedIn() && request.auth.uid in resource.data.players;
+      }
+      allow read: if isParticipant();
+      // players[0] is always the creator (inviter / quick-match pairer).
+      allow create: if signedIn()
+        && request.resource.data.players.size() == 2
+        && request.resource.data.players[0] == request.auth.uid
+        && request.resource.data.players[0] != request.resource.data.players[1]
+        && request.resource.data.status in ['invite', 'placing']
+        && request.resource.data.turn in request.resource.data.players
+        && request.resource.data.winner == null;
+      // Participants drive the state machine (accept, ready, turn flips, shot
+      // adjudication side-effects, forfeit/timeout). Identity fields frozen;
+      // finished matches immutable.
+      allow update: if isParticipant()
+        && resource.data.status != 'done'
+        && request.resource.data.players == resource.data.players
+        && request.resource.data.emails == resource.data.emails
+        && request.resource.data.courseId == resource.data.courseId
+        && request.resource.data.turn in resource.data.players
+        && (request.resource.data.winner == null
+            || request.resource.data.winner in resource.data.players);
+      // Only an unaccepted invite may be removed (decline / cancel).
+      allow delete: if isParticipant() && resource.data.status == 'invite';
+
+      match /shots/{shotId} {
+        function matchData() {
+          return get(/databases/$(database)/documents/matches/$(matchId)).data;
+        }
+        allow read: if signedIn() && request.auth.uid in matchData().players;
+        // Only the shooter, only on their turn, only in a live match; every
+        // shot starts unadjudicated and on the 8x8 board.
+        allow create: if signedIn()
+          && request.auth.uid in matchData().players
+          && matchData().status == 'active'
+          && matchData().turn == request.auth.uid
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.result == 'pending'
+          && request.resource.data.r is int && request.resource.data.r >= 0 && request.resource.data.r < 8
+          && request.resource.data.c is int && request.resource.data.c >= 0 && request.resource.data.c < 8
+          && request.resource.data.keys().hasOnly(['by', 'r', 'c', 'seq', 'result', 'createdAt']);
+        // Only the DEFENDER adjudicates, exactly once, result field only.
+        allow update: if signedIn()
+          && request.auth.uid in matchData().players
+          && request.auth.uid != resource.data.by
+          && resource.data.result == 'pending'
+          && request.resource.data.result in ['miss', 'hit', 'sunk']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['result']);
+      }
+    }
+
     // Anything not matched above is denied (Firestore's implicit default;
     // stated here for clarity).
     match /{document=**} {
