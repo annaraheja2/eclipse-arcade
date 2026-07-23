@@ -4,10 +4,10 @@ import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty 
 import { loadCourse } from '../lib/content'
 import {
   stepRace, rank, placementOf, raceScore, aiTuningsFor, trackFraction, applyAnswer, ordinal,
-  RACE_SECONDS, COUNTDOWN_SECONDS, START_MPH, MAX_MPH,
+  RACE_SECONDS, COUNTDOWN_SECONDS, START_MPH,
   type Car, type PlayerCar, type AiCar,
 } from '../lib/racer'
-import { startLights, gapSeconds, formatGap, type StartLights } from '../lib/circuit'
+import { startLights, gapSeconds, formatGap, speedIntensity, type StartLights } from '../lib/circuit'
 import Circuit, { type CircuitHandle } from '../components/Circuit'
 import QuestionPanel from '../components/QuestionPanel'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
@@ -344,7 +344,9 @@ export default function Racer() {
 
         {ph === 'race' && (
           <div>
-            <div className="relative">
+            {/* Only the stage escapes the page column — the overhead camera
+                needs the room; the question panel below keeps its own width. */}
+            <div className="relative lg:-mx-32">
               <Circuit ref={circuitRef} field={field} youId={PLAYER_ID} reduced={reducedRef.current} flagged={stage === 'finish'} />
               <TimingTower cars={cars} />
               <Speedo mph={you?.speed ?? 0} />
@@ -554,7 +556,7 @@ function TimingTower({ cars }: { cars: Car[] }) {
 }
 
 function Speedo({ mph }: { mph: number }) {
-  const pct = Math.max(0, Math.min(1, mph / MAX_MPH)) * 100
+  const pct = speedIntensity(mph) * 100
   return (
     <div className="absolute right-2 bottom-2 sm:right-3 sm:bottom-3 rounded-lg bg-track-carbon/95 ring-1 ring-white/15 px-2.5 sm:px-3 pt-1 sm:pt-1.5 pb-1.5 sm:pb-2 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.9)]">
       <div className="flex items-baseline justify-end gap-1.5">

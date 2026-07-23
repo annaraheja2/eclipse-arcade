@@ -1,104 +1,176 @@
-// Pure geometry for Racer's side-view circuit — the camera, the parallax layers,
-// the timing-tower gaps and the start-light gantry. `lib/racer.ts` owns the
-// simulation (distances, speeds, scoring) and is untouched by this file; this is
-// only the mapping from that world onto a screen.
+// Pure geometry for Racer's angled-overhead circuit — the camera plane, the
+// scrolling surface, the timing-tower gaps and the start-light gantry.
+// `lib/racer.ts` owns the simulation (distances, speeds, scoring) and is
+// untouched by this file; this is only the mapping from that world onto a road.
 //
-// The camera anchors the player at a fixed x and scrolls the world past them, so
-// EVERY position here is RELATIVE: a rival's slot comes from its distance minus
-// the player's, never from absolute progress.
+// The camera is a chase helicopter shot: looking DOWN at the track from behind
+// and above. The road is a single CSS-3D plane tilted away from the viewer, so
+// perspective — how much a distant car shrinks, how the track narrows toward the
+// horizon — is the GPU's job, not arithmetic here.
+//
+// Everything below is therefore PLANE-LOCAL and linear:
+//   `depth`   0 = the far edge (at the horizon) … 1 = the near edge (under the camera)
+//   `lateral` a signed fraction of the track's width, 0 = centre line
+// Both axes are independent. Depth is the only axis the camera window clips, so
+// a car's lateral position can never affect whether it counts as off-camera.
 
 import { MAX_MPH, COUNTDOWN_SECONDS } from './racer'
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
-/** Where the player's car sits across the viewport (0 = left edge, 1 = right). */
-export const PLAYER_ANCHOR = 0.34
+/**
+ * The camera window in simulation distance units, split around the player.
+ * Far more road is visible ahead than behind — that is what a chase camera is
+ * for. 62 units ahead is ~2s at the 30-mph cap.
+ */
+export const CAMERA_AHEAD = 62
+export const CAMERA_BEHIND = 26
+export const CAMERA_SPAN = CAMERA_AHEAD + CAMERA_BEHIND
 
 /**
- * Half-width of the camera window in simulation distance units. 90 units is ~3
- * seconds at the 30-mph cap, which is roughly the spread an F1 broadcast holds
- * in a single side-on shot before it cuts.
+ * How far from the plane's edge a pinned (off-camera) car parks, as a fraction
+ * of plane depth. Keeps a pinned car fully on the plane rather than half-cropped.
  */
-export const CAMERA_HALF_SPAN = 90
+export const EDGE_PAD = 0.05
 
-/**
- * How close to the panel edge a pinned (off-camera) rival parks, in px. Roughly
- * half a car, so a pinned rival is still mostly visible rather than a sliver.
- */
-export const EDGE_PAD = 58
+/** Where the player sits down the plane — derived, never tuned separately. */
+export const PLAYER_DEPTH = CAMERA_AHEAD / CAMERA_SPAN
 
-/** Screen px per simulation distance unit for a track of `trackWidth` px. */
-export function pxPerUnit(trackWidth: number): number {
-  return trackWidth <= 0 ? 0 : trackWidth / (CAMERA_HALF_SPAN * 2)
+/** Plane-local px per simulation distance unit, for a plane `planeDepth` px deep. */
+export function pxPerUnit(planeDepth: number): number {
+  return planeDepth <= 0 ? 0 : planeDepth / CAMERA_SPAN
 }
 
 /**
- * Wrapped x-translation for a parallax layer, always in `(-tileWidth, 0]`.
- * The layer element is laid out one tile wider on each side, so translating
- * within that range tiles seamlessly forever with no re-layout.
+ * Wrapped translation for the scrolling surface, always in `[0, tile)`. The
+ * road runs TOWARD the camera, so this grows downward with distance; the
+ * surface is laid out one tile longer at its far end, which is what lets it
+ * tile seamlessly forever with no re-layout.
  */
-export function layerOffset(worldPx: number, factor: number, tileWidth: number): number {
-  if (tileWidth <= 0) return 0
-  const raw = (-worldPx * factor) % tileWidth
-  return raw > 0 ? raw - tileWidth : raw
+export function surfaceOffset(worldPx: number, tile: number): number {
+  if (tile <= 0) return 0
+  const raw = worldPx % tile
+  return raw < 0 ? raw + tile : raw
+}
+
+// ---- real-world scale -----------------------------------------------------
+// One reference keeps track width, car size and the camera window in agreement,
+// so nothing is tuned by eye against anything else.
+
+/** Width of the racing surface, kerb to kerb, in metres. */
+export const TRACK_METRES = 12
+/** A modern single-seater, in metres. */
+export const CAR_LENGTH_M = 5.6
+export const CAR_WIDTH_M = 2
+
+/** How wide a car is drawn, given the racing surface's plane-local width. */
+export function carWidthPx(trackWidthPx: number): number {
+  return trackWidthPx <= 0 ? 0 : (trackWidthPx / TRACK_METRES) * CAR_WIDTH_M
 }
 
 /**
- * Where a car sits on screen given its distance lead over the player. A car
- * outside the camera window pins to the edge (dimmed, with a chevron) rather
- * than vanishing — off-screen rivals are still information.
+ * Where a car sits down the plane, given its distance lead over the player. A
+ * car outside the camera window pins to the plane's edge (dimmed, with a
+ * chevron) rather than vanishing — off-screen rivals are still information.
+ *
+ * This is the ONLY place the camera window is applied, and it owns both the
+ * clamp and the flag that reports it, so the two can never disagree.
  */
-export type CarSlot =
-  | { kind: 'onscreen'; x: number }
-  | { kind: 'pinned'; x: number; side: 'ahead' | 'behind' }
+export type CarPlacement =
+  | { kind: 'onscreen'; depth: number }
+  | { kind: 'pinned'; depth: number; side: 'ahead' | 'behind' }
 
-export function carSlot(deltaDistance: number, trackWidth: number): CarSlot {
-  const x = PLAYER_ANCHOR * trackWidth + deltaDistance * pxPerUnit(trackWidth)
-  const lo = EDGE_PAD
-  const hi = Math.max(EDGE_PAD, trackWidth - EDGE_PAD)
-  if (x < lo) return { kind: 'pinned', x: lo, side: 'behind' }
-  if (x > hi) return { kind: 'pinned', x: hi, side: 'ahead' }
-  return { kind: 'onscreen', x }
+export function carPlacement(deltaDistance: number): CarPlacement {
+  const depth = PLAYER_DEPTH - deltaDistance / CAMERA_SPAN
+  if (depth < EDGE_PAD) return { kind: 'pinned', depth: EDGE_PAD, side: 'ahead' }
+  if (depth > 1 - EDGE_PAD) return { kind: 'pinned', depth: 1 - EDGE_PAD, side: 'behind' }
+  return { kind: 'onscreen', depth }
 }
 
 /**
- * Depth lane for a car: index 0 is the player's near lane (full size, lowest on
- * screen); rivals sit progressively further across the track and smaller, so a
- * pack never collapses into one silhouette. `y` and `x` are both fractions of
- * the panel (height / width). The `x` stagger is FIXED per lane — cars racing
- * side by side sit across the track's width, not on top of each other — so it
- * never distorts how a rival slides backward as you pass them.
+ * Where each car runs across the track, as a signed fraction of track width.
+ * Index 0 is the player, just left of the racing line; rivals take their own
+ * lines so a pack never collapses into one silhouette. Spacing is deliberately
+ * uneven — an evenly-spaced grid reads as a slot-car set, not a race. Every
+ * lane keeps the whole car (half a CAR_WIDTH_M each side) on the asphalt,
+ * clear of the kerbs, and any two lanes sit at least a full car width apart.
  */
-export interface Lane { y: number; x: number; scale: number }
-const LANES: readonly Lane[] = [
-  { y: 0.885, x: 0, scale: 1 },
-  { y: 0.805, x: 0.085, scale: 0.85 },
-  { y: 0.745, x: -0.08, scale: 0.76 },
-  { y: 0.7, x: 0.17, scale: 0.7 },
-]
-export function laneFor(index: number): Lane {
+export const LANES: readonly number[] = [-0.09, 0.28, -0.3, 0.1]
+
+export function laneFor(index: number): number {
   return LANES[clamp(index, 0, LANES.length - 1)]
 }
 
+// ---- camera optics --------------------------------------------------------
+// The numbers live HERE so the projection math below and the CSS transform can
+// never disagree: the component writes them onto `.rc-stage` as `--tilt` and
+// `perspective`, and the stylesheet only applies them.
+export const CAMERA_TILT_DEG = 60
+export const CAMERA_PERSPECTIVE_PX = 520
+
+const TILT_SIN = Math.sin((CAMERA_TILT_DEG * Math.PI) / 180)
+const TILT_COS = Math.cos((CAMERA_TILT_DEG * Math.PI) / 180)
+
 /**
- * Sprite scale for the whole field, so a car occupies the same share of a phone
- * panel as of a desktop one. 760px is the reference width the art is drawn for;
- * the floor keeps a car readable rather than letting it shrink to a smudge.
+ * The compositor's perspective divide at `depth` on the tilted plane: how much
+ * a screen-parallel element anchored there is scaled on screen. 1 at the near
+ * edge (the rotation origin, z = 0), shrinking toward the horizon. Anything
+ * that must hold a SCREEN size while riding the plane — a name plate — needs
+ * the inverse of this.
  */
-export function spriteScale(trackWidth: number): number {
-  return clamp(trackWidth / 760, 0.6, 1)
+export function projectionScale(depth: number, planeDepthPx: number): number {
+  if (planeDepthPx <= 0) return 1
+  const behind = (1 - clamp(depth, 0, 1)) * planeDepthPx * TILT_SIN
+  return CAMERA_PERSPECTIVE_PX / (CAMERA_PERSPECTIVE_PX + behind)
 }
 
 /**
- * Final on-screen x for a car: its camera slot plus its lane's stagger (a
- * fraction of the track width), clamped back inside the padded track. Clamping
- * — rather than dropping the stagger when pinned — is what keeps the slide to
- * the edge continuous, with no pop at the boundary.
+ * Inverse-projection scale for a car's name plate: cancels the divide so the
+ * plate holds its authored, legible size on screen at any depth. Capped so a
+ * horizon plate on a very deep plane compensates almost fully rather than
+ * ballooning past its authored size.
  */
-export function staggeredX(slot: CarSlot, laneX: number, trackWidth: number): number {
-  const lo = EDGE_PAD
-  const hi = Math.max(EDGE_PAD, trackWidth - EDGE_PAD)
-  return clamp(slot.x + laneX * trackWidth, lo, hi)
+export const MAX_PLATE_SCALE = 4
+export function plateScale(depth: number, planeDepthPx: number): number {
+  return Math.min(1 / projectionScale(depth, planeDepthPx), MAX_PLATE_SCALE)
+}
+
+/**
+ * Which side of a car its name plate hangs on. Perspective compresses the far
+ * end of the plane so hard that near the horizon a plate lifted ABOVE the car
+ * projects past the stage's top edge and is clipped by its overflow. Below
+ * this depth the plate hangs BELOW the car instead. The threshold was measured
+ * against both stage aspects: an above-plate's top crosses y = 0 at depth
+ * ~0.28, so 0.32 keeps ~10px of margin at the flip. Pinned-ahead cars (parked
+ * at EDGE_PAD) always fall on the 'below' side of it.
+ */
+export const PLATE_FLIP_DEPTH = 0.32
+export function plateSide(depth: number): 'above' | 'below' {
+  return depth < PLATE_FLIP_DEPTH ? 'below' : 'above'
+}
+
+/**
+ * Plane-local Y offset for a 'below' plate's ground point. An upright plate
+ * can only rise UP from where it stands on the plane — translating it down in
+ * its own space would bury it under the road, where the nearer asphalt
+ * occludes it. So a below-plate stands at a point this far DOWN the plane
+ * (toward the camera): far enough that the whole plate — `plateHeightPx` tall
+ * on screen, rising from that point — projects clear of the car's tail by
+ * `gapPx`. Fixed-point iteration, because the perspective divide changes
+ * across the offset itself; three rounds land within a pixel.
+ */
+export function plateDropPx(
+  depth: number, planeDepthPx: number, carLengthPx: number, plateHeightPx: number, gapPx: number,
+): number {
+  if (planeDepthPx <= 0) return 0
+  const atCar = projectionScale(depth, planeDepthPx)
+  const screenTarget = (carLengthPx / 2) * TILT_COS * atCar + gapPx + plateHeightPx
+  let drop = screenTarget / (TILT_COS * atCar)
+  for (let i = 0; i < 3; i++) {
+    const midway = projectionScale(depth + drop / (2 * planeDepthPx), planeDepthPx)
+    drop = screenTarget / (TILT_COS * midway)
+  }
+  return drop
 }
 
 /**
@@ -115,15 +187,19 @@ export function formatGap(seconds: number | null): string {
   return seconds === null ? '—' : `+${seconds.toFixed(1)}`
 }
 
-/** 0..1 road speed — drives speed-lines, camera shake and wheel spin. */
+/** 0..1 road speed — drives motion blur, camera shake and wheel blur. */
 export function speedIntensity(mph: number): number {
   return clamp(mph / MAX_MPH, 0, 1)
 }
 
-/** Wheel rotation period in seconds; slower cars spin lazily, the cap blurs. */
-export function wheelSpinSeconds(mph: number): number {
-  const t = speedIntensity(mph)
-  return 0.85 - 0.7 * t
+/**
+ * Motion blur on a car's tyres, in px. Seen from above a spinning wheel gives
+ * itself away by smearing, not by turning — there is no rotation to animate at
+ * this camera angle, so speed reads through blur instead.
+ */
+export const MAX_TYRE_BLUR = 2.4
+export function tyreBlurPx(mph: number): number {
+  return speedIntensity(mph) * MAX_TYRE_BLUR
 }
 
 // ---- start-light gantry ---------------------------------------------------

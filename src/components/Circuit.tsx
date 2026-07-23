@@ -1,19 +1,24 @@
-import { forwardRef, memo, useEffect, useImperativeHandle, useRef, type CSSProperties } from 'react'
+import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, type CSSProperties } from 'react'
 import type { Car } from '../lib/racer'
 import {
-  layerOffset, carSlot, laneFor, staggeredX, spriteScale, pxPerUnit, speedIntensity, wheelSpinSeconds,
+  carPlacement, laneFor, pxPerUnit, surfaceOffset, speedIntensity, tyreBlurPx, carWidthPx,
+  projectionScale, plateScale, plateSide, plateDropPx,
+  CAR_LENGTH_M, CAR_WIDTH_M, CAMERA_TILT_DEG, CAMERA_PERSPECTIVE_PX,
 } from '../lib/circuit'
-import { LAYERS } from './circuitArt'
+import { SURFACE, SURFACE_TILE_FRACTION, TRACK_WIDTH_FRACTION } from './circuitArt'
 
 /**
- * The side-view circuit: the player is pinned to a fixed screen anchor and the
- * WORLD scrolls past them in parallax layers, with rivals placed by their
- * distance RELATIVE to the player.
+ * The angled-overhead circuit: a chase camera looking DOWN at the track from
+ * behind and above. The road is ONE plane tilted in 3D (`--tilt`, owned by the
+ * stylesheet), so perspective is the compositor's job — this file never
+ * computes a scale or a horizon. Cars lie flat on that plane as top-down
+ * sprites and are foreshortened by the same tilt, which is exactly the
+ * projection a real helicopter shot gives.
  *
  * Nothing here re-renders during a race. The page's rAF loop calls `render()`
- * once a frame and this component writes `translate3d` straight onto the layer
- * and car nodes — no React state, no layout reads (the track width comes from a
- * ResizeObserver). HUD numbers are the page's job, throttled well below 60fps.
+ * once a frame and this component writes `translate3d` straight onto the
+ * surface and car nodes — no React state, no layout reads (plane size comes
+ * from a ResizeObserver). HUD numbers are the page's job, throttled below 60fps.
  */
 export interface CircuitHandle {
   /** Paint one frame from the authoritative sim state. */
@@ -26,104 +31,163 @@ interface Props {
   /** The field, in a fixed order — identities only; positions arrive via render(). */
   field: readonly Car[]
   youId: string
-  /** Freezes the parallax and all decorative FX; cars still reposition. */
+  /** Freezes the scrolling road and all decorative FX; cars still reposition. */
   reduced: boolean
   /** Chequered-flag flourish while the results screen is on its way. */
   flagged: boolean
 }
 
+/** Custom properties this component sets, declared rather than asserted. */
+type StageVars = CSSProperties & { '--tilt': string }
+type CarVars = CSSProperties & { '--body': string }
+
 const COAST_SECONDS = 1.4
+/** Screen px between a car's projected nose (or tail) and its name plate. */
+const PLATE_GAP_PX = 6
+/** The plate's authored screen height (10px text + padding + border), with slack. */
+const PLATE_HEIGHT_PX = 22
+const TILT_COS = Math.cos((CAMERA_TILT_DEG * Math.PI) / 180)
+
+/** The camera angle, declared once from lib/circuit.ts's constants (see there). */
+const STAGE_VARS: StageVars = {
+  '--tilt': `${CAMERA_TILT_DEG}deg`,
+  perspective: `${CAMERA_PERSPECTIVE_PX}px`,
+}
 
 /**
  * Memoised: the page re-renders its HUD ~8 times a second and the circuit must
  * not follow it. Every prop here is stable for the whole race except `flagged`.
  */
 const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, youId, reduced, flagged }, ref) {
-  const wrapRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const worldRef = useRef<HTMLDivElement>(null)
+  const surfaceRef = useRef<HTMLDivElement>(null)
   const shakeRef = useRef<HTMLDivElement>(null)
-  const streakRef = useRef<HTMLDivElement>(null)
-  const layerRefs = useRef<(HTMLDivElement | null)[]>([])
+  const speedRef = useRef<HTMLDivElement>(null)
   const carRefs = useRef(new Map<string, HTMLDivElement>())
 
-  const widthRef = useRef(0)
-  const worldRef = useRef(0)
-  const spinRef = useRef(new Map<string, number>())
+  // Plane size in PLANE-LOCAL px (the untransformed layout box), from the
+  // observer — never a per-frame getBoundingClientRect. `tile` and `carL` are
+  // derived once here so every consumer shares the same rounded values.
+  const planeRef = useRef({ w: 0, d: 0, tile: 0, carL: 0 })
+  const distanceRef = useRef(0)
   const pinRef = useRef(new Map<string, string>())
+  const sideRef = useRef(new Map<string, string>())
+  const blurRef = useRef(new Map<string, number>())
+  const zRef = useRef(new Map<string, number>())
+  const plateRef = useRef(new Map<string, string>())
   const coastRaf = useRef(0)
 
-  // Lane stagger by car id — read by the rAF loop, rebuilt only when the field is.
-  const laneXRef = useRef(new Map<string, number>())
-  laneXRef.current = new Map(field.map((car, i) => [car.id, laneFor(i).x]))
+  // Lane per car id, rebuilt only when the field is — no ref writes during render.
+  const lanes = useMemo(() => new Map(field.map((car, i) => [car.id, laneFor(i)])), [field])
 
-  // Track width comes from a ResizeObserver, never a per-frame getBoundingClientRect.
   useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    const measure = (width: number) => {
-      widthRef.current = width
-      el.style.setProperty('--car-scale', spriteScale(width).toFixed(3))
+    const world = worldRef.current
+    const stage = stageRef.current
+    if (!world || !stage) return
+    const measure = (w: number, d: number) => {
+      const carW = carWidthPx(w * TRACK_WIDTH_FRACTION)
+      const carL = carW * (CAR_LENGTH_M / CAR_WIDTH_M)
+      // One rounded tile shared by the repeat layout AND the scroll wrap, so
+      // the two periods can never drift and nudge the tiling at each wrap.
+      const tile = Math.round(d * SURFACE_TILE_FRACTION * 10) / 10
+      planeRef.current = { w, d, tile, carL }
+      stage.style.setProperty('--tile', `${tile}px`)
+      stage.style.setProperty('--car-w', `${carW.toFixed(1)}px`)
+      stage.style.setProperty('--car-l', `${carL.toFixed(1)}px`)
     }
-    measure(el.clientWidth)
+    measure(world.offsetWidth, world.offsetHeight)
     if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver((entries) => measure(entries[0].contentRect.width))
-    ro.observe(el)
+    const ro = new ResizeObserver(() => measure(world.offsetWidth, world.offsetHeight))
+    ro.observe(world)
     return () => ro.disconnect()
   }, [])
 
   useEffect(() => () => cancelAnimationFrame(coastRaf.current), [])
 
-  function paintWorld(): void {
+  function paintSurface(): void {
     if (reduced) return
-    for (let i = 0; i < LAYERS.length; i++) {
-      const el = layerRefs.current[i]
-      if (el) el.style.transform = `translate3d(${layerOffset(worldRef.current, LAYERS[i].factor, LAYERS[i].tile)}px,0,0)`
-    }
+    const el = surfaceRef.current
+    if (el) el.style.transform = `translate3d(0,${surfaceOffset(distanceRef.current, planeRef.current.tile).toFixed(1)}px,0)`
   }
 
   useImperativeHandle(ref, () => ({
     render(cars, id) {
-      const w = widthRef.current
-      if (w <= 0) return
+      const { w, d, carL } = planeRef.current
+      if (d <= 0) return
       const you = cars.find((c) => c.id === id)
       if (!you) return
 
-      worldRef.current = you.distance * pxPerUnit(w)
-      paintWorld()
+      distanceRef.current = you.distance * pxPerUnit(d)
+      paintSurface()
 
       if (!reduced) {
         const t = speedIntensity(you.speed)
-        // Squared so the streaks only bite near the top end, where speed reads.
-        if (streakRef.current) streakRef.current.style.opacity = (t * t * 0.8).toFixed(3)
+        // Squared so the blur only bites near the top end, where speed reads.
+        if (speedRef.current) speedRef.current.style.opacity = (t * t * 0.75).toFixed(3)
         // Shake is phased off distance, not time, so a stopped car sits dead still.
-        if (shakeRef.current) shakeRef.current.style.transform = `translate3d(0,${(Math.sin(worldRef.current * 0.11) * t * 1.5).toFixed(2)}px,0)`
+        if (shakeRef.current) {
+          shakeRef.current.style.transform =
+            `translate3d(0,${(Math.sin(distanceRef.current * 0.09) * t * 1.6).toFixed(2)}px,0)`
+        }
       }
 
+      const trackW = w * TRACK_WIDTH_FRACTION
       for (const car of cars) {
         const el = carRefs.current.get(car.id)
         if (!el) continue
-        const slot = carSlot(car.distance - you.distance, w)
-        const x = staggeredX(slot, laneXRef.current.get(car.id) ?? 0, w)
-        el.style.transform = `translate3d(${x.toFixed(1)}px,0,0)`
+        const placement = carPlacement(car.distance - you.distance)
+        const x = (lanes.get(car.id) ?? 0) * trackW
+        el.style.transform = `translate3d(${x.toFixed(1)}px,${(placement.depth * d).toFixed(1)}px,0)`
 
-        const pin = slot.kind === 'pinned' ? slot.side : 'none'
+        // Nearer cars occlude farther ones — depth is the whole stacking story.
+        const z = 10 + Math.round(placement.depth * 100)
+        if (zRef.current.get(car.id) !== z) { zRef.current.set(car.id, z); el.style.zIndex = String(z) }
+
+        const pin = placement.kind === 'pinned' ? placement.side : 'none'
         if (pinRef.current.get(car.id) !== pin) { pinRef.current.set(car.id, pin); el.dataset.pin = pin }
 
-        const spin = Math.round(wheelSpinSeconds(car.speed) * 100) / 100
-        if (spinRef.current.get(car.id) !== spin) { spinRef.current.set(car.id, spin); el.style.setProperty('--spin', `${spin}s`) }
-        el.classList.toggle('is-stopped', car.speed <= 0.05)
+        // Near the horizon an above-the-car plate would clip off the stage top,
+        // so it flips below the car there — see plateSide() and .rc-plate.
+        const side = plateSide(placement.depth)
+        if (sideRef.current.get(car.id) !== side) { sideRef.current.set(car.id, side); el.dataset.plate = side }
+
+        // Tyre blur is decorative FX — frozen at 0 under reduced motion.
+        const blur = reduced ? 0 : Math.round(tyreBlurPx(car.speed) * 10) / 10
+        if (blurRef.current.get(car.id) !== blur) {
+          blurRef.current.set(car.id, blur)
+          el.style.setProperty('--tyre-blur', `${blur}px`)
+        }
+
+        // The plate cancels the perspective divide to hold a legible screen
+        // size — see .rc-plate. Above the car it lifts clear of the projected
+        // nose; below (near the horizon) it stands on the plane at a dropped
+        // ground point, scaled for ITS depth, clear of the projected tail.
+        const drop = side === 'below' ? plateDropPx(placement.depth, d, carL, PLATE_HEIGHT_PX, PLATE_GAP_PX) : 0
+        const proj = projectionScale(placement.depth, d)
+        const scale = plateScale(placement.depth + drop / d, d).toFixed(2)
+        const lift = side === 'below'
+          ? drop.toFixed(1)
+          : ((carL / 2) * TILT_COS * proj + PLATE_GAP_PX).toFixed(1)
+        const plate = `${side}|${scale}|${lift}`
+        if (plateRef.current.get(car.id) !== plate) {
+          plateRef.current.set(car.id, plate)
+          el.style.setProperty('--plate-scale', scale)
+          el.style.setProperty(side === 'below' ? '--plate-drop' : '--plate-lift', `${lift}px`)
+        }
       }
     },
     coastToStop(speedMph) {
       if (reduced || speedMph <= 0) return
-      const w = widthRef.current
+      cancelAnimationFrame(coastRaf.current)
       let v = speedMph
       let last = performance.now()
       const tick = (now: number) => {
         const dt = Math.min((now - last) / 1000, 0.05)
         last = now
         v = Math.max(0, v - (speedMph / COAST_SECONDS) * dt)
-        worldRef.current += v * dt * pxPerUnit(w)
-        paintWorld()
+        distanceRef.current += v * dt * pxPerUnit(planeRef.current.d)
+        paintSurface()
         if (v > 0.01) coastRaf.current = requestAnimationFrame(tick)
       }
       coastRaf.current = requestAnimationFrame(tick)
@@ -131,40 +195,41 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
   }))
 
   return (
-    <div ref={wrapRef} className="rc-panel">
+    <div ref={stageRef} className="rc-stage" style={STAGE_VARS}>
       <div aria-hidden className="rc-sky" />
-      <div aria-hidden className="rc-sun" />
       <div ref={shakeRef} className="rc-shake">
-        {LAYERS.map((l, i) => (
-          <div key={l.key} aria-hidden className="rc-layer"
-            ref={(el) => { layerRefs.current[i] = el }}
-            style={{
-              top: `${l.top}%`, height: `${l.height}%`,
-              left: `${-l.tile}px`, right: `${-l.tile}px`,
-              backgroundImage: l.image, backgroundSize: `${l.tile}px 100%`,
-              filter: l.blur ? `blur(${l.blur}px)` : undefined,
-            }} />
-        ))}
-        {field.map((car, i) => {
-          const lane = laneFor(i)
-          return (
-            <div key={car.id} className={`rc-car${car.id === youId ? ' is-you' : ''}`} data-pin="none"
-              ref={(el) => { if (el) carRefs.current.set(car.id, el); else carRefs.current.delete(car.id) }}
-              style={{ top: `${lane.y * 100}%`, zIndex: 20 - i, '--body': car.color } as CSSProperties}>
-              <div className="rc-car-inner" style={{ ['--lane-scale' as string]: lane.scale }}>
+        <div ref={worldRef} className="rc-world">
+          <div ref={surfaceRef} aria-hidden className="rc-surface" style={{ backgroundImage: SURFACE }} />
+          {/* aerial perspective: fog lying ON the plane, under the cars — see .rc-haze */}
+          <div aria-hidden className="rc-haze" />
+          {field.map((car) => {
+            const carVars: CarVars = { '--body': car.color }
+            return (
+              <div key={car.id} className={`rc-car${car.id === youId ? ' is-you' : ''}`} data-pin="none" data-plate="above"
+                ref={(el) => {
+                  if (el) { carRefs.current.set(car.id, el); return }
+                  carRefs.current.delete(car.id)
+                  pinRef.current.delete(car.id)
+                  sideRef.current.delete(car.id)
+                  blurRef.current.delete(car.id)
+                  zRef.current.delete(car.id)
+                  plateRef.current.delete(car.id)
+                }}
+                style={carVars}>
+                <span aria-hidden className="rc-shadow" />
+                <span className="rc-body"><TopDownCar isPlayer={car.id === youId} /></span>
                 <span className="rc-plate font-race font-bold text-[10px] tracking-wide">
-                  <span aria-hidden className="rc-chev rc-chev-behind"><Chevron dir="left" /></span>
+                  <span aria-hidden className="rc-chev rc-chev-behind"><Chevron dir="down" /></span>
                   {car.name}
-                  <span aria-hidden className="rc-chev rc-chev-ahead"><Chevron dir="right" /></span>
+                  <span aria-hidden className="rc-chev rc-chev-ahead"><Chevron dir="up" /></span>
                 </span>
-                <RaceCar isPlayer={car.id === youId} />
               </div>
-            </div>
-          )
-        })}
-        <div ref={streakRef} aria-hidden className="rc-streaks" style={{ opacity: 0 }} />
+            )
+          })}
+        </div>
       </div>
-      {flagged && <div aria-hidden className="rc-flagsweep" />}
+      <div ref={speedRef} aria-hidden className="rc-speed" style={{ opacity: 0 }} />
+      {flagged && <div aria-hidden className="rc-flag" />}
       <div aria-hidden className="rc-vignette" />
     </div>
   )
@@ -172,68 +237,113 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
 
 export default Circuit
 
-function Chevron({ dir }: { dir: 'left' | 'right' }) {
+function Chevron({ dir }: { dir: 'up' | 'down' }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d={dir === 'left' ? 'M15 5 L8 12 L15 19' : 'M9 5 L16 12 L9 19'} />
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d={dir === 'up' ? 'M5 15 L12 8 L19 15' : 'M5 9 L12 16 L19 9'} />
     </svg>
   )
 }
 
 /**
- * Cartoon single-seater, drawn side-on facing right: rear wing and airbox at the
- * left, halo cockpit in the middle, long nose and a low front wing at the right.
- * Livery comes in via the `--body` custom property so one sprite serves the
- * whole field; the player's car carries a white outline for instant readability.
+ * A modern single-seater seen from directly overhead, nose up — the plane's
+ * tilt supplies the viewing angle, so this is drawn at true plan proportions
+ * (5.6m × 2.0m, matching CAR_LENGTH_M / CAR_WIDTH_M).
+ *
+ * Flat fills only — no gradients, and no per-shape filters. The only blurs on
+ * a car are the soft drop shadow (`.rc-shadow`) and the tyre group
+ * (`.rc-tyres`): one fixed filter region each, cheap enough for four cars a
+ * frame. Sunlight is treated as coming from the left, so highlights sit left
+ * and contact shadows sit right. Livery arrives via the `--body` custom
+ * property, so one sprite serves the whole field.
  */
-function RaceCar({ isPlayer }: { isPlayer: boolean }) {
+function TopDownCar({ isPlayer }: { isPlayer: boolean }) {
+  const carbon = '#1b1d21'
+  const carbonLit = '#292c32'
   return (
-    <svg className="rc-sprite" width="150" height="58" viewBox="0 0 150 58" aria-hidden>
-      <ellipse cx="74" cy="55" rx="66" ry="3.4" fill="#000" opacity="0.22" />
+    <svg className="rc-sprite" viewBox="0 0 100 280" aria-hidden preserveAspectRatio="none">
+      {/* ---- front wing ---- */}
+      <rect x="8" y="6" width="84" height="9" rx="2" fill={carbon} />
+      <rect x="8" y="13" width="84" height="7" rx="2" fill="var(--body)" />
+      <rect x="8" y="19" width="84" height="5" rx="2" fill={carbonLit} />
+      {/* endplates */}
+      <rect x="4" y="4" width="7" height="30" rx="2" fill={carbon} />
+      <rect x="89" y="4" width="7" height="30" rx="2" fill={carbon} />
 
-      {/* rear wing: main plane on a pylon, beam wing under it */}
-      <rect x="20" y="8" width="7" height="22" fill="#10131a" />
-      <rect x="2" y="2" width="40" height="8" rx="3" fill="var(--body)" />
-      <rect x="8" y="13" width="28" height="4" rx="2" fill="#10131a" opacity="0.85" />
-      <rect x="2" y="1" width="7" height="28" rx="3" fill="#10131a" />
-      {/* floor plank */}
-      <rect x="26" y="33" width="96" height="5" rx="2.5" fill="#10131a" opacity="0.75" />
+      {/* ---- nose cone ---- */}
+      <path d="M44 16 L56 16 L61 96 L39 96 Z" fill="var(--body)" />
+      <path d="M44 16 L50 16 L50 96 L39 96 Z" fill="#ffffff" opacity="0.1" />
 
-      {/* tub: engine cover → cockpit → long nose */}
-      <path d="M28 34 Q28 26 38 24 L54 24 Q58 16 70 16 L84 16 Q92 17 96 24 L116 27 Q130 30 141 34 L145 36 Q147 38 143 39 L130 40 L112 36 L38 36 Q28 36 28 34 Z"
-        fill="var(--body)" stroke={isPlayer ? '#ffffff' : 'rgba(0,0,0,0.3)'} strokeWidth={isPlayer ? 2.2 : 1.2} strokeLinejoin="round" />
-      {/* sidepod */}
-      <path d="M58 26 Q74 24 88 28 L106 33 Q109 36 105 37 L62 37 Q58 35 58 31 Z" fill="#000" opacity="0.22" />
+      {/* ---- front suspension ---- */}
+      <rect x="16" y="72" width="30" height="3.5" rx="1.75" fill={carbonLit} />
+      <rect x="54" y="72" width="30" height="3.5" rx="1.75" fill={carbonLit} />
+      <rect x="16" y="94" width="30" height="3.5" rx="1.75" fill={carbonLit} />
+      <rect x="54" y="94" width="30" height="3.5" rx="1.75" fill={carbonLit} />
+
+      {/* ---- floor / sidepods ---- */}
+      <path d="M34 112 L66 112 L74 200 L26 200 Z" fill={carbon} />
+      <path d="M36 120 Q22 132 20 160 L24 196 L40 196 L40 124 Z" fill="var(--body)" />
+      <path d="M64 120 Q78 132 80 160 L76 196 L60 196 L60 124 Z" fill="var(--body)" />
+      {/* sidepod inlets */}
+      <rect x="21" y="126" width="15" height="12" rx="4" fill="#0d0f12" />
+      <rect x="64" y="126" width="15" height="12" rx="4" fill="#0d0f12" />
+      {/* sun side highlight */}
+      <path d="M36 120 Q22 132 20 160 L24 196 L29 196 L27 160 Q29 134 40 124 Z" fill="#ffffff" opacity="0.12" />
+
+      {/* ---- cockpit + halo ---- */}
+      <path d="M38 100 L62 100 L64 148 L36 148 Z" fill={carbonLit} />
+      <ellipse cx="50" cy="126" rx="10" ry="15" fill="#0b0d10" />
+      {/* helmet */}
+      <ellipse cx="50" cy="126" rx="7" ry="9" fill="var(--body)" />
+      <ellipse cx="50" cy="123" rx="7" ry="4" fill="#e8ecf2" opacity="0.9" />
+      {/* halo ring */}
+      <path d="M37 138 Q37 104 50 102 Q63 104 63 138" stroke="#15171b" strokeWidth="4.5" fill="none" strokeLinecap="round" />
+      <path d="M50 102 L50 116" stroke="#15171b" strokeWidth="4" strokeLinecap="round" />
+
+      {/* ---- engine cover ---- */}
+      <path d="M42 148 L58 148 L56 236 L44 236 Z" fill="var(--body)" />
+      <path d="M42 148 L48 148 L47 236 L44 236 Z" fill="#ffffff" opacity="0.1" />
       {/* airbox */}
-      <path d="M48 24 L54 7 L61 7 L63 24 Z" fill="var(--body)" stroke="rgba(0,0,0,0.28)" strokeWidth="1" strokeLinejoin="round" />
-      {/* cockpit + halo */}
-      <path d="M60 24 Q66 18 76 18 L88 18 L90 24 Z" fill="#10131a" />
-      <path d="M61 24 Q64 12 76 11 Q89 12 92 21" stroke="#10131a" strokeWidth="3.2" fill="none" strokeLinecap="round" />
-      <circle cx="74" cy="19" r="5.4" fill="#f4f6fa" />
-      <path d="M70 19 Q74 16 79 18 L78 21 Q74 22 70 21 Z" fill="#2b3346" />
-      {/* nose flash */}
-      <path d="M120 29 L140 35 Q143 36 140 37 L126 37 Z" fill="#f4f6fa" opacity="0.92" />
-      {/* front wing — forward of the front wheel, where it actually sits */}
-      <rect x="120" y="41" width="30" height="5" rx="2.5" fill="var(--body)" />
-      <rect x="126" y="46" width="20" height="3" rx="1.5" fill="#10131a" opacity="0.8" />
-      <rect x="143" y="33" width="5" height="16" rx="2.5" fill="#10131a" />
+      <path d="M44 146 L56 146 L55 158 L45 158 Z" fill="#0b0d10" />
 
-      <Wheel cx={38} cy={40} />
-      <Wheel cx={108} cy={40} />
+      {/* ---- rear suspension ---- */}
+      <rect x="14" y="196" width="32" height="4" rx="2" fill={carbonLit} />
+      <rect x="54" y="196" width="32" height="4" rx="2" fill={carbonLit} />
+      <rect x="14" y="222" width="32" height="4" rx="2" fill={carbonLit} />
+      <rect x="54" y="222" width="32" height="4" rx="2" fill={carbonLit} />
+
+      {/* ---- tyres (blurred at speed via --tyre-blur) ---- */}
+      <g className="rc-tyres">
+        <Tyre x={2} y={62} w={20} h={44} />
+        <Tyre x={78} y={62} w={20} h={44} />
+        <Tyre x={0} y={190} w={23} h={50} />
+        <Tyre x={77} y={190} w={23} h={50} />
+      </g>
+
+      {/* ---- diffuser + rear wing ---- */}
+      <rect x="28" y="234" width="44" height="14" rx="3" fill="#0d0f12" />
+      <rect x="12" y="246" width="76" height="10" rx="2" fill="var(--body)" />
+      <rect x="12" y="254" width="76" height="8" rx="2" fill={carbon} />
+      <rect x="8" y="240" width="7" height="30" rx="2" fill={carbon} />
+      <rect x="85" y="240" width="7" height="30" rx="2" fill={carbon} />
+
+      {/* the player's car carries a white outline for instant readability */}
+      {isPlayer && (
+        <path d="M34 108 L66 108 L76 202 L74 244 L26 244 L24 202 Z"
+          fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinejoin="round" opacity="0.95" />
+      )}
     </svg>
   )
 }
 
-function Wheel({ cx, cy }: { cx: number; cy: number }) {
+function Tyre({ x, y, w, h }: { x: number; y: number; w: number; h: number }) {
   return (
     <g>
-      <circle cx={cx} cy={cy} r="15" fill="#191d25" />
-      <circle cx={cx} cy={cy} r="15" fill="none" stroke="#333b4b" strokeWidth="1.6" />
-      <g className="rc-wheel" style={{ transformOrigin: `${cx}px ${cy}px` }}>
-        <circle cx={cx} cy={cy} r="7.2" fill="#d7dde8" />
-        <rect x={cx - 7.6} y={cy - 1.4} width="15.2" height="2.8" rx="1.4" fill="#8d97a8" />
-        <rect x={cx - 1.4} y={cy - 7.6} width="2.8" height="15.2" rx="1.4" fill="#8d97a8" />
-      </g>
+      <rect x={x} y={y} width={w} height={h} rx={4} fill="#111215" />
+      <rect x={x + 1.5} y={y + 2} width={w - 3} height={h - 4} rx={3} fill="#191b1f" />
+      {/* sidewall catching the light, and the contact shadow opposite it */}
+      <rect x={x + 1.5} y={y + 2} width={2.5} height={h - 4} rx={1.25} fill="#3a3d43" opacity="0.8" />
+      <rect x={x + w - 4} y={y + 2} width={2.5} height={h - 4} rx={1.25} fill="#000000" opacity="0.5" />
     </g>
   )
 }

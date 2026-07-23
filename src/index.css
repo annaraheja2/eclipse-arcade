@@ -294,97 +294,166 @@ body::after {
   to   { transform: rotate(2.5deg) scale(1.15) }
 }
 
-/* ===== Racer: the cartoon side-view circuit =====
-   The player is anchored on screen and the WORLD scrolls: every layer below is a
-   repeating SVG tile translated on x by the page's rAF loop (transform only — no
-   background-position, no left/top, so nothing here can thrash layout). The
-   layers are laid out one tile wider on each side, which is what lets a wrapped
-   translate in (-tile, 0] tile forever. */
-.rc-panel {
+/* ===== Racer: the angled-overhead circuit =====
+   A chase camera looking DOWN at the track from behind and above. The road is
+   ONE plane tilted by --tilt, so the compositor supplies all the perspective:
+   the track narrowing toward the horizon, and far cars shrinking, are free.
+   Nothing here is computed in JS except two translate3d writes per frame.
+
+   --tilt and perspective arrive inline from lib/circuit.ts's camera constants
+   (the single source of truth, shared with the projection math there). The
+   road plane rotates BY --tilt; a car's name plate counter-rotates by exactly
+   its negative to stand upright, so labels stay legible however the camera is
+   angled. --tile/--car-w/--car-l are fallbacks here; the component's measure
+   pass is their sole writer. */
+.rc-stage {
+  --tile: 0px;
+  --car-w: 0px;
+  --car-l: 0px;
   position: relative;
   overflow: hidden;
-  /* Taller on a phone so the broadcast overlays don't swallow the track. */
-  aspect-ratio: 16 / 10;
-  border-radius: 18px;
-  background: #7fd0ff;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  box-shadow: 0 18px 46px -18px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  /* Near-square on a phone: an overhead camera trades width for road ahead. */
+  aspect-ratio: 5 / 6;
+  border-radius: 16px;
+  perspective-origin: 50% 26%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 22px 60px -22px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
-@media (min-width: 640px) { .rc-panel { aspect-ratio: 16 / 7; } }
+@media (min-width: 640px) { .rc-stage { aspect-ratio: 3 / 2; } }
+/* Overcast daylight: sky down to a hazy horizon at 26%, then distant scenery.
+   The road plane covers everything below; only the haze band shows through. */
 .rc-sky {
   position: absolute; inset: 0;
-  background: linear-gradient(180deg, #cdeeff 0%, #8ed6ff 34%, #7fd0ff 52%, #bfe9ff 60%);
+  background: linear-gradient(180deg,
+    #566171 0%, #778494 14%, #9aa6b4 22%, #b4bec8 25.5%,
+    #47513c 26.5%, #3b4432 100%);
 }
-.rc-sun {
-  position: absolute; top: 6%; left: 70%; width: 13%; aspect-ratio: 1;
-  border-radius: 9999px;
-  background: radial-gradient(circle at 50% 50%, #fff6d6 0 38%, #ffd76a 40% 62%, rgba(255, 215, 106, 0) 74%);
-}
-.rc-shake { position: absolute; inset: 0; will-change: transform; }
-.rc-layer {
+.rc-shake { position: absolute; inset: 0; will-change: transform; transform-style: preserve-3d; }
+.rc-world {
   position: absolute;
-  background-repeat: repeat-x;
+  left: 50%; bottom: -4%;
+  width: 230%; height: 340%;
+  margin-left: -115%;
+  transform-origin: 50% 100%;
+  transform: rotateX(var(--tilt));
+  transform-style: preserve-3d;
+}
+/* The surface is laid out one tile longer at its FAR end, which is what lets a
+   wrapped translate in [0, tile) scroll toward the camera forever. */
+.rc-surface {
+  position: absolute;
+  left: 0; right: 0;
+  top: calc(var(--tile) * -1); bottom: 0;
+  background-repeat: repeat-y;
+  background-size: 100% var(--tile);
   will-change: transform;
   backface-visibility: hidden;
 }
+/* Aerial perspective — fog lying ON the road plane (a child of .rc-world, so
+   perspective compresses it toward the horizon), fading the far half of the
+   asphalt into the sky rather than ending on a hard line. It paints AFTER the
+   surface but BELOW the z-indexed cars, so rivals pinned at the far edge and
+   their pin plates are never filmed over — they are information. */
+.rc-haze {
+  position: absolute; left: 0; right: 0; top: 0; height: 60%;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(92, 102, 117, 0.95) 0%, rgba(126, 137, 151, 0.55) 25%,
+    rgba(140, 152, 166, 0.22) 55%, rgba(150, 162, 176, 0) 100%);
+}
 .rc-vignette {
   position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
-  background: radial-gradient(130% 100% at 50% 45%, transparent 58%, rgba(0, 0, 0, 0.34) 100%);
+  background: radial-gradient(120% 90% at 50% 62%, transparent 54%, rgba(0, 0, 0, 0.42) 100%);
 }
 
-/* --- cars --- */
+/* --- cars: zero-size anchors on the plane, positioned by the rAF loop --- */
 .rc-car {
-  position: absolute; left: 0;
+  position: absolute;
+  left: 50%; top: 0;
+  width: 0; height: 0;
+  transform-style: preserve-3d;
   will-change: transform;
+}
+.rc-body, .rc-shadow {
+  position: absolute; left: 0; top: 0;
+  width: var(--car-w); height: var(--car-l);
+  margin-left: calc(var(--car-w) / -2);
+  margin-top: calc(var(--car-l) / -2);
   transition: opacity 220ms ease, filter 220ms ease;
 }
-.rc-car-inner {
-  display: flex; flex-direction: column; align-items: center;
-  transform-origin: 50% 100%;
-  /* lane depth × responsive sprite scale (--car-scale is set from the observer) */
-  transform: translate(-50%, -100%) scale(calc(var(--lane-scale, 1) * var(--car-scale, 1)));
+.rc-shadow {
+  margin-left: calc(var(--car-w) / -2 + 4px);
+  margin-top: calc(var(--car-l) / -2 + 6px);
+  border-radius: 24% / 9%;
+  background: rgba(0, 0, 0, 0.45);
+  filter: blur(5px);
 }
-.rc-sprite { display: block; }
+.rc-sprite { display: block; width: 100%; height: 100%; }
+/* Tyres smear rather than turn at this camera angle — see tyreBlurPx(). */
+.rc-tyres { filter: blur(var(--tyre-blur, 0px)); }
+/* Counter-rotated by exactly --tilt to stand upright out of the road plane,
+   then scaled by the INVERSE of the perspective divide (--plate-scale, from
+   lib/circuit.ts's plateScale) so the plate holds a legible screen size at
+   any depth. Inside that scale, translate units come out as true screen px —
+   --plate-lift raises the plate clear of the car's projected nose. Both
+   custom properties are written per-frame by the component's render(). */
 .rc-plate {
+  position: absolute; left: 0; top: 0;
   display: inline-flex; align-items: center; gap: 3px;
-  margin-bottom: 3px; padding: 2px 7px;
+  padding: 2px 7px;
   border-radius: 6px; white-space: nowrap;
-  background: rgba(18, 21, 28, 0.92);
+  background: rgba(14, 16, 20, 0.94);
   color: #fff;
   border-bottom: 2px solid var(--body, #fff);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  transform-origin: 0 0;
+  transform: rotateX(calc(var(--tilt) * -1)) scale(var(--plate-scale, 1))
+    translate(-50%, calc(-100% - var(--plate-lift, 8px)));
 }
-.rc-car.is-you .rc-plate { box-shadow: 0 0 0 2px var(--body, #fff), 0 2px 6px rgba(0, 0, 0, 0.45); }
-/* A rival outside the camera window pins to the edge, dimmed, with a chevron
-   pointing where it actually is — off-screen position is still information. */
-.rc-car[data-pin='ahead'], .rc-car[data-pin='behind'] { opacity: 0.62; filter: saturate(0.85); }
+.rc-car.is-you .rc-plate { box-shadow: 0 0 0 2px var(--body, #fff), 0 2px 8px rgba(0, 0, 0, 0.6); }
+/* A rival outside the camera window pins to the plane's edge with a chevron
+   pointing where it actually is — off-screen position is information. Only the
+   CAR dims; the plate is the information and keeps full contrast. */
+.rc-car[data-pin='ahead'] .rc-body, .rc-car[data-pin='behind'] .rc-body,
+.rc-car[data-pin='ahead'] .rc-shadow, .rc-car[data-pin='behind'] .rc-shadow {
+  opacity: 0.66; filter: saturate(0.85);
+}
+/* Near the horizon (pinned ahead, or on camera at a small depth) a plate
+   lifted ABOVE the car would cross the stage top and be clipped — so it moves
+   BELOW the car instead. An upright plate can only rise from where it stands
+   on the plane (translating it down in plate space would bury it under the
+   road), so the plane-space --plate-drop walks its ground point toward the
+   camera, past the car's projected tail — see plateDropPx() in lib/circuit.ts.
+   data-plate is written per-frame from plateSide(). */
+.rc-car[data-plate='below'] .rc-plate {
+  transform: translateY(var(--plate-drop, 0px)) rotateX(calc(var(--tilt) * -1))
+    scale(var(--plate-scale, 1)) translate(-50%, -100%);
+}
 .rc-chev { display: none; }
 .rc-car[data-pin='ahead'] .rc-chev-ahead, .rc-car[data-pin='behind'] .rc-chev-behind { display: inline-flex; }
-.rc-wheel { animation: rcWheel var(--spin, 0.7s) linear infinite; }
-.rc-car.is-stopped .rc-wheel { animation-play-state: paused; }
-@keyframes rcWheel { to { transform: rotate(360deg) } }
 
 /* --- speed FX (opacity is driven per-frame from live MPH) --- */
-.rc-streaks {
-  position: absolute; left: -140px; right: -140px; top: 60%; bottom: 6%;
+.rc-speed {
+  position: absolute; left: 0; right: 0; top: -30px; bottom: -30px;
   pointer-events: none;
-  background-image: repeating-linear-gradient(90deg,
-    rgba(255, 255, 255, 0) 0 74px, rgba(255, 255, 255, 0.85) 74px 128px, rgba(255, 255, 255, 0) 128px 140px);
-  -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 3px, transparent 3px 17px);
-  mask-image: repeating-linear-gradient(180deg, #000 0 3px, transparent 3px 17px);
-  animation: rcStreak 0.42s linear infinite;
+  background-image:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 15%),
+    linear-gradient(270deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 15%);
+  -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 6px, transparent 6px 22px);
+  mask-image: repeating-linear-gradient(180deg, #000 0 6px, transparent 6px 22px);
+  animation: rcRush 0.3s linear infinite;
 }
-@keyframes rcStreak { to { transform: translate3d(-140px, 0, 0) } }
+@keyframes rcRush { to { transform: translate3d(0, 22px, 0) } }
 
-/* --- chequered flag sweeping past at the finish --- */
-.rc-flagsweep {
-  position: absolute; top: 0; bottom: 0; right: -74px; width: 74px;
+/* --- chequered flag sweeping toward the camera at the finish --- */
+.rc-flag {
+  position: absolute; left: 0; right: 0; top: -20%; height: 20%;
   background-image: repeating-conic-gradient(#12151c 0 25%, #f4f6fa 0 50%);
-  background-size: 24px 24px;
-  box-shadow: 0 0 34px rgba(0, 0, 0, 0.45);
+  background-size: 26px 26px;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
   animation: rcFlagPass 1.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
-@keyframes rcFlagPass { to { transform: translate3d(-1400px, 0, 0) } }
+@keyframes rcFlagPass { to { transform: translate3d(0, 620%, 0) } }
 
 /* --- five-light start gantry --- */
 .rc-lamp {
@@ -407,13 +476,13 @@ body::after {
   .tn-wave, .tn-bob, .tn-ping, .tn-flame, .tn-drift, .tn-slide,
   .tn-glowpulse, .tn-cellblink, .tn-draw, .tn-fit, .tn-shine,
   .tn-race1, .tn-race2, .tn-race3,
-  .rc-wheel, .rc-streaks, .rc-flagsweep { animation: none; }
+  .rc-speed { animation: none; }
   .blink-attract { opacity: 1; }
-  /* Racer: parallax and speed FX are stilled (the page also stops scrolling the
-     world), but car POSITION is information, so cars still move. The chequered
-     flag parks at the line instead of sweeping past. */
-  .rc-streaks { display: none; }
-  .rc-flagsweep { right: 0; }
+  /* Racer: the scrolling road and speed FX are stilled (the page also stops
+     scrolling the world), but car POSITION is information, so cars still move.
+     No .rc-flag rule is needed here — under reduced motion the page skips the
+     finish stage entirely, so that element is never in the DOM. */
+  .rc-speed { display: none; }
   /* pulse rings and sheens are motion-only accents — hide their static frame */
   .tn-ping, .tn-shine { display: none; }
   .tn-draw { stroke-dashoffset: 0; }
@@ -443,14 +512,11 @@ body::after {
 :root[data-reduced-motion="true"] .tn-race1,
 :root[data-reduced-motion="true"] .tn-race2,
 :root[data-reduced-motion="true"] .tn-race3,
-:root[data-reduced-motion="true"] .rc-wheel,
-:root[data-reduced-motion="true"] .rc-streaks,
-:root[data-reduced-motion="true"] .rc-flagsweep { animation: none; }
+:root[data-reduced-motion="true"] .rc-speed { animation: none; }
 :root[data-reduced-motion="true"] .blink-attract { opacity: 1; }
 :root[data-reduced-motion="true"] .tn-ping,
-:root[data-reduced-motion="true"] .rc-streaks,
+:root[data-reduced-motion="true"] .rc-speed,
 :root[data-reduced-motion="true"] .tn-shine { display: none; }
-:root[data-reduced-motion="true"] .rc-flagsweep { right: 0; }
 :root[data-reduced-motion="true"] .tn-draw { stroke-dashoffset: 0; }
 :root[data-reduced-motion="true"] .ocean::before,
 :root[data-reduced-motion="true"] .ocean::after { animation: none; }
