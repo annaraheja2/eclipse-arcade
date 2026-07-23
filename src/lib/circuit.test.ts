@@ -5,7 +5,7 @@ import {
   CAMERA_TILT_DEG, CAMERA_PERSPECTIVE_PX, MAX_PLATE_SCALE, PLATE_FLIP_DEPTH,
   pxPerUnit, surfaceOffset, carPlacement, carWidthPx, laneFor,
   projectionScale, plateScale, plateSide, plateDropPx,
-  gapSeconds, formatGap, speedIntensity, tyreBlurPx, startLights,
+  gapSeconds, formatGap, speedIntensity, speedFeel, tyreBlurPx, startLights,
 } from './circuit'
 import { COUNTDOWN_SECONDS, MAX_MPH } from './racer'
 
@@ -280,9 +280,19 @@ describe('speedIntensity / tyreBlurPx', () => {
     expect(speedIntensity(999)).toBe(1)
     expect(speedIntensity(-5)).toBe(0)
   })
-  it('smears the tyres in proportion to speed, up to the blur ceiling', () => {
+  it('feel is perceptual: steepest through the driven low-mid range', () => {
+    expect(speedFeel(0)).toBe(0)
+    expect(speedFeel(MAX_MPH)).toBe(1)
+    // one +2 mph answer moves the feel MORE at 10 mph than at 26 mph
+    const low = speedFeel(12) - speedFeel(10)
+    const high = speedFeel(28) - speedFeel(26)
+    expect(low).toBeGreaterThan(high)
+    // and a 10-mph cruise is already clearly visible, not near-zero
+    expect(speedFeel(10)).toBeGreaterThan(0.5)
+  })
+  it('smears the tyres quadratically, up to the blur ceiling', () => {
     expect(tyreBlurPx(0)).toBe(0)
-    expect(tyreBlurPx(MAX_MPH / 2)).toBeCloseTo(MAX_TYRE_BLUR / 2)
+    expect(tyreBlurPx(MAX_MPH / 2)).toBeCloseTo(MAX_TYRE_BLUR / 4)
     expect(tyreBlurPx(MAX_MPH)).toBeCloseTo(MAX_TYRE_BLUR)
   })
   it('never blurs past the ceiling or into negatives', () => {

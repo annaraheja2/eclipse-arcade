@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyAnswer, advanceDistance, trackFraction, stepAi, stepRace, rank, placementOf,
-  ordinal, aiTuningsFor, raceScore,
-  MAX_MPH, MIN_MPH, START_MPH, SPEED_STEP, RACE_SECONDS,
+  ordinal, aiTuningsFor, initialCooldown, raceScore,
+  MAX_MPH, MIN_MPH, START_MPH, SPEED_STEP, RACE_SECONDS, AI_GRACE_MIN,
   type AiCar, type PlayerCar, type Car,
 } from './racer'
 
@@ -140,6 +140,83 @@ describe('aiTuningsFor', () => {
       expect(t.correctRate).toBeGreaterThanOrEqual(0)
       expect(t.correctRate).toBeLessThanOrEqual(1)
     }
+  })
+})
+
+describe('initialCooldown — the opening grace', () => {
+  it('never fires before the grace plus a full minimum cadence', () => {
+    for (const t of aiTuningsFor('hard')) {
+      expect(initialCooldown(t, seqRng(0))).toBeCloseTo(AI_GRACE_MIN + t.cadenceMin)
+    }
+  })
+  it('holds every AI silent through the opening seconds of a race', () => {
+    let cars: Car[] = aiTuningsFor('medium').map((t, i): AiCar => ({
+      kind: 'ai', id: `ai-${i}`, name: `AI${i}`, color: '#fff', speed: START_MPH, distance: 0,
+      correctRate: t.correctRate, cadenceMin: t.cadenceMin, cadenceMax: t.cadenceMax,
+      cooldown: initialCooldown(t, seqRng(0)), // the earliest possible first answer
+    }))
+    for (let t = 0; t < AI_GRACE_MIN; t += 0.1) cars = stepRace(cars, 0.1, seqRng(0.99))
+    for (const c of cars) expect(c.speed).toBe(START_MPH) // nobody has answered yet
+  })
+})
+
+// ---- fairness: a deterministic full-race drive ----------------------------
+// The whole point of the tuning: a reasonably accurate human beats the field
+// with effort. Simulated with a seeded rng so the check is reproducible.
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** Run a full race: the player answers every `period`s at `accuracy`. */
+function driveRace(seed: number, period: number, accuracy: number): Car[] {
+  const rng = mulberry32(seed)
+  let cars: Car[] = [
+    { kind: 'player', id: 'you', name: 'YOU', color: '#4d8dff', speed: START_MPH, distance: 0 },
+    ...aiTuningsFor('medium').map((t, i): AiCar => ({
+      kind: 'ai', id: `ai-${i}`, name: `AI${i}`, color: '#fff', speed: START_MPH, distance: 0,
+      correctRate: t.correctRate, cadenceMin: t.cadenceMin, cadenceMax: t.cadenceMax,
+      cooldown: initialCooldown(t, rng),
+    })),
+  ]
+  const dt = 0.1
+  let nextAnswer = period
+  for (let t = 0; t < RACE_SECONDS; t += dt) {
+    cars = stepRace(cars, dt, rng)
+    if (t >= nextAnswer) {
+      nextAnswer += period
+      cars = cars.map((c) => (c.kind === 'player' ? { ...c, speed: applyAnswer(c.speed, rng() < accuracy) } : c))
+    }
+  }
+  return cars
+}
+
+describe('race fairness (seeded Monte-Carlo)', () => {
+  it('a solid human — one answer every 5s at 85% — wins the race', () => {
+    let wins = 0
+    for (let seed = 1; seed <= 12; seed++) {
+      if (placementOf(driveRace(seed, 5, 0.85), 'you') === 1) wins++
+    }
+    expect(wins).toBeGreaterThanOrEqual(10) // dominant, not merely lucky
+  })
+  it('a middling human — every 8s at 70% — still fights for the podium', () => {
+    let podiums = 0
+    for (let seed = 1; seed <= 12; seed++) {
+      if (placementOf(driveRace(seed, 8, 0.7), 'you') <= 3) podiums++
+    }
+    expect(podiums).toBeGreaterThanOrEqual(8)
+  })
+  it('a careless human — every 9s at 40% — does not beat the pace-setter', () => {
+    let beaten = 0
+    for (let seed = 1; seed <= 12; seed++) {
+      if (placementOf(driveRace(seed, 9, 0.4), 'you') > 1) beaten++
+    }
+    expect(beaten).toBeGreaterThanOrEqual(10) // the field still punishes guessing
   })
 })
 

@@ -1,7 +1,7 @@
 import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, type CSSProperties } from 'react'
 import type { Car } from '../lib/racer'
 import {
-  carPlacement, laneFor, pxPerUnit, surfaceOffset, speedIntensity, tyreBlurPx, carWidthPx,
+  carPlacement, laneFor, pxPerUnit, surfaceOffset, speedFeel, tyreBlurPx, carWidthPx,
   projectionScale, plateScale, plateSide, plateDropPx,
   CAR_LENGTH_M, CAR_WIDTH_M, CAMERA_TILT_DEG, CAMERA_PERSPECTIVE_PX,
 } from '../lib/circuit'
@@ -25,6 +25,8 @@ export interface CircuitHandle {
   render(cars: readonly Car[], youId: string): void
   /** Roll the world to a stop after the flag — purely visual, never the sim. */
   coastToStop(speedMph: number): void
+  /** One-shot camera kick on an answer: a surge forward or a braking dip. */
+  pulse(dir: 'up' | 'down'): void
 }
 
 interface Props {
@@ -42,6 +44,10 @@ type StageVars = CSSProperties & { '--tilt': string }
 type CarVars = CSSProperties & { '--body': string }
 
 const COAST_SECONDS = 1.4
+/** Streak scroll relative to the road (>1: the near-field rushes past faster). */
+const RUSH_RATE = 1.6
+/** Period of .rc-speed's dash mask (6px dash + 16px gap) — the wrap length. */
+const RUSH_TILE_PX = 22
 /** Screen px between a car's projected nose (or tail) and its name plate. */
 const PLATE_GAP_PX = 6
 /** The plate's authored screen height (10px text + padding + border), with slack. */
@@ -111,6 +117,18 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
     if (el) el.style.transform = `translate3d(0,${surfaceOffset(distanceRef.current, planeRef.current.tile).toFixed(1)}px,0)`
   }
 
+  // The edge streaks ARE the speedometer you feel: they scroll with the world
+  // (faster than the road) and fade with speed, so they decelerate through the
+  // coast-to-stop as well as during the race. `feel` is speedFeel(mph).
+  function paintStreaks(feel: number): void {
+    if (reduced) return
+    const el = speedRef.current
+    if (!el) return
+    el.style.opacity = (feel * 0.55).toFixed(3)
+    el.style.transform =
+      `translate3d(0,${surfaceOffset(distanceRef.current * RUSH_RATE, RUSH_TILE_PX).toFixed(1)}px,0)`
+  }
+
   useImperativeHandle(ref, () => ({
     render(cars, id) {
       const { w, d, carL } = planeRef.current
@@ -122,13 +140,13 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
       paintSurface()
 
       if (!reduced) {
-        const t = speedIntensity(you.speed)
-        // Squared so the blur only bites near the top end, where speed reads.
-        if (speedRef.current) speedRef.current.style.opacity = (t * t * 0.75).toFixed(3)
+        // Perceptual curve: mid-range speed changes must READ, not just the cap.
+        const feel = speedFeel(you.speed)
+        paintStreaks(feel)
         // Shake is phased off distance, not time, so a stopped car sits dead still.
         if (shakeRef.current) {
           shakeRef.current.style.transform =
-            `translate3d(0,${(Math.sin(distanceRef.current * 0.09) * t * 1.6).toFixed(2)}px,0)`
+            `translate3d(0,${(Math.sin(distanceRef.current * 0.09) * feel * feel * 2.1).toFixed(2)}px,0)`
         }
       }
 
@@ -177,6 +195,15 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
         }
       }
     },
+    pulse(dir) {
+      if (reduced) return
+      const stage = stageRef.current
+      if (!stage) return
+      // Clear + reflow so back-to-back answers each restart the keyframes.
+      delete stage.dataset.kick
+      void stage.offsetWidth
+      stage.dataset.kick = dir
+    },
     coastToStop(speedMph) {
       if (reduced || speedMph <= 0) return
       cancelAnimationFrame(coastRaf.current)
@@ -188,6 +215,7 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
         v = Math.max(0, v - (speedMph / COAST_SECONDS) * dt)
         distanceRef.current += v * dt * pxPerUnit(planeRef.current.d)
         paintSurface()
+        paintStreaks(speedFeel(v)) // streaks decelerate and fade with the road
         if (v > 0.01) coastRaf.current = requestAnimationFrame(tick)
       }
       coastRaf.current = requestAnimationFrame(tick)

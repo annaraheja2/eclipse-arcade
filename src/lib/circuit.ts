@@ -187,19 +187,32 @@ export function formatGap(seconds: number | null): string {
   return seconds === null ? '—' : `+${seconds.toFixed(1)}`
 }
 
-/** 0..1 road speed — drives motion blur, camera shake and wheel blur. */
+/** 0..1 linear speed fraction — the gauge scale (Speedo bar). */
 export function speedIntensity(mph: number): number {
   return clamp(mph / MAX_MPH, 0, 1)
 }
 
 /**
+ * 0..1 PERCEPTUAL speed for the world FX (streaks, shake). Square-root shaped:
+ * linear intensity leaves the whole low-mid range invisible (one +2 mph answer
+ * is 1/15 of the scale), so the curve is steepest where the race is actually
+ * driven — a change at 10 mph reads as clearly as one at 26.
+ */
+export function speedFeel(mph: number): number {
+  return Math.sqrt(speedIntensity(mph))
+}
+
+/**
  * Motion blur on a car's tyres, in px. Seen from above a spinning wheel gives
  * itself away by smearing, not by turning — there is no rotation to animate at
- * this camera angle, so speed reads through blur instead.
+ * this camera angle, so speed reads through blur instead. Quadratic: real
+ * wheels only smear once they are genuinely fast, so the blur stays off the
+ * crawl and bites toward the cap.
  */
-export const MAX_TYRE_BLUR = 2.4
+export const MAX_TYRE_BLUR = 3
 export function tyreBlurPx(mph: number): number {
-  return speedIntensity(mph) * MAX_TYRE_BLUR
+  const t = speedIntensity(mph)
+  return t * t * MAX_TYRE_BLUR
 }
 
 // ---- start-light gantry ---------------------------------------------------

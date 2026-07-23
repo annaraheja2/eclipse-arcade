@@ -432,18 +432,30 @@ body::after {
 .rc-chev { display: none; }
 .rc-car[data-pin='ahead'] .rc-chev-ahead, .rc-car[data-pin='behind'] .rc-chev-behind { display: inline-flex; }
 
-/* --- speed FX (opacity is driven per-frame from live MPH) --- */
+/* --- speed FX --- */
+/* Edge streaks: opacity AND scroll are driven per-frame from live MPH by
+   Circuit.render() — the streaks move with the world, so slowing down visibly
+   slows them and a stopped car leaves them dead still. No CSS animation here. */
 .rc-speed {
   position: absolute; left: 0; right: 0; top: -30px; bottom: -30px;
   pointer-events: none;
+  will-change: transform, opacity;
   background-image:
     linear-gradient(90deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 15%),
     linear-gradient(270deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 15%);
   -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 6px, transparent 6px 22px);
   mask-image: repeating-linear-gradient(180deg, #000 0 6px, transparent 6px 22px);
-  animation: rcRush 0.3s linear infinite;
 }
-@keyframes rcRush { to { transform: translate3d(0, 22px, 0) } }
+
+/* --- answer kick: a one-shot camera punch, retriggered via data-kick --- */
+/* Correct: a brief surge — the camera pushes in and the streaks flare, then
+   both settle back to their live per-frame values. Wrong: a braking dip. */
+.rc-stage[data-kick='up'] { animation: rcKickUp 0.45s cubic-bezier(0.2, 0.7, 0.3, 1); }
+.rc-stage[data-kick='up'] .rc-speed { animation: rcStreakFlare 0.5s ease-out; }
+.rc-stage[data-kick='down'] { animation: rcKickDown 0.5s ease-out; }
+@keyframes rcKickUp { 20% { transform: scale(1.016); } }
+@keyframes rcStreakFlare { 0% { opacity: 0.85; } }
+@keyframes rcKickDown { 24% { transform: scale(0.985) translateY(3px); } }
 
 /* --- chequered flag sweeping toward the camera at the finish --- */
 .rc-flag {
@@ -477,6 +489,7 @@ body::after {
   .tn-glowpulse, .tn-cellblink, .tn-draw, .tn-fit, .tn-shine,
   .tn-race1, .tn-race2, .tn-race3,
   .rc-speed { animation: none; }
+  .rc-stage[data-kick] { animation: none; }
   .blink-attract { opacity: 1; }
   /* Racer: the scrolling road and speed FX are stilled (the page also stops
      scrolling the world), but car POSITION is information, so cars still move.
@@ -513,6 +526,7 @@ body::after {
 :root[data-reduced-motion="true"] .tn-race2,
 :root[data-reduced-motion="true"] .tn-race3,
 :root[data-reduced-motion="true"] .rc-speed { animation: none; }
+:root[data-reduced-motion="true"] .rc-stage[data-kick] { animation: none; }
 :root[data-reduced-motion="true"] .blink-attract { opacity: 1; }
 :root[data-reduced-motion="true"] .tn-ping,
 :root[data-reduced-motion="true"] .rc-speed,

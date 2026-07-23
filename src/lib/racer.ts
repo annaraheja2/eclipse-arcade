@@ -95,21 +95,34 @@ export function ordinal(n: number): string {
 
 // ---- AI tuning ------------------------------------------------------------
 // Three fixed, competitive-but-beatable baselines, spread so the field
-// separates. A strong player who answers faster than the AI cadence and stays
-// accurate reaches the 30-mph cap sooner and dips below it less, edging them
-// out; a shaky player falls behind. `difficulty` nudges the whole field's
-// accuracy a touch so a hard topic fields tougher rivals.
+// separates. Paced against a HUMAN answer rhythm: the pace-setter climbs at
+// ~0.12 mph/s (nearing the cap only as the clock runs out), so a player who
+// answers every ~5-6s at ~80% accuracy out-accelerates it and wins, while a
+// slow or scattershot run falls to the midfield. `difficulty` nudges the whole
+// field's accuracy so a hard topic fields tougher rivals.
 export interface AiTuning { correctRate: number; cadenceMin: number; cadenceMax: number }
 const BASE_TUNINGS: readonly AiTuning[] = [
-  { correctRate: 0.82, cadenceMin: 2.0, cadenceMax: 3.0 }, // the pace-setter
-  { correctRate: 0.76, cadenceMin: 2.5, cadenceMax: 3.6 },
-  { correctRate: 0.70, cadenceMin: 3.0, cadenceMax: 4.2 },
+  { correctRate: 0.70, cadenceMin: 5.5, cadenceMax: 7.5 }, // the pace-setter
+  { correctRate: 0.62, cadenceMin: 6.5, cadenceMax: 8.5 }, // the midfielder
+  { correctRate: 0.55, cadenceMin: 7.5, cadenceMax: 10.0 }, // the backmarker
 ]
 const DIFFICULTY_ACCURACY: Record<Difficulty, number> = { easy: -0.06, medium: 0, hard: 0.06 }
 
 export function aiTuningsFor(difficulty: Difficulty): AiTuning[] {
   const d = DIFFICULTY_ACCURACY[difficulty]
   return BASE_TUNINGS.map((t) => ({ ...t, correctRate: clamp(t.correctRate + d, 0, 1) }))
+}
+
+// Opening grace: an AI's FIRST answer waits a randomised reaction window on
+// top of a normal cadence draw, so the human gets their first answer or two in
+// before the field starts to pull — no rival leaps off the line.
+export const AI_GRACE_MIN = 4
+export const AI_GRACE_MAX = 7
+
+/** Cooldown an AI starts the race with: reaction grace + one cadence draw. */
+export function initialCooldown(t: AiTuning, rng: () => number): number {
+  const grace = AI_GRACE_MIN + rng() * (AI_GRACE_MAX - AI_GRACE_MIN)
+  return grace + t.cadenceMin + rng() * (t.cadenceMax - t.cadenceMin)
 }
 
 // ---- Scoring --------------------------------------------------------------

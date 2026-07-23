@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import {
-  stepRace, rank, placementOf, raceScore, aiTuningsFor, trackFraction, applyAnswer, ordinal,
+  stepRace, rank, placementOf, raceScore, aiTuningsFor, initialCooldown, trackFraction, applyAnswer, ordinal,
   RACE_SECONDS, COUNTDOWN_SECONDS, START_MPH,
   type Car, type PlayerCar, type AiCar,
 } from '../lib/racer'
@@ -68,7 +68,7 @@ function buildCars(difficulty: Difficulty): Car[] {
     kind: 'ai', id: AI_META[i].id, name: AI_META[i].name, color: AI_META[i].color,
     speed: START_MPH, distance: 0,
     correctRate: t.correctRate, cadenceMin: t.cadenceMin, cadenceMax: t.cadenceMax,
-    cooldown: t.cadenceMin + Math.random() * (t.cadenceMax - t.cadenceMin),
+    cooldown: initialCooldown(t, Math.random),
   }))
   return [player, ...ais]
 }
@@ -256,6 +256,7 @@ export default function Racer() {
     carsRef.current = carsRef.current.map((c) => (c.kind === 'player' ? { ...c, speed: applyAnswer(c.speed, correct) } : c))
     setCars(carsRef.current)
     if (correct) sfxPick(); else sfxDeny()
+    circuitRef.current?.pulse(correct ? 'up' : 'down')
     setFlash({ dir: correct ? 'up' : 'down', nonce: Date.now() })
     window.clearTimeout(flashTimerRef.current)
     flashTimerRef.current = window.setTimeout(() => setFlash(null), 750)
