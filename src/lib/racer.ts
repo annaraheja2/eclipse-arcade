@@ -96,15 +96,16 @@ export function ordinal(n: number): string {
 // ---- AI tuning ------------------------------------------------------------
 // Three fixed, competitive-but-beatable baselines, spread so the field
 // separates. Paced against a HUMAN answer rhythm: the pace-setter climbs at
-// ~0.12 mph/s (nearing the cap only as the clock runs out), so a player who
-// answers every ~5-6s at ~80% accuracy out-accelerates it and wins, while a
-// slow or scattershot run falls to the midfield. `difficulty` nudges the whole
-// field's accuracy so a hard topic fields tougher rivals.
+// ~0.25 mph/s (reaching the cap around the mid-race, not the opening), so it's
+// a real threat to the flag. A player who answers every ~5s at ~85% just
+// out-accelerates it and wins the MAJORITY of the time — but not every time,
+// and a median run genuinely fights for the podium. `difficulty` nudges the
+// whole field's accuracy so a hard topic fields tougher rivals.
 export interface AiTuning { correctRate: number; cadenceMin: number; cadenceMax: number }
 const BASE_TUNINGS: readonly AiTuning[] = [
-  { correctRate: 0.70, cadenceMin: 5.5, cadenceMax: 7.5 }, // the pace-setter
-  { correctRate: 0.62, cadenceMin: 6.5, cadenceMax: 8.5 }, // the midfielder
-  { correctRate: 0.55, cadenceMin: 7.5, cadenceMax: 10.0 }, // the backmarker
+  { correctRate: 0.80, cadenceMin: 4.0, cadenceMax: 5.5 }, // the pace-setter
+  { correctRate: 0.72, cadenceMin: 5.0, cadenceMax: 6.5 }, // the midfielder
+  { correctRate: 0.64, cadenceMin: 6.0, cadenceMax: 8.0 }, // the backmarker
 ]
 const DIFFICULTY_ACCURACY: Record<Difficulty, number> = { easy: -0.06, medium: 0, hard: 0.06 }
 

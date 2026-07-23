@@ -173,12 +173,21 @@ function mulberry32(seed: number): () => number {
   }
 }
 
-/** Run a full race: the player answers every `period`s at `accuracy`. */
-function driveRace(seed: number, period: number, accuracy: number): Car[] {
+/**
+ * Run a full race: the player answers every `period`s at `accuracy`. Returns
+ * the final field plus the peak speed any AI reached in the opening 30s (the
+ * no-early-surge probe — `ai-0` is always the pace-setter, the top baseline).
+ */
+function driveRace(
+  seed: number,
+  period: number,
+  accuracy: number,
+  difficulty: 'easy' | 'medium' | 'hard' = 'medium',
+): { cars: Car[]; peakEarlyAiMph: number } {
   const rng = mulberry32(seed)
   let cars: Car[] = [
     { kind: 'player', id: 'you', name: 'YOU', color: '#4d8dff', speed: START_MPH, distance: 0 },
-    ...aiTuningsFor('medium').map((t, i): AiCar => ({
+    ...aiTuningsFor(difficulty).map((t, i): AiCar => ({
       kind: 'ai', id: `ai-${i}`, name: `AI${i}`, color: '#fff', speed: START_MPH, distance: 0,
       correctRate: t.correctRate, cadenceMin: t.cadenceMin, cadenceMax: t.cadenceMax,
       cooldown: initialCooldown(t, rng),
@@ -186,37 +195,113 @@ function driveRace(seed: number, period: number, accuracy: number): Car[] {
   ]
   const dt = 0.1
   let nextAnswer = period
+  let peakEarlyAiMph = 0
   for (let t = 0; t < RACE_SECONDS; t += dt) {
     cars = stepRace(cars, dt, rng)
+    if (t < 30) {
+      for (const c of cars) if (c.kind === 'ai' && c.speed > peakEarlyAiMph) peakEarlyAiMph = c.speed
+    }
     if (t >= nextAnswer) {
       nextAnswer += period
       cars = cars.map((c) => (c.kind === 'player' ? { ...c, speed: applyAnswer(c.speed, rng() < accuracy) } : c))
     }
   }
-  return cars
+  return { cars, peakEarlyAiMph }
 }
 
-describe('race fairness (seeded Monte-Carlo)', () => {
-  it('a solid human — one answer every 5s at 85% — wins the race', () => {
+const carById = (cars: Car[], id: string): Car => {
+  const c = cars.find((x) => x.id === id)
+  if (!c) throw new Error(`no car ${id}`)
+  return c
+}
+/** Gap from `id` back to the leader of the rest of the field (0 if `id` leads). */
+const gapToLead = (cars: Car[], id: string): number => {
+  const me = carById(cars, id).distance
+  const lead = Math.max(...cars.filter((c) => c.id !== id).map((c) => c.distance))
+  return Math.max(0, lead - me)
+}
+const SEEDS = 100 // a big deterministic sweep — reproducible, no flakiness
+
+// The tuning's whole point: a GENUINE, close competition to the flag — a strong
+// player wins the majority but not every time, a median player is really in the
+// fight, and a careless one falls to the pace-setter. Verified over many seeds.
+describe('race competitiveness (seeded Monte-Carlo)', () => {
+  it('a strong human — every 5s at 85% — wins a MAJORITY but not every race', () => {
     let wins = 0
-    for (let seed = 1; seed <= 12; seed++) {
-      if (placementOf(driveRace(seed, 5, 0.85), 'you') === 1) wins++
+    let marginSum = 0
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const { cars } = driveRace(seed, 5, 0.85)
+      if (placementOf(cars, 'you') === 1) wins++
+      // signed gap to the pace-setter: how tight the duel is at the flag
+      marginSum += Math.abs(carById(cars, 'you').distance - carById(cars, 'ai-0').distance)
     }
-    expect(wins).toBeGreaterThanOrEqual(10) // dominant, not merely lucky
+    expect(wins).toBeGreaterThanOrEqual(55) // a clear majority — effort is rewarded
+    expect(wins).toBeLessThanOrEqual(85) // but NOT a walkover — the AI can win
+    expect(marginSum / SEEDS).toBeLessThan(900) // decided by a close margin, not a blowout
   })
-  it('a middling human — every 8s at 70% — still fights for the podium', () => {
+
+  it('the difficulty knob makes hard a real fight and easy a comfortable win', () => {
+    const winsAt = (difficulty: 'easy' | 'hard'): number => {
+      let wins = 0
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        if (placementOf(driveRace(seed, 5, 0.85, difficulty).cars, 'you') === 1) wins++
+      }
+      return wins
+    }
+    const easyWins = winsAt('easy')
+    const hardWins = winsAt('hard')
+    expect(easyWins).toBeGreaterThan(hardWins) // harder topic = tougher rivals
+    expect(hardWins).toBeGreaterThanOrEqual(45) // even a strong player really has to fight
+    expect(easyWins).toBeLessThanOrEqual(95) // still not a guaranteed win
+  })
+
+  it('a median human — every 6.5s at 72% — genuinely fights for the podium', () => {
     let podiums = 0
-    for (let seed = 1; seed <= 12; seed++) {
-      if (placementOf(driveRace(seed, 8, 0.7), 'you') <= 3) podiums++
+    let wins = 0
+    let gapSum = 0
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const { cars } = driveRace(seed, 6.5, 0.72)
+      const place = placementOf(cars, 'you')
+      if (place <= 3) podiums++
+      if (place === 1) wins++
+      gapSum += gapToLead(cars, 'you')
     }
-    expect(podiums).toBeGreaterThanOrEqual(8)
+    expect(podiums).toBeGreaterThanOrEqual(70) // usually on the podium — really in it
+    expect(wins).toBeGreaterThanOrEqual(5) // and occasionally steals the win outright
+    expect(wins).toBeLessThanOrEqual(45) // but doesn't dominate — that's the strong player's seat
+    // close at the flag: on average within a small fraction of the whole track
+    expect(gapSum / SEEDS).toBeLessThan(RACE_SECONDS * MAX_MPH * 0.22)
   })
-  it('a careless human — every 9s at 40% — does not beat the pace-setter', () => {
-    let beaten = 0
-    for (let seed = 1; seed <= 12; seed++) {
-      if (placementOf(driveRace(seed, 9, 0.4), 'you') > 1) beaten++
+
+  it('a careless human — every 9s at 45% — reliably loses to the pace-setter', () => {
+    let beatenByPace = 0
+    let wins = 0
+    let carelessGapSum = 0
+    let medianGapSum = 0
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const { cars } = driveRace(seed, 9, 0.45)
+      if (carById(cars, 'you').distance < carById(cars, 'ai-0').distance) beatenByPace++
+      if (placementOf(cars, 'you') === 1) wins++
+      carelessGapSum += gapToLead(cars, 'you')
+      medianGapSum += gapToLead(driveRace(seed, 6.5, 0.72).cars, 'you')
     }
-    expect(beaten).toBeGreaterThanOrEqual(10) // the field still punishes guessing
+    expect(beatenByPace).toBeGreaterThanOrEqual(90) // the pace-setter is a real winner
+    expect(wins).toBe(0) // guessing never wins
+    // the field isn't strung out for a real player: a median run is far closer
+    // to the lead than a careless one — the race stays a pack, not a parade
+    expect(medianGapSum).toBeLessThan(carelessGapSum)
+  })
+
+  it('holds the opening gentle: no AI is near the cap in the first 30s', () => {
+    let peak = 0
+    for (const [period, accuracy] of [[5, 0.85], [6.5, 0.72], [9, 0.45]] as const) {
+      for (const difficulty of ['easy', 'medium', 'hard'] as const) {
+        for (let seed = 1; seed <= SEEDS; seed++) {
+          peak = Math.max(peak, driveRace(seed, period, accuracy, difficulty).peakEarlyAiMph)
+        }
+      }
+    }
+    expect(peak).toBeLessThanOrEqual(24) // well under the 30 cap — no early surge
   })
 })
 
