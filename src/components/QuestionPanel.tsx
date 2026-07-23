@@ -46,15 +46,15 @@ export default function QuestionPanel({ q, color, onSubmit, surface = 'dark', la
   const light = surface === 'light'
   return (
     <div className={light
-      ? 'rounded-2xl bg-white p-5 shadow-[0_10px_40px_-8px_rgba(0,0,0,0.65)] ring-1 ring-black/10'
+      ? 'qp-light rounded-2xl bg-white p-5 shadow-[0_10px_40px_-8px_rgba(0,0,0,0.65)] ring-1 ring-black/10'
       : 'rounded-2xl border border-white/10 bg-white/[0.03] p-5'}>
       <div className="text-center text-[10px] font-pixel mb-3" style={{ color: light ? '#5b2ec9' : color }}>{label}</div>
       <p className={`text-center font-bold ${light ? 'text-xl text-[#0a0620]' : 'text-lg font-semibold'} ${q.explain ? 'mb-2' : 'mb-4'}`}>{q.prompt}</p>
       {q.explain && <p className={`text-center text-xs mb-4 ${light ? 'text-[#0a0620]/70' : 'text-white/70'}`}>{q.explain}</p>}
       <div className="mb-4">
-        {q.x !== undefined && <PinBoard range={q.range ?? 8} color={color} guess={pt} answer={null} onPlace={(x, y) => setPt({ x, y })} />}
-        {q.answer !== undefined && <SliderBoard min={q.min!} max={q.max!} step={q.step ?? 0.5} color={color} guess={val} answer={null} onPlace={setVal} />}
-        {q.fill !== undefined && <FillInput value={text} onChange={setText} color={color} onEnter={submit} />}
+        {q.x !== undefined && <PinBoard range={q.range ?? 8} color={color} guess={pt} answer={null} onPlace={(x, y) => setPt({ x, y })} light={light} />}
+        {q.answer !== undefined && <SliderBoard min={q.min!} max={q.max!} step={q.step ?? 0.5} color={color} guess={val} answer={null} onPlace={setVal} light={light} />}
+        {q.fill !== undefined && <FillInput value={text} onChange={setText} color={color} onEnter={submit} light={light} />}
       </div>
       <button onClick={submit} disabled={!ready}
         className="w-full font-pixel text-[11px] py-3.5 rounded-xl text-[#0a0620] disabled:opacity-40 transition"

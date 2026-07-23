@@ -316,7 +316,7 @@ export default function Racer() {
                     </p>
                   </div>}
             </div>
-            <p className="text-center text-[11px] text-white/35 mt-4">Correct answer +2 MPH · wrong −2 MPH · your car cruises on its own</p>
+            <p className="text-center text-[11px] text-white/55 mt-4">Correct answer +2 MPH · wrong −2 MPH · your car cruises on its own</p>
           </div>
         )}
 
@@ -391,7 +391,7 @@ function SetBuilder({ course, selected, atMax, questionCount, canSelectAll, onTo
                       className={`flex items-center gap-3 text-left rounded-xl border p-3 transition ${disabled ? 'opacity-45 cursor-default' : 'hover:border-neon-blue/60'}`}
                       style={{ borderColor: checked ? ACCENT : 'rgba(255,255,255,0.1)', background: checked ? `${ACCENT}14` : 'rgba(255,255,255,0.03)' }}>
                       <span aria-hidden className="grid place-items-center w-5 h-5 rounded-md border shrink-0"
-                        style={{ borderColor: checked ? ACCENT : 'rgba(255,255,255,0.3)', background: checked ? ACCENT : 'transparent' }}>
+                        style={{ borderColor: checked ? ACCENT : 'rgba(255,255,255,0.45)', background: checked ? ACCENT : 'transparent' }}>
                         {checked && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0a0620" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-11" /></svg>}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -455,7 +455,7 @@ function StandingsBar({ cars }: { cars: Car[] }) {
           const isP = c.id === PLAYER_ID
           return (
             <span key={c.id} className={`inline-flex items-center gap-1.5 text-[11px] ${isP ? 'font-bold text-white' : 'text-white/70'}`}>
-              <span className="font-pixel text-[8px] text-white/45">P{i + 1}</span>
+              <span className="font-pixel text-[8px] text-white/55">P{i + 1}</span>
               <span aria-hidden className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
               {c.name}
               <span className="tabular-nums text-white/60">{Math.round(c.speed)} MPH</span>
@@ -550,7 +550,7 @@ function Results({ result, level, onAgain, onPick, onHome }: {
         {ranked.map((c, i) => (
           <div key={c.id} className={`flex items-center justify-between py-1.5 text-sm ${c.id === PLAYER_ID ? 'font-bold text-white' : 'text-white/70'}`}>
             <span className="flex items-center gap-2">
-              <span className="font-pixel text-[9px] text-white/45 w-6">P{i + 1}</span>
+              <span className="font-pixel text-[9px] text-white/55 w-6">P{i + 1}</span>
               <span aria-hidden className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
               {c.name}
             </span>

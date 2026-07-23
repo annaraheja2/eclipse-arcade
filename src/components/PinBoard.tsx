@@ -3,7 +3,7 @@ import { useRef } from 'react'
 const SIZE = 360
 
 export default function PinBoard({
-  range, guess, answer, onPlace, disabled, color,
+  range, guess, answer, onPlace, disabled, color, light = false,
 }: {
   range: number
   guess: { x: number; y: number } | null
@@ -11,6 +11,7 @@ export default function PinBoard({
   onPlace: (x: number, y: number) => void
   disabled?: boolean
   color: string
+  light?: boolean
 }) {
   const ref = useRef<SVGSVGElement>(null)
   const scale = SIZE / (2 * range)
@@ -27,13 +28,20 @@ export default function PinBoard({
     onPlace(Math.max(-range, Math.min(range, x)), Math.max(-range, Math.min(range, y)))
   }
 
+  // On a light surface (Racer's white card) the neon-on-dark chrome is illegible,
+  // so grid lines and the plotted reticle switch to dark-on-light. The dark path
+  // (Battleship) keeps the exact original values.
+  const majorLine = light ? 'rgba(10,6,32,0.35)' : 'rgba(255,255,255,0.35)'
+  const minorLine = light ? 'rgba(10,6,32,0.18)' : 'rgba(255,255,255,0.08)'
+  const reticle = light ? '#0a0620' : color
+
   const lines = []
   for (let i = -range; i <= range; i++) {
     const [sx] = toSvg(i, 0)
     const [, sy] = toSvg(0, i)
     const major = i === 0
-    lines.push(<line key={`v${i}`} x1={sx} y1={0} x2={sx} y2={SIZE} stroke={major ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.08)'} strokeWidth={major ? 1.5 : 1} />)
-    lines.push(<line key={`h${i}`} x1={0} y1={sy} x2={SIZE} y2={sy} stroke={major ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.08)'} strokeWidth={major ? 1.5 : 1} />)
+    lines.push(<line key={`v${i}`} x1={sx} y1={0} x2={sx} y2={SIZE} stroke={major ? majorLine : minorLine} strokeWidth={major ? 1.5 : 1} />)
+    lines.push(<line key={`h${i}`} x1={0} y1={sy} x2={SIZE} y2={sy} stroke={major ? majorLine : minorLine} strokeWidth={major ? 1.5 : 1} />)
   }
 
   const gp = guess ? toSvg(guess.x, guess.y) : null
@@ -42,19 +50,19 @@ export default function PinBoard({
   return (
     <svg
       ref={ref} viewBox={`0 0 ${SIZE} ${SIZE}`} onClick={click}
-      className={`w-full max-w-[360px] mx-auto rounded-xl bg-black/30 border border-white/10 ${disabled ? '' : 'cursor-crosshair'}`}
+      className={`w-full max-w-[360px] mx-auto rounded-xl border ${light ? 'bg-black/[0.04] border-black/15' : 'bg-black/30 border-white/10'} ${disabled ? '' : 'cursor-crosshair'}`}
     >
       {lines}
       {ap && gp && <line x1={gp[0]} y1={gp[1]} x2={ap[0]} y2={ap[1]} stroke="white" strokeDasharray="4 4" strokeOpacity={0.6} />}
       {gp && (
-        <g style={{ filter: `drop-shadow(0 0 6px ${color})` }}>
+        <g style={light ? undefined : { filter: `drop-shadow(0 0 6px ${color})` }}>
           {/* targeting reticle */}
-          <circle cx={gp[0]} cy={gp[1]} r={12} fill="none" stroke={color} strokeWidth={1.5} opacity={0.9} />
-          <line x1={gp[0] - 18} y1={gp[1]} x2={gp[0] - 5} y2={gp[1]} stroke={color} strokeWidth={1.5} />
-          <line x1={gp[0] + 5} y1={gp[1]} x2={gp[0] + 18} y2={gp[1]} stroke={color} strokeWidth={1.5} />
-          <line x1={gp[0]} y1={gp[1] - 18} x2={gp[0]} y2={gp[1] - 5} stroke={color} strokeWidth={1.5} />
-          <line x1={gp[0]} y1={gp[1] + 5} x2={gp[0]} y2={gp[1] + 18} stroke={color} strokeWidth={1.5} />
-          <circle cx={gp[0]} cy={gp[1]} r={2.5} fill={color} />
+          <circle cx={gp[0]} cy={gp[1]} r={12} fill="none" stroke={reticle} strokeWidth={1.5} opacity={0.9} />
+          <line x1={gp[0] - 18} y1={gp[1]} x2={gp[0] - 5} y2={gp[1]} stroke={reticle} strokeWidth={1.5} />
+          <line x1={gp[0] + 5} y1={gp[1]} x2={gp[0] + 18} y2={gp[1]} stroke={reticle} strokeWidth={1.5} />
+          <line x1={gp[0]} y1={gp[1] - 18} x2={gp[0]} y2={gp[1] - 5} stroke={reticle} strokeWidth={1.5} />
+          <line x1={gp[0]} y1={gp[1] + 5} x2={gp[0]} y2={gp[1] + 18} stroke={reticle} strokeWidth={1.5} />
+          <circle cx={gp[0]} cy={gp[1]} r={2.5} fill={reticle} />
         </g>
       )}
       {ap && (

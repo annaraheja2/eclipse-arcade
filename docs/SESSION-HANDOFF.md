@@ -40,10 +40,12 @@ announce / "go live" without an explicit ask.
   standings bar; bold white question card over the neon track; finish-line animation. Client-only.
 
 ## Open items / next steps
-1. **IN FLIGHT at session end** — `eclipse-web-guardian` AA check on Racer. Likely finding:
-   focusable controls on the **white question card need a dark focus ring** (the global white
-   `:focus-visible` is invisible on white — same fix the calm `/admin` theme used). Read the
-   agent result and fix-forward + redeploy if confirmed.
+1. **RESOLVED** — the Racer white-card AA/keyboard bugs the guardian found are fixed: the
+   fill/graph/slider answer inputs now render dark-on-light on the white card, and a dark
+   `:focus-visible` ring (`.qp-light`) is scoped to the light surface (gated behind a `light`
+   prop; Battleship's dark path is byte-identical). *Remaining follow-up:* PinBoard/SliderBoard
+   SVGs are not keyboard-operable (no tabindex/arrow keys) — a shared-component change that
+   also affects Battleship; deliberately deferred.
 2. **Racer Phase 2** (queued): 2–5 player **online race rooms** — lobby (create/join/start),
    realtime speed sync (write each car's *speed* on answer, integrate client-side; don't spam
    per-frame), same-difficulty matching. Client-authoritative-for-own-car trust model, like Battleship.
