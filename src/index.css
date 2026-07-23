@@ -323,12 +323,17 @@ body::after {
 /* Overcast daylight: sky down to a hazy horizon at 26%, then distant scenery.
    The road plane covers everything below; only the haze band shows through. */
 .rc-sky {
-  position: absolute; inset: 0;
+  /* Oversized sideways so the corner pan (paintWorld) never exposes an edge. */
+  position: absolute; inset: 0 -10%;
+  will-change: transform;
   background: linear-gradient(180deg,
     #566171 0%, #778494 14%, #9aa6b4 22%, #b4bec8 25.5%,
     #47513c 26.5%, #3b4432 100%);
 }
-.rc-shake { position: absolute; inset: 0; will-change: transform; transform-style: preserve-3d; }
+/* Carries the speed bob AND the corner sway/bank (paintWorld). The roll pivots
+   low — near the camera — so a bank swings the far end of the world hardest,
+   which is what reads as "the track curves away up there". */
+.rc-shake { position: absolute; inset: 0; will-change: transform; transform-style: preserve-3d; transform-origin: 50% 88%; }
 .rc-world {
   position: absolute;
   left: 50%; bottom: -4%;
@@ -349,6 +354,20 @@ body::after {
   will-change: transform;
   backface-visibility: hidden;
 }
+/* The start/finish strip: chequered paint ON the road plane, positioned by
+   paintFinish() exactly like a car, so it sweeps toward the camera as a lap
+   completes. Painted after the surface, under the haze and the cars — it is
+   road paint, not an object. left/right arrive inline from TRACK_WIDTH_FRACTION. */
+.rc-finish {
+  position: absolute; top: 0;
+  height: calc(var(--tile) * 0.28);
+  margin-top: calc(var(--tile) * -0.14);
+  background-image: repeating-conic-gradient(#e8eaee 0 25%, #191b20 0 50%);
+  background-size: calc(var(--tile) * 0.14) calc(var(--tile) * 0.14);
+  opacity: 0.92;
+  will-change: transform;
+}
+
 /* Aerial perspective — fog lying ON the road plane (a child of .rc-world, so
    perspective compresses it toward the horizon), fading the far half of the
    asphalt into the sky rather than ending on a hard line. It paints AFTER the
@@ -374,12 +393,15 @@ body::after {
   transform-style: preserve-3d;
   will-change: transform;
 }
+/* --lean noses the car into the corner it is in (leanDeg, written per-frame,
+   change-gated to 0.1deg steps — the short transition smooths those steps). */
 .rc-body, .rc-shadow {
   position: absolute; left: 0; top: 0;
   width: var(--car-w); height: var(--car-l);
   margin-left: calc(var(--car-w) / -2);
   margin-top: calc(var(--car-l) / -2);
-  transition: opacity 220ms ease, filter 220ms ease;
+  transform: rotate(var(--lean, 0deg));
+  transition: opacity 220ms ease, filter 220ms ease, transform 120ms linear;
 }
 .rc-shadow {
   margin-left: calc(var(--car-w) / -2 + 4px);
@@ -457,6 +479,12 @@ body::after {
 @keyframes rcStreakFlare { 0% { opacity: 0.85; } }
 @keyframes rcKickDown { 24% { transform: scale(0.985) translateY(3px); } }
 
+/* --- lap board: one pulse as the counter turns over — the crossing beat --- */
+.rc-lap-new { animation: rcLapPulse 0.7s cubic-bezier(0.2, 0.7, 0.3, 1); }
+@keyframes rcLapPulse {
+  0% { transform: scale(1.16); box-shadow: 0 0 0 3px rgba(255, 215, 106, 0.9); }
+}
+
 /* --- chequered flag sweeping toward the camera at the finish --- */
 .rc-flag {
   position: absolute; left: 0; right: 0; top: -20%; height: 20%;
@@ -488,7 +516,7 @@ body::after {
   .tn-wave, .tn-bob, .tn-ping, .tn-flame, .tn-drift, .tn-slide,
   .tn-glowpulse, .tn-cellblink, .tn-draw, .tn-fit, .tn-shine,
   .tn-race1, .tn-race2, .tn-race3,
-  .rc-speed { animation: none; }
+  .rc-speed, .rc-lap-new { animation: none; }
   .rc-stage[data-kick] { animation: none; }
   .blink-attract { opacity: 1; }
   /* Racer: the scrolling road and speed FX are stilled (the page also stops
@@ -525,7 +553,8 @@ body::after {
 :root[data-reduced-motion="true"] .tn-race1,
 :root[data-reduced-motion="true"] .tn-race2,
 :root[data-reduced-motion="true"] .tn-race3,
-:root[data-reduced-motion="true"] .rc-speed { animation: none; }
+:root[data-reduced-motion="true"] .rc-speed,
+:root[data-reduced-motion="true"] .rc-lap-new { animation: none; }
 :root[data-reduced-motion="true"] .rc-stage[data-kick] { animation: none; }
 :root[data-reduced-motion="true"] .blink-attract { opacity: 1; }
 :root[data-reduced-motion="true"] .tn-ping,

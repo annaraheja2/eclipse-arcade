@@ -3,7 +3,9 @@ import type { Car } from '../lib/racer'
 import {
   carPlacement, laneFor, pxPerUnit, surfaceOffset, speedFeel, tyreBlurPx, carWidthPx,
   projectionScale, plateScale, plateSide, plateDropPx,
+  trackCurvature, swayPx, bankDeg, leanDeg, finishLineDelta,
   CAR_LENGTH_M, CAR_WIDTH_M, CAMERA_TILT_DEG, CAMERA_PERSPECTIVE_PX,
+  PLAYER_DEPTH, CAMERA_SPAN,
 } from '../lib/circuit'
 import { SURFACE, SURFACE_TILE_FRACTION, TRACK_WIDTH_FRACTION } from './circuitArt'
 
@@ -60,6 +62,16 @@ const STAGE_VARS: StageVars = {
   perspective: `${CAMERA_PERSPECTIVE_PX}px`,
 }
 
+/** How far the sky pans with a corner, relative to the world's own sway. */
+const SKY_SWAY = 0.35
+
+/** The start/finish strip spans kerb to kerb; hidden until inside the window. */
+const FINISH_STYLE: CSSProperties = {
+  left: `${((1 - TRACK_WIDTH_FRACTION) / 2) * 100}%`,
+  right: `${((1 - TRACK_WIDTH_FRACTION) / 2) * 100}%`,
+  visibility: 'hidden',
+}
+
 /**
  * Memoised: the page re-renders its HUD ~8 times a second and the circuit must
  * not follow it. Every prop here is stable for the whole race except `flagged`.
@@ -69,7 +81,9 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
   const worldRef = useRef<HTMLDivElement>(null)
   const surfaceRef = useRef<HTMLDivElement>(null)
   const shakeRef = useRef<HTMLDivElement>(null)
+  const skyRef = useRef<HTMLDivElement>(null)
   const speedRef = useRef<HTMLDivElement>(null)
+  const finishRef = useRef<HTMLDivElement>(null)
   const carRefs = useRef(new Map<string, HTMLDivElement>())
 
   // Plane size in PLANE-LOCAL px (the untransformed layout box), from the
@@ -82,6 +96,8 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
   const blurRef = useRef(new Map<string, number>())
   const zRef = useRef(new Map<string, number>())
   const plateRef = useRef(new Map<string, string>())
+  const leanRef = useRef(new Map<string, number>())
+  const finishShownRef = useRef(false)
   const coastRaf = useRef(0)
 
   // Lane per car id, rebuilt only when the field is — no ref writes during render.
@@ -117,6 +133,44 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
     if (el) el.style.transform = `translate3d(0,${surfaceOffset(distanceRef.current, planeRef.current.tile).toFixed(1)}px,0)`
   }
 
+  // The corner sway/bank and the distance-phased speed bob share the shake
+  // container's transform, so a corner leans the WHOLE world — road, kerbs and
+  // cars slide together and every lane stays on its own asphalt. The roll
+  // pivots low on the stage (see .rc-shake), which is what swings the far end.
+  function paintWorld(feel: number, distanceUnits: number): void {
+    if (reduced) {
+      if (shakeRef.current) shakeRef.current.style.transform = ''
+      if (skyRef.current) skyRef.current.style.transform = ''
+      return
+    }
+    const k = trackCurvature(distanceUnits)
+    const sway = swayPx(k, planeRef.current.w)
+    const bob = Math.sin(distanceRef.current * 0.09) * feel * feel * 2.1
+    if (shakeRef.current) {
+      shakeRef.current.style.transform =
+        `translate3d(${sway.toFixed(1)}px,${bob.toFixed(2)}px,0) rotate(${bankDeg(k).toFixed(2)}deg)`
+    }
+    // The sky pans WITH the far-end swing (opposite the near-world slide).
+    if (skyRef.current) skyRef.current.style.transform = `translate3d(${(-sway * SKY_SWAY).toFixed(1)}px,0,0)`
+  }
+
+  // The start/finish strip is positioned like a car — a world object at a fixed
+  // track distance — so it sweeps toward the camera as a lap completes. Like
+  // car position it is information, so it still updates under reduced motion.
+  function paintFinish(distanceUnits: number): void {
+    const el = finishRef.current
+    if (!el) return
+    const delta = finishLineDelta(distanceUnits)
+    const shown = delta !== null
+    if (finishShownRef.current !== shown) {
+      finishShownRef.current = shown
+      el.style.visibility = shown ? 'visible' : 'hidden'
+    }
+    if (delta !== null) {
+      el.style.transform = `translate3d(0,${((PLAYER_DEPTH - delta / CAMERA_SPAN) * planeRef.current.d).toFixed(1)}px,0)`
+    }
+  }
+
   // The edge streaks ARE the speedometer you feel: they scroll with the world
   // (faster than the road) and fade with speed, so they decelerate through the
   // coast-to-stop as well as during the race. `feel` is speedFeel(mph).
@@ -138,17 +192,16 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
 
       distanceRef.current = you.distance * pxPerUnit(d)
       paintSurface()
+      paintFinish(you.distance)
 
-      if (!reduced) {
-        // Perceptual curve: mid-range speed changes must READ, not just the cap.
-        const feel = speedFeel(you.speed)
-        paintStreaks(feel)
-        // Shake is phased off distance, not time, so a stopped car sits dead still.
-        if (shakeRef.current) {
-          shakeRef.current.style.transform =
-            `translate3d(0,${(Math.sin(distanceRef.current * 0.09) * feel * feel * 2.1).toFixed(2)}px,0)`
-        }
-      }
+      // Perceptual curve: mid-range speed changes must READ, not just the cap.
+      const feel = reduced ? 0 : speedFeel(you.speed)
+      if (!reduced) paintStreaks(feel)
+      // Sway/bank from the corner, bob phased off distance — a stopped car
+      // sits dead still, but a corner still holds its lean. Self-guards under
+      // reduced motion, settling the world level (a mid-race toggle can't
+      // freeze the last corner's tilt).
+      paintWorld(feel, you.distance)
 
       const trackW = w * TRACK_WIDTH_FRACTION
       for (const car of cars) {
@@ -169,6 +222,14 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
         // so it flips below the car there — see plateSide() and .rc-plate.
         const side = plateSide(placement.depth)
         if (sideRef.current.get(car.id) !== side) { sideRef.current.set(car.id, side); el.dataset.plate = side }
+
+        // Each car noses into the corner IT is in — a rival up the road turns
+        // in before the world does, which is the "corner ahead" tell.
+        const lean = reduced ? 0 : Math.round(leanDeg(trackCurvature(car.distance)) * 10) / 10
+        if (leanRef.current.get(car.id) !== lean) {
+          leanRef.current.set(car.id, lean)
+          el.style.setProperty('--lean', `${lean}deg`)
+        }
 
         // Tyre blur is decorative FX — frozen at 0 under reduced motion.
         const blur = reduced ? 0 : Math.round(tyreBlurPx(car.speed) * 10) / 10
@@ -213,9 +274,13 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
         const dt = Math.min((now - last) / 1000, 0.05)
         last = now
         v = Math.max(0, v - (speedMph / COAST_SECONDS) * dt)
-        distanceRef.current += v * dt * pxPerUnit(planeRef.current.d)
+        const perUnit = pxPerUnit(planeRef.current.d)
+        distanceRef.current += v * dt * perUnit
+        const units = perUnit > 0 ? distanceRef.current / perUnit : 0
         paintSurface()
         paintStreaks(speedFeel(v)) // streaks decelerate and fade with the road
+        paintWorld(speedFeel(v), units) // and a corner keeps its lean to the stop
+        paintFinish(units)
         if (v > 0.01) coastRaf.current = requestAnimationFrame(tick)
       }
       coastRaf.current = requestAnimationFrame(tick)
@@ -224,10 +289,11 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
 
   return (
     <div ref={stageRef} className="rc-stage" style={STAGE_VARS}>
-      <div aria-hidden className="rc-sky" />
+      <div ref={skyRef} aria-hidden className="rc-sky" />
       <div ref={shakeRef} className="rc-shake">
         <div ref={worldRef} className="rc-world">
           <div ref={surfaceRef} aria-hidden className="rc-surface" style={{ backgroundImage: SURFACE }} />
+          <div ref={finishRef} aria-hidden className="rc-finish" style={FINISH_STYLE} />
           {/* aerial perspective: fog lying ON the plane, under the cars — see .rc-haze */}
           <div aria-hidden className="rc-haze" />
           {field.map((car) => {
@@ -242,6 +308,7 @@ const Circuit = memo(forwardRef<CircuitHandle, Props>(function Circuit({ field, 
                   blurRef.current.delete(car.id)
                   zRef.current.delete(car.id)
                   plateRef.current.delete(car.id)
+                  leanRef.current.delete(car.id)
                 }}
                 style={carVars}>
                 <span aria-hidden className="rc-shadow" />

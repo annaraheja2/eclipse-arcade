@@ -101,6 +101,130 @@ export function laneFor(index: number): number {
   return LANES[clamp(index, 0, LANES.length - 1)]
 }
 
+// ---- track model ------------------------------------------------------------
+// The circuit is a looping sequence of segments in simulation distance units.
+// The plane itself is rigid, so a corner is not a bent road mesh: it is the
+// WORLD swaying and banking under the camera (see swayPx/bankDeg below and the
+// component), the classic pseudo-3D racer read. The model stays pure here.
+
+type TrackSegment =
+  | { kind: 'straight'; length: number }
+  | { kind: 'left'; length: number; curvature: number }
+  | { kind: 'right'; length: number; curvature: number }
+
+/**
+ * One lap: straights and corners, curvature 0..1 of the full sway/bank/lean
+ * range. Roughly 45s at a mid-race cruise, so a full race runs 3–5 laps.
+ * Every segment must be at least CURVE_EASE long or the boundary blends overlap.
+ */
+export const CIRCUIT: readonly TrackSegment[] = [
+  { kind: 'straight', length: 140 }, // start/finish straight
+  { kind: 'right', length: 90, curvature: 0.7 },
+  { kind: 'straight', length: 60 },
+  { kind: 'left', length: 120, curvature: 1 }, // the long hairpin-ish left
+  { kind: 'straight', length: 100 },
+  { kind: 'left', length: 70, curvature: 0.6 }, // chicane
+  { kind: 'right', length: 70, curvature: 0.6 },
+  { kind: 'straight', length: 120 },
+  { kind: 'right', length: 100, curvature: 0.85 },
+  { kind: 'straight', length: 30 }, // short run back onto the start straight
+]
+
+export const LAP_LENGTH = CIRCUIT.reduce((sum, s) => sum + s.length, 0)
+
+/** Segment start distances, precomputed once — trackCurvature is per-frame. */
+const SEGMENT_STARTS: readonly number[] = CIRCUIT.reduce<number[]>(
+  (starts, s, i) => (starts.push(i === 0 ? 0 : starts[i - 1] + CIRCUIT[i - 1].length), starts), [],
+)
+
+/** Distance over which curvature crossfades at a segment boundary (half each side). */
+export const CURVE_EASE = 18
+
+const signedCurvature = (s: TrackSegment): number =>
+  s.kind === 'straight' ? 0 : s.kind === 'right' ? s.curvature : -s.curvature
+
+/** Hermite smoothstep — the eased blend at segment boundaries. */
+const smooth = (t: number) => { const c = clamp(t, 0, 1); return c * c * (3 - 2 * c) }
+
+/** Distance folded into the current lap, [0, LAP_LENGTH). */
+export function lapDistance(distance: number): number {
+  const raw = distance % LAP_LENGTH
+  return raw < 0 ? raw + LAP_LENGTH : raw
+}
+
+/**
+ * Signed curvature of the track at `distance`: negative in a left-hander,
+ * positive in a right-hander, 0 on a straight. Piecewise-constant per segment,
+ * crossfaded over CURVE_EASE centred on each boundary (including the lap wrap)
+ * so entering and leaving a corner is a lean, never a snap.
+ */
+export function trackCurvature(distance: number): number {
+  const d = lapDistance(distance)
+  let i = CIRCUIT.length - 1
+  for (let s = 0; s < CIRCUIT.length; s++) {
+    if (d < SEGMENT_STARTS[s] + CIRCUIT[s].length) { i = s; break }
+  }
+  const k = signedCurvature(CIRCUIT[i])
+  const half = CURVE_EASE / 2
+  const into = d - SEGMENT_STARTS[i]
+  if (into < half) {
+    const prev = signedCurvature(CIRCUIT[(i + CIRCUIT.length - 1) % CIRCUIT.length])
+    return prev + (k - prev) * smooth((into + half) / CURVE_EASE)
+  }
+  const left = CIRCUIT[i].length - into
+  if (left < half) {
+    const next = signedCurvature(CIRCUIT[(i + 1) % CIRCUIT.length])
+    return k + (next - k) * smooth((CURVE_EASE - (left + half)) / CURVE_EASE)
+  }
+  return k
+}
+
+// How hard a full-curvature corner reads, screen-side. The world slides AWAY
+// from the turn (a left-hander slides the world right), the horizon end swings
+// INTO it via a roll pivoted low on the stage, and each car noses into it.
+export const MAX_SWAY_FRACTION = 0.045 // of the plane's width
+export const MAX_BANK_DEG = 3
+export const MAX_LEAN_DEG = 6
+
+/** Screen-space world slide for a corner — opposite the turn direction. */
+export function swayPx(curvature: number, planeWidthPx: number): number {
+  return -curvature * planeWidthPx * MAX_SWAY_FRACTION
+}
+
+/** World roll (deg): negative (far end swings left) through a left-hander. */
+export function bankDeg(curvature: number): number {
+  return curvature * MAX_BANK_DEG
+}
+
+/** A car's nose-into-the-corner rotation (deg), same sign convention as bank. */
+export function leanDeg(curvature: number): number {
+  return curvature * MAX_LEAN_DEG
+}
+
+// ---- laps -------------------------------------------------------------------
+
+/** 1-based lap the car is on. Lap 1 starts on the grid at distance 0. */
+export function lapOf(distance: number): number {
+  return Math.floor(Math.max(0, distance) / LAP_LENGTH) + 1
+}
+
+/** 0..1 progress through the current lap. */
+export function lapFraction(distance: number): number {
+  return lapDistance(distance) / LAP_LENGTH
+}
+
+/**
+ * Where the nearest start/finish line sits relative to the player, in distance
+ * units (positive = ahead), or null when no line is inside the camera window.
+ * LAP_LENGTH far exceeds the window, so at most one line is ever visible.
+ */
+export function finishLineDelta(distance: number): number | null {
+  const into = lapDistance(distance)
+  if (into <= CAMERA_BEHIND) return -into
+  const ahead = LAP_LENGTH - into
+  return ahead <= CAMERA_AHEAD ? ahead : null
+}
+
 // ---- camera optics --------------------------------------------------------
 // The numbers live HERE so the projection math below and the CSS transform can
 // never disagree: the component writes them onto `.rc-stage` as `--tilt` and

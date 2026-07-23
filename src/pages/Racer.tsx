@@ -7,7 +7,7 @@ import {
   RACE_SECONDS, COUNTDOWN_SECONDS, START_MPH,
   type Car, type PlayerCar, type AiCar,
 } from '../lib/racer'
-import { startLights, gapSeconds, formatGap, speedIntensity, type StartLights } from '../lib/circuit'
+import { startLights, gapSeconds, formatGap, speedIntensity, lapOf, type StartLights } from '../lib/circuit'
 import Circuit, { type CircuitHandle } from '../components/Circuit'
 import QuestionPanel from '../components/QuestionPanel'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
@@ -279,6 +279,7 @@ export default function Racer() {
 
   const you = cars.find((c) => c.id === PLAYER_ID)
   const place = placementOf(cars, PLAYER_ID)
+  const lap = lapOf(you?.distance ?? 0) // derived from the 8Hz HUD mirror — no extra state
   const showGantry = stage === 'countdown' || goFlash
 
   return (
@@ -350,10 +351,11 @@ export default function Racer() {
             <div className="relative lg:-mx-32">
               <Circuit ref={circuitRef} field={field} youId={PLAYER_ID} reduced={reducedRef.current} flagged={stage === 'finish'} />
               <TimingTower cars={cars} />
+              <LapBoard lap={lap} />
               <Speedo mph={you?.speed ?? 0} />
               {showGantry && <StartGantry lights={lights} />}
               <p className="sr-only" aria-live="assertive">{lights.kind === 'go' ? 'Lights out — go' : ''}</p>
-              <p className="sr-only" aria-live="polite">{`Running ${ordinal(place)} of ${cars.length}`}</p>
+              <p className="sr-only" aria-live="polite">{`Lap ${lap} — running ${ordinal(place)} of ${cars.length}`}</p>
             </div>
 
             <div className="relative mt-4 px-0 sm:px-6 pb-2">
@@ -552,6 +554,22 @@ function TimingTower({ cars }: { cars: Car[] }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * Lap counter, top-right opposite the timing tower. Keying on `lap` remounts
+ * the board as the counter turns over, replaying the crossing pulse — gated
+ * off lap 1 so the initial mount doesn't fire it.
+ */
+function LapBoard({ lap }: { lap: number }) {
+  return (
+    <div key={lap} className={`absolute right-2 top-2 sm:right-3 sm:top-3 rounded-lg bg-track-carbon/95 ring-1 ring-white/15 px-2.5 sm:px-3 py-1 sm:py-1.5 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.9)]${lap > 1 ? ' rc-lap-new' : ''}`}>
+      <div className="flex items-baseline gap-1.5">
+        <span className="font-bold text-[9px] sm:text-[10px] tracking-[0.2em] text-track-sun">LAP</span>
+        <span className="font-black text-[18px] sm:text-[22px] leading-none tabular-nums text-white">{lap}</span>
+      </div>
     </div>
   )
 }

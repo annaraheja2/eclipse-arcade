@@ -3,8 +3,11 @@ import {
   CAMERA_AHEAD, CAMERA_BEHIND, CAMERA_SPAN, EDGE_PAD, PLAYER_DEPTH, LANES,
   TRACK_METRES, CAR_WIDTH_M, MAX_TYRE_BLUR, START_LAMPS,
   CAMERA_TILT_DEG, CAMERA_PERSPECTIVE_PX, MAX_PLATE_SCALE, PLATE_FLIP_DEPTH,
+  CIRCUIT, LAP_LENGTH, CURVE_EASE, MAX_SWAY_FRACTION, MAX_BANK_DEG, MAX_LEAN_DEG,
   pxPerUnit, surfaceOffset, carPlacement, carWidthPx, laneFor,
   projectionScale, plateScale, plateSide, plateDropPx,
+  trackCurvature, lapDistance, lapOf, lapFraction, finishLineDelta,
+  swayPx, bankDeg, leanDeg,
   gapSeconds, formatGap, speedIntensity, speedFeel, tyreBlurPx, startLights,
 } from './circuit'
 import { COUNTDOWN_SECONDS, MAX_MPH } from './racer'
@@ -249,6 +252,148 @@ describe('plateDropPx', () => {
       expect(screen).toBeGreaterThanOrEqual(need * 0.97) // midpoint-iteration tolerance
       expect(screen).toBeLessThanOrEqual(need * 1.1) // and not absurdly far either
     }
+  })
+})
+
+// Segment geometry derived in the test, not copied from the module internals,
+// so a bookkeeping bug in the module's own starts table fails loudly here.
+const startOf = (i: number) => CIRCUIT.slice(0, i).reduce((s, seg) => s + seg.length, 0)
+const midOf = (i: number) => startOf(i) + CIRCUIT[i].length / 2
+const signOf = (seg: (typeof CIRCUIT)[number]) =>
+  seg.kind === 'straight' ? 0 : seg.kind === 'right' ? seg.curvature : -seg.curvature
+
+describe('CIRCUIT', () => {
+  it('sums its segments to LAP_LENGTH', () => {
+    expect(startOf(CIRCUIT.length)).toBe(LAP_LENGTH)
+  })
+  it('has real corners both ways — it is a circuit, not a drag strip', () => {
+    expect(CIRCUIT.some((s) => s.kind === 'left')).toBe(true)
+    expect(CIRCUIT.some((s) => s.kind === 'right')).toBe(true)
+  })
+  it('keeps every corner curvature in the 0..1 sway range', () => {
+    for (const s of CIRCUIT) if (s.kind !== 'straight') {
+      expect(s.curvature).toBeGreaterThan(0)
+      expect(s.curvature).toBeLessThanOrEqual(1)
+    }
+  })
+  it('keeps every segment longer than the ease window, so blends never overlap', () => {
+    for (const s of CIRCUIT) expect(s.length).toBeGreaterThanOrEqual(CURVE_EASE)
+  })
+  it('is far longer than the camera window — at most one finish line on screen', () => {
+    expect(LAP_LENGTH).toBeGreaterThan(CAMERA_SPAN * 2)
+  })
+})
+
+describe('trackCurvature', () => {
+  it('reports each segment’s signed curvature at its midpoint, clear of any blend', () => {
+    CIRCUIT.forEach((seg, i) => {
+      expect(trackCurvature(midOf(i))).toBeCloseTo(signOf(seg))
+    })
+  })
+  it('is negative through a left-hander, positive through a right-hander', () => {
+    const left = CIRCUIT.findIndex((s) => s.kind === 'left')
+    const right = CIRCUIT.findIndex((s) => s.kind === 'right')
+    expect(trackCurvature(midOf(left))).toBeLessThan(0)
+    expect(trackCurvature(midOf(right))).toBeGreaterThan(0)
+  })
+  it('sits exactly halfway between neighbours at a segment boundary', () => {
+    for (let i = 1; i < CIRCUIT.length; i++) {
+      const mid = (signOf(CIRCUIT[i - 1]) + signOf(CIRCUIT[i])) / 2
+      expect(trackCurvature(startOf(i))).toBeCloseTo(mid)
+    }
+  })
+  it('never snaps — fine steps across every boundary stay small', () => {
+    for (let i = 0; i <= CIRCUIT.length; i++) {
+      const b = startOf(i % CIRCUIT.length) + (i === CIRCUIT.length ? LAP_LENGTH : 0)
+      let prev = trackCurvature(b - CURVE_EASE)
+      for (let d = b - CURVE_EASE + 0.5; d <= b + CURVE_EASE; d += 0.5) {
+        const k = trackCurvature(d)
+        expect(Math.abs(k - prev)).toBeLessThan(0.1)
+        prev = k
+      }
+    }
+  })
+  it('wraps at the lap, so lap 3’s corners land where lap 1’s did', () => {
+    for (const d of [0, 55, midOf(3), LAP_LENGTH - 4]) {
+      expect(trackCurvature(d + LAP_LENGTH)).toBeCloseTo(trackCurvature(d))
+      expect(trackCurvature(d + 2 * LAP_LENGTH)).toBeCloseTo(trackCurvature(d))
+    }
+  })
+  it('never exceeds the strongest authored corner', () => {
+    const max = Math.max(...CIRCUIT.map((s) => Math.abs(signOf(s))))
+    for (let d = 0; d < LAP_LENGTH; d += 3) {
+      expect(Math.abs(trackCurvature(d))).toBeLessThanOrEqual(max)
+    }
+  })
+})
+
+describe('swayPx / bankDeg / leanDeg', () => {
+  it('slides the world RIGHT and swings the horizon LEFT through a left-hander', () => {
+    expect(swayPx(-1, 1000)).toBeCloseTo(MAX_SWAY_FRACTION * 1000) // positive = right
+    expect(bankDeg(-1)).toBeCloseTo(-MAX_BANK_DEG) // negative rotate = far end swings left
+    expect(leanDeg(-1)).toBeCloseTo(-MAX_LEAN_DEG) // the car noses left with it
+  })
+  it('mirrors exactly for a right-hander', () => {
+    expect(swayPx(1, 1000)).toBeCloseTo(-swayPx(-1, 1000))
+    expect(bankDeg(0.5)).toBeCloseTo(-bankDeg(-0.5))
+    expect(leanDeg(0.85)).toBeCloseTo(-leanDeg(-0.85))
+  })
+  it('is dead level on a straight', () => {
+    expect(swayPx(0, 1000)).toBeCloseTo(0)
+    expect(bankDeg(0)).toBeCloseTo(0)
+    expect(leanDeg(0)).toBeCloseTo(0)
+  })
+  it('scales sway with the measured plane, so phones and desktops lean alike', () => {
+    expect(swayPx(0.5, 2000)).toBeCloseTo(2 * swayPx(0.5, 1000))
+    expect(swayPx(0.7, 0)).toBeCloseTo(0)
+  })
+})
+
+describe('lapDistance / lapOf / lapFraction', () => {
+  it('folds any distance into the current lap', () => {
+    expect(lapDistance(0)).toBe(0)
+    expect(lapDistance(40)).toBe(40)
+    expect(lapDistance(LAP_LENGTH)).toBe(0)
+    expect(lapDistance(LAP_LENGTH * 2 + 17)).toBeCloseTo(17)
+    expect(lapDistance(-5)).toBeCloseTo(LAP_LENGTH - 5)
+  })
+  it('counts laps from 1 on the grid', () => {
+    expect(lapOf(0)).toBe(1)
+    expect(lapOf(LAP_LENGTH - 0.1)).toBe(1)
+    expect(lapOf(LAP_LENGTH)).toBe(2)
+    expect(lapOf(LAP_LENGTH * 2.5)).toBe(3)
+  })
+  it('never reports lap 0 for a degenerate negative distance', () => {
+    expect(lapOf(-3)).toBe(1)
+  })
+  it('tracks fractional progress through the lap', () => {
+    expect(lapFraction(0)).toBe(0)
+    expect(lapFraction(LAP_LENGTH / 2)).toBeCloseTo(0.5)
+    expect(lapFraction(LAP_LENGTH)).toBe(0)
+    expect(lapFraction(LAP_LENGTH * 1.25)).toBeCloseTo(0.25)
+  })
+})
+
+describe('finishLineDelta', () => {
+  it('puts the line under the car on the grid', () => {
+    expect(finishLineDelta(0)).toBeCloseTo(0)
+  })
+  it('trails the line just behind after the start, then drops it off camera', () => {
+    expect(finishLineDelta(10)).toBeCloseTo(-10)
+    expect(finishLineDelta(CAMERA_BEHIND)).toBeCloseTo(-CAMERA_BEHIND)
+    expect(finishLineDelta(CAMERA_BEHIND + 1)).toBeNull()
+  })
+  it('is empty road for the whole middle of the lap', () => {
+    expect(finishLineDelta(LAP_LENGTH / 2)).toBeNull()
+  })
+  it('brings the next line over the horizon as the lap closes out', () => {
+    expect(finishLineDelta(LAP_LENGTH - CAMERA_AHEAD - 1)).toBeNull()
+    expect(finishLineDelta(LAP_LENGTH - CAMERA_AHEAD)).toBeCloseTo(CAMERA_AHEAD)
+    expect(finishLineDelta(LAP_LENGTH - 5)).toBeCloseTo(5)
+  })
+  it('repeats identically on every later lap', () => {
+    expect(finishLineDelta(LAP_LENGTH + 5)).toBeCloseTo(-5)
+    expect(finishLineDelta(LAP_LENGTH * 3 - 20)).toBeCloseTo(20)
   })
 })
 
