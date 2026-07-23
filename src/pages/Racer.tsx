@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
@@ -8,7 +8,12 @@ import {
   type Car, type PlayerCar, type AiCar,
 } from '../lib/racer'
 import { startLights, gapSeconds, formatGap, speedIntensity, lapOf, type StartLights } from '../lib/circuit'
-import Circuit, { type CircuitHandle } from '../components/Circuit'
+import { type CircuitHandle } from '../components/Circuit'
+
+// The WebGL stage carries three.js (~175 kB gzip) — split out of the main
+// bundle so the lobby and other cabinets never pay for it. Prefetched on
+// Racer mount (below), so it's warm long before the lights go out.
+const CircuitGL = lazy(() => import('../components/CircuitGL'))
 import QuestionPanel from '../components/QuestionPanel'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
 import { isReducedMotion } from '../lib/motion'
@@ -122,6 +127,9 @@ export default function Racer() {
     void loadCourse(courseId).then((c) => { if (!cancelled) setCourse(c) })
     return () => { cancelled = true }
   }, [courseId])
+
+  // Warm the GL stage chunk while the player is still picking topics.
+  useEffect(() => { void import('../components/CircuitGL') }, [])
 
   // Tear the race down on unmount / navigation so no rAF or timer outlives us.
   useEffect(() => () => {
@@ -349,7 +357,9 @@ export default function Racer() {
             {/* Only the stage escapes the page column — the overhead camera
                 needs the room; the question panel below keeps its own width. */}
             <div className="relative lg:-mx-32">
-              <Circuit ref={circuitRef} field={field} youId={PLAYER_ID} reduced={reducedRef.current} flagged={stage === 'finish'} />
+              <Suspense fallback={<div className="rc-stage" aria-hidden />}>
+                <CircuitGL ref={circuitRef} field={field} youId={PLAYER_ID} reduced={reducedRef.current} flagged={stage === 'finish'} />
+              </Suspense>
               <TimingTower cars={cars} />
               <LapBoard lap={lap} />
               <Speedo mph={you?.speed ?? 0} />

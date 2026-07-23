@@ -6,10 +6,12 @@ export default defineConfig({
   base: './',
   server: { port: 5174 },
   build: {
-    // The one chunk over Vite's 500 kB default is firebase/firestore (~670 kB
-    // min), a lazily-loaded vendor chunk that is only ever fetched when the
-    // VITE_FIREBASE_* env vars are set (see src/lib/firebase.ts). Our own eager
-    // app chunk stays ~250 kB; if the SDK grows past this, the warning returns.
-    chunkSizeWarningLimit: 700,
+    // Two chunks over Vite's 500 kB default, both lazily loaded vendor code:
+    // firebase/firestore (~670 kB min, fetched only when VITE_FIREBASE_* is
+    // set — see src/lib/firebase.ts) and three.js + react-three-fiber
+    // (~875 kB min, fetched only when the Racer cabinet mounts — see the
+    // lazy CircuitGL import in src/pages/Racer.tsx). Our own eager app chunk
+    // stays ~380 kB; if either SDK grows past this, the warning returns.
+    chunkSizeWarningLimit: 900,
   },
 })
