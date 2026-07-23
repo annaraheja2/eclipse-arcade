@@ -19,6 +19,7 @@ export default function GameThumbnail({ g }: { g: GameDef }) {
 function pick(g: GameDef): JSX.Element {
   switch (g.key) {
     case 'battleship': return <BattleshipThumb />
+    case 'racer': return <RacerThumb color={g.color} />
     case 'daily': return <DailyThumb color={g.color} />
     case 'pinpoint': return <PinPointThumb color={g.color} />
     case 'slider': return <SliderThumb color={g.color} />
@@ -69,6 +70,38 @@ function BattleshipThumb() {
       {/* a miss: pale splash ring */}
       <circle cx="62" cy="86" r="3" fill="rgba(225,242,255,0.75)" />
       <circle className="tn-ping" style={{ animationDelay: '-0.9s' }} cx="62" cy="86" r="9" fill="none" stroke="rgba(225,242,255,0.6)" strokeWidth="1.5" />
+    </>
+  )
+}
+
+/* ---- Racer: three neon lanes, cars cruising toward a checkered finish ---- */
+function RacerThumb({ color }: { color: string }) {
+  const laneY = [40, 62, 84]
+  const carColors = [color, '#ff3df0', '#3dffa2']
+  const anim = ['tn-race1', 'tn-race2', 'tn-race3']
+  const car = (y: number, c: number, cls: string) => (
+    <g key={y} className={cls}>
+      <rect x="18" y={y - 7} width="26" height="12" rx="4" fill={carColors[c]} />
+      <rect x="24" y={y - 10} width="12" height="6" rx="2" fill={carColors[c]} opacity="0.85" />
+      <circle cx="24" cy={y + 5} r="3" fill="#0a0620" />
+      <circle cx="38" cy={y + 5} r="3" fill="#0a0620" />
+    </g>
+  )
+  return (
+    <>
+      {/* lanes */}
+      {laneY.map((y) => (
+        <g key={y}>
+          <line x1="0" y1={y + 8} x2="200" y2={y + 8} stroke="rgba(255,255,255,0.10)" strokeWidth="1" />
+          <line x1="0" y1={y - 9} x2="200" y2={y - 9} stroke={color} strokeOpacity="0.18" strokeWidth="1" strokeDasharray="10 8" />
+        </g>
+      ))}
+      {/* checkered finish line */}
+      {[0, 1, 2, 3, 4, 5].map((r) => (
+        <rect key={r} x={r % 2 ? 176 : 168} y={30 + r * 11} width="8" height="11" fill={r % 2 ? '#e9edff' : '#0a0620'} />
+      ))}
+      <rect x="168" y="30" width="16" height="66" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="1" />
+      {laneY.map((y, i) => car(y, i, anim[i]))}
     </>
   )
 }
