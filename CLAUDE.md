@@ -21,11 +21,12 @@ export PATH="/Users/annaraheja/.local/node/bin:$PATH"
 - `npm run dev` — dev server on **:5174**
 - `npm run build` — `tsc && vite build`. **This is the quality gate.** Zero TS errors, zero console errors.
 - `npm run preview` — serve the built `dist/` on :4173
+- `npm test` — Vitest (`vitest run`). The second half of the quality gate.
 
-There is **no eslint, no test runner, and no CI yet** (the lone `eslint-disable` comment
-in `Game.tsx` is vestigial). "Green before commit" therefore means `npm run build` passes
-cleanly. If you add non-trivial pure logic (scoring, streak/reward math, placement rules),
-add Vitest rather than leaving it untested — those are the functions worth covering.
+There is **no eslint and no CI yet** (the lone `eslint-disable` comment in `Game.tsx` is
+vestigial). "Green before commit" means **both** `npm run build` and `npm test` pass
+cleanly. New non-trivial pure logic (scoring, streak/reward math, placement rules) ships
+with Vitest coverage — those are the functions worth covering.
 
 ---
 
@@ -148,12 +149,8 @@ color palette.
 
 ## Adding a game (the common change)
 
-1. Add a `GameDef` to `GAMES` in `lib/games.ts` (unique `key`, accent `color`, `type`).
-   Use `type: 'soon'` to show a disabled "coming soon" cabinet with no route.
-2. Add its icon to the `ICON` map in `pages/Lobby.tsx` (SVG from `icons.tsx`).
-3. If it uses the generic pin/slider loop, add `Round`s and you're done — `/play/:key`
-   renders it automatically. If it needs a bespoke screen (like Battleship), add a
-   `<Route>` in `App.tsx` and branch the lobby's navigation in `Cabinet`.
+Use the **`/add-game`** skill — it carries the full step-by-step wiring (registry entry,
+lobby icon, route, verification) so nothing lands half-connected.
 
 Keep new game logic **pure and in `lib/`**; keep React state and effects in the page/
 component. That split is the pattern throughout — hold it.

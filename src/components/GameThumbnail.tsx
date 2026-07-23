@@ -74,34 +74,45 @@ function BattleshipThumb() {
   )
 }
 
-/* ---- Racer: three neon lanes, cars cruising toward a checkered finish ---- */
+/* ---- Racer: side-on cartoon circuit, cars streaming past the grandstand.
+   Composed inside y 24–96 — the cabinet screen is wider than the 200×120
+   viewBox, so `slice` crops harder than the nominal 18–102 safe band. ---- */
 function RacerThumb({ color }: { color: string }) {
-  const laneY = [40, 62, 84]
-  const carColors = [color, '#ff3df0', '#3dffa2']
-  const anim = ['tn-race1', 'tn-race2', 'tn-race3']
-  const car = (y: number, c: number, cls: string) => (
-    <g key={y} className={cls}>
-      <rect x="18" y={y - 7} width="26" height="12" rx="4" fill={carColors[c]} />
-      <rect x="24" y={y - 10} width="12" height="6" rx="2" fill={carColors[c]} opacity="0.85" />
-      <circle cx="24" cy={y + 5} r="3" fill="#0a0620" />
-      <circle cx="38" cy={y + 5} r="3" fill="#0a0620" />
+  const car = (y: number, s: number, c: string, cls: string) => (
+    <g className={cls}>
+      <g transform={`translate(0 ${y}) scale(${s})`}>
+        <rect x="0" y="-15" width="15" height="4" rx="1.5" fill={c} />
+        <rect x="6" y="-12" width="3" height="7" fill="#10131a" />
+        <path d="M4 -4 Q4 -8 10 -9 L19 -9 Q22 -12 27 -12 L33 -12 Q36 -11 38 -8 L50 -6 L56 -3 Q57 -2 55 -1 L48 0 L12 0 Q4 0 4 -4 Z" fill={c} />
+        <circle cx="12" cy="0" r="5.5" fill="#191d25" /><circle cx="12" cy="0" r="2.4" fill="#d7dde8" />
+        <circle cx="41" cy="0" r="5.5" fill="#191d25" /><circle cx="41" cy="0" r="2.4" fill="#d7dde8" />
+        <rect x="50" y="2" width="12" height="2.5" rx="1.2" fill={c} />
+      </g>
     </g>
   )
   return (
     <>
-      {/* lanes */}
-      {laneY.map((y) => (
-        <g key={y}>
-          <line x1="0" y1={y + 8} x2="200" y2={y + 8} stroke="rgba(255,255,255,0.10)" strokeWidth="1" />
-          <line x1="0" y1={y - 9} x2="200" y2={y - 9} stroke={color} strokeOpacity="0.18" strokeWidth="1" strokeDasharray="10 8" />
-        </g>
+      <rect x="0" y="0" width="200" height="120" fill="#8ed6ff" />
+      <circle cx="158" cy="34" r="9" fill="#ffd76a" />
+      <path d="M0 60 L0 48 Q34 38 68 48 Q102 58 136 46 Q170 34 200 48 L200 60 Z" fill="#6fb877" />
+      {/* grandstand */}
+      <rect x="20" y="34" width="70" height="24" fill="#2b3346" />
+      <path d="M15 34 L95 34 L90 28 L20 28 Z" fill="#e4322b" />
+      {[0, 1, 2].map((r) => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((c) => (
+        <rect key={`${r}-${c}`} x={25 + c * 6} y={38 + r * 5} width="3" height="3" rx="1.5" fill="#c9d4e4" />
+      )))}
+      {/* armco, run-off, kerb, road, verge */}
+      <rect x="0" y="56" width="200" height="4" fill="#dfe6ef" />
+      <rect x="0" y="60" width="200" height="4" fill="#49a94b" />
+      {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+        <rect key={i} x={i * 20} y="64" width="20" height="4" fill={i % 2 ? '#f4f6fa' : '#e4322b'} />
       ))}
-      {/* checkered finish line */}
-      {[0, 1, 2, 3, 4, 5].map((r) => (
-        <rect key={r} x={r % 2 ? 176 : 168} y={30 + r * 11} width="8" height="11" fill={r % 2 ? '#e9edff' : '#0a0620'} />
-      ))}
-      <rect x="168" y="30" width="16" height="66" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="1" />
-      {laneY.map((y, i) => car(y, i, anim[i]))}
+      <rect x="0" y="68" width="200" height="22" fill="#3c4250" />
+      <rect x="0" y="90" width="200" height="30" fill="#34803f" />
+      {[0, 1, 2, 3].map((i) => <rect key={i} x={10 + i * 56} y="79" width="24" height="2.5" rx="1.2" fill="#eef2f8" opacity="0.8" />)}
+      {car(88, 0.62, color, 'tn-race1')}
+      {car(78, 0.5, '#e4322b', 'tn-race2')}
+      {car(72, 0.42, '#00c48c', 'tn-race3')}
     </>
   )
 }

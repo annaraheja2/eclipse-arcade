@@ -281,15 +281,6 @@ body::after {
 .tn-race3 { animation-delay: -2.2s; }
 @keyframes tnRace { from { transform: translateX(-40px) } to { transform: translateX(210px) } }
 
-/* Racer countdown pop ("3 · 2 · 1"): a quick scale-in per number. Decorative —
-   the number itself still reads instantly under reduced motion (just no pop). */
-.race-count { animation: raceCount 900ms ease-out; }
-@keyframes raceCount {
-  0% { transform: scale(1.9); opacity: 0 }
-  30% { opacity: 1 }
-  100% { transform: scale(1); opacity: 1 }
-}
-
 /* slow, faint spotlight beams sweeping the arcade floor behind everything */
 .spotlights {
   transform-origin: 50% 0%;
@@ -303,6 +294,110 @@ body::after {
   to   { transform: rotate(2.5deg) scale(1.15) }
 }
 
+/* ===== Racer: the cartoon side-view circuit =====
+   The player is anchored on screen and the WORLD scrolls: every layer below is a
+   repeating SVG tile translated on x by the page's rAF loop (transform only — no
+   background-position, no left/top, so nothing here can thrash layout). The
+   layers are laid out one tile wider on each side, which is what lets a wrapped
+   translate in (-tile, 0] tile forever. */
+.rc-panel {
+  position: relative;
+  overflow: hidden;
+  /* Taller on a phone so the broadcast overlays don't swallow the track. */
+  aspect-ratio: 16 / 10;
+  border-radius: 18px;
+  background: #7fd0ff;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 18px 46px -18px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+@media (min-width: 640px) { .rc-panel { aspect-ratio: 16 / 7; } }
+.rc-sky {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, #cdeeff 0%, #8ed6ff 34%, #7fd0ff 52%, #bfe9ff 60%);
+}
+.rc-sun {
+  position: absolute; top: 6%; left: 70%; width: 13%; aspect-ratio: 1;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 50% 50%, #fff6d6 0 38%, #ffd76a 40% 62%, rgba(255, 215, 106, 0) 74%);
+}
+.rc-shake { position: absolute; inset: 0; will-change: transform; }
+.rc-layer {
+  position: absolute;
+  background-repeat: repeat-x;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+.rc-vignette {
+  position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background: radial-gradient(130% 100% at 50% 45%, transparent 58%, rgba(0, 0, 0, 0.34) 100%);
+}
+
+/* --- cars --- */
+.rc-car {
+  position: absolute; left: 0;
+  will-change: transform;
+  transition: opacity 220ms ease, filter 220ms ease;
+}
+.rc-car-inner {
+  display: flex; flex-direction: column; align-items: center;
+  transform-origin: 50% 100%;
+  /* lane depth × responsive sprite scale (--car-scale is set from the observer) */
+  transform: translate(-50%, -100%) scale(calc(var(--lane-scale, 1) * var(--car-scale, 1)));
+}
+.rc-sprite { display: block; }
+.rc-plate {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-bottom: 3px; padding: 2px 7px;
+  border-radius: 6px; white-space: nowrap;
+  background: rgba(18, 21, 28, 0.92);
+  color: #fff;
+  border-bottom: 2px solid var(--body, #fff);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.rc-car.is-you .rc-plate { box-shadow: 0 0 0 2px var(--body, #fff), 0 2px 6px rgba(0, 0, 0, 0.45); }
+/* A rival outside the camera window pins to the edge, dimmed, with a chevron
+   pointing where it actually is — off-screen position is still information. */
+.rc-car[data-pin='ahead'], .rc-car[data-pin='behind'] { opacity: 0.62; filter: saturate(0.85); }
+.rc-chev { display: none; }
+.rc-car[data-pin='ahead'] .rc-chev-ahead, .rc-car[data-pin='behind'] .rc-chev-behind { display: inline-flex; }
+.rc-wheel { animation: rcWheel var(--spin, 0.7s) linear infinite; }
+.rc-car.is-stopped .rc-wheel { animation-play-state: paused; }
+@keyframes rcWheel { to { transform: rotate(360deg) } }
+
+/* --- speed FX (opacity is driven per-frame from live MPH) --- */
+.rc-streaks {
+  position: absolute; left: -140px; right: -140px; top: 60%; bottom: 6%;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(90deg,
+    rgba(255, 255, 255, 0) 0 74px, rgba(255, 255, 255, 0.85) 74px 128px, rgba(255, 255, 255, 0) 128px 140px);
+  -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 3px, transparent 3px 17px);
+  mask-image: repeating-linear-gradient(180deg, #000 0 3px, transparent 3px 17px);
+  animation: rcStreak 0.42s linear infinite;
+}
+@keyframes rcStreak { to { transform: translate3d(-140px, 0, 0) } }
+
+/* --- chequered flag sweeping past at the finish --- */
+.rc-flagsweep {
+  position: absolute; top: 0; bottom: 0; right: -74px; width: 74px;
+  background-image: repeating-conic-gradient(#12151c 0 25%, #f4f6fa 0 50%);
+  background-size: 24px 24px;
+  box-shadow: 0 0 34px rgba(0, 0, 0, 0.45);
+  animation: rcFlagPass 1.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+@keyframes rcFlagPass { to { transform: translate3d(-1400px, 0, 0) } }
+
+/* --- five-light start gantry --- */
+.rc-lamp {
+  display: block; width: 100%; aspect-ratio: 1; border-radius: 9999px;
+  background: #23272f;
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.8);
+  transition: background 90ms linear, box-shadow 90ms linear;
+}
+.rc-lamp.is-lit {
+  background: radial-gradient(circle at 42% 34%, #ff9a86, #ff2d20 62%, #a8140c);
+  box-shadow: 0 0 14px rgba(255, 45, 32, 0.85), inset 0 1px 2px rgba(255, 255, 255, 0.4);
+}
+
 /* Reduced motion: honored both from the OS setting AND the in-app Settings
    toggle (which sets :root[data-reduced-motion="true"] — see lib/motion.ts).
    Only the selectors are listed twice; the keyframes stay defined once above. */
@@ -311,8 +406,14 @@ body::after {
   .cab-live::before, .cab-shine::after, .spotlights,
   .tn-wave, .tn-bob, .tn-ping, .tn-flame, .tn-drift, .tn-slide,
   .tn-glowpulse, .tn-cellblink, .tn-draw, .tn-fit, .tn-shine,
-  .tn-race1, .tn-race2, .tn-race3, .race-count { animation: none; }
+  .tn-race1, .tn-race2, .tn-race3,
+  .rc-wheel, .rc-streaks, .rc-flagsweep { animation: none; }
   .blink-attract { opacity: 1; }
+  /* Racer: parallax and speed FX are stilled (the page also stops scrolling the
+     world), but car POSITION is information, so cars still move. The chequered
+     flag parks at the line instead of sweeping past. */
+  .rc-streaks { display: none; }
+  .rc-flagsweep { right: 0; }
   /* pulse rings and sheens are motion-only accents — hide their static frame */
   .tn-ping, .tn-shine { display: none; }
   .tn-draw { stroke-dashoffset: 0; }
@@ -342,10 +443,14 @@ body::after {
 :root[data-reduced-motion="true"] .tn-race1,
 :root[data-reduced-motion="true"] .tn-race2,
 :root[data-reduced-motion="true"] .tn-race3,
-:root[data-reduced-motion="true"] .race-count { animation: none; }
+:root[data-reduced-motion="true"] .rc-wheel,
+:root[data-reduced-motion="true"] .rc-streaks,
+:root[data-reduced-motion="true"] .rc-flagsweep { animation: none; }
 :root[data-reduced-motion="true"] .blink-attract { opacity: 1; }
 :root[data-reduced-motion="true"] .tn-ping,
+:root[data-reduced-motion="true"] .rc-streaks,
 :root[data-reduced-motion="true"] .tn-shine { display: none; }
+:root[data-reduced-motion="true"] .rc-flagsweep { right: 0; }
 :root[data-reduced-motion="true"] .tn-draw { stroke-dashoffset: 0; }
 :root[data-reduced-motion="true"] .ocean::before,
 :root[data-reduced-motion="true"] .ocean::after { animation: none; }
