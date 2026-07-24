@@ -20,6 +20,7 @@ function pick(g: GameDef): JSX.Element {
   switch (g.key) {
     case 'battleship': return <BattleshipThumb />
     case 'racer': return <RacerThumb color={g.color} />
+    case 'cardgame': return <CardGameThumb color={g.color} />
     case 'daily': return <DailyThumb color={g.color} />
     case 'pinpoint': return <PinPointThumb color={g.color} />
     case 'slider': return <SliderThumb color={g.color} />
@@ -113,6 +114,34 @@ function RacerThumb({ color }: { color: string }) {
       {car(88, 0.62, color, 'tn-race1')}
       {car(78, 0.5, '#e4322b', 'tn-race2')}
       {car(72, 0.42, '#00c48c', 'tn-race3')}
+    </>
+  )
+}
+
+/* ---- Card Game: a fanned hand, top card lifting off the discard ---- */
+function CardGameThumb({ color }: { color: string }) {
+  const hi = bright(color)
+  // A card in the game's accent: rounded body, slanted inner oval, a glyph.
+  const card = (x: number, y: number, rot: number, fill: string, glyph: string, delay?: string) => (
+    <g transform={`translate(${x} ${y}) rotate(${rot})`} className={delay !== undefined ? 'tn-bob' : undefined} style={delay !== undefined ? { animationDelay: delay } : undefined}>
+      <rect x="-16" y="-24" width="32" height="48" rx="5" fill={fill} stroke="rgba(0,0,0,0.35)" strokeWidth="1.5" />
+      <rect x="-12" y="-20" width="24" height="40" rx="4" fill="rgba(255,255,255,0.16)" transform="skewX(-14)" />
+      <text x="0" y="6" textAnchor="middle" fontFamily='"Press Start 2P", monospace' fontSize="15" fill="#fff">{glyph}</text>
+    </g>
+  )
+  return (
+    <>
+      {/* fanned hand along the bottom */}
+      {card(64, 92, -20, '#c62828', '7')}
+      {card(88, 98, -8, '#1f9d4d', '4')}
+      {card(112, 98, 8, '#2f6fd8', '2')}
+      {card(136, 92, 20, '#e0a200', '9')}
+      {/* discard pile + a lifted accent card mid-play */}
+      <g transform="translate(100 44) rotate(-6)">
+        <rect x="-17" y="-25" width="34" height="50" rx="5" fill="#171033" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+      </g>
+      {card(104, 40, 8, color, '+2', '-0.6s')}
+      <circle className="tn-ping" cx="104" cy="40" r="24" fill="none" stroke={hi} strokeWidth="2" />
     </>
   )
 }

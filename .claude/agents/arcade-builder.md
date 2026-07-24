@@ -1,8 +1,8 @@
 ---
 name: arcade-builder
 description: Use to implement or modify features in the Eclipse Arcade repo (games, rounds, scoring, player/reward logic, lobby, Battleship). Knows this codebase's architecture and constraints cold. Has full edit access and runs the build gate. Prefer this over a generic agent for real feature work in eclipse-arcade.
-model: opus
-effort: high
+model: fable
+effort: medium
 tools: Read, Write, Edit, Bash, Grep, Glob
 color: purple
 ---
