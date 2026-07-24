@@ -4,6 +4,7 @@ import type { Group } from 'three'
 import type { Car } from '../lib/racer'
 import { laneFor, speedFeel, TRACK_METRES, CAMERA_AHEAD, CAMERA_BEHIND } from '../lib/circuit'
 import type { CircuitHandle } from './Circuit'
+import { F1Car } from './F1CarMesh'
 
 /**
  * The real-3D circuit stage: a WebGL scene (three.js via react-three-fiber)
@@ -62,8 +63,6 @@ const SKY = '#3a4454' // overcast horizon — the fog colour IS the sky colour
 const GRASS = '#37402f'
 const ASPHALT = '#262b33'
 const KERB_RED = '#b8302a'
-const CARBON = '#1b1d21'
-const TYRE = '#141519'
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
@@ -253,59 +252,3 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
   )
 }
 
-/**
- * Placeholder-but-real-3D single seater: a handful of boxes and four cylinder
- * wheels at true F1 proportions (~5.2m long, wheels ~0.72m tall), tinted by
- * the car's livery colour. The proper model lands in the art pass; this
- * pass's job is that it reads as a solid casting a real shadow. Nose faces
- * -z, the direction of travel.
- */
-function F1Car({ color, isPlayer }: { color: string; isPlayer: boolean }) {
-  return (
-    <group>
-      {/* monocoque + engine cover */}
-      <mesh position={[0, 0.42, 0.3]} castShadow>
-        <boxGeometry args={[1.0, 0.5, 3.0]} />
-        <meshStandardMaterial color={color} roughness={0.35} metalness={0.15} />
-      </mesh>
-      {/* nose */}
-      <mesh position={[0, 0.36, -1.85]} castShadow>
-        <boxGeometry args={[0.5, 0.3, 1.5]} />
-        <meshStandardMaterial color={color} roughness={0.35} metalness={0.15} />
-      </mesh>
-      {/* front wing */}
-      <mesh position={[0, 0.16, -2.5]} castShadow>
-        <boxGeometry args={[1.9, 0.09, 0.55]} />
-        <meshStandardMaterial color={CARBON} roughness={0.6} />
-      </mesh>
-      {/* cockpit / halo block */}
-      <mesh position={[0, 0.78, 0.05]} castShadow>
-        <boxGeometry args={[0.55, 0.3, 1.0]} />
-        <meshStandardMaterial color={CARBON} roughness={0.5} />
-      </mesh>
-      {/* airbox + T-cam: fluoro white marks the player's car, dark the rivals */}
-      <mesh position={[0, 1.0, 0.45]} castShadow>
-        <boxGeometry args={[0.24, 0.22, 0.7]} />
-        <meshStandardMaterial color={isPlayer ? '#f4f6fa' : CARBON} roughness={0.5} />
-      </mesh>
-      {/* rear wing */}
-      <mesh position={[0, 0.92, 1.85]} castShadow>
-        <boxGeometry args={[1.5, 0.1, 0.5]} />
-        <meshStandardMaterial color={CARBON} roughness={0.6} />
-      </mesh>
-      {[-1, 1].map((s) => (
-        <mesh key={s} position={[s * 0.72, 0.6, 1.85]} castShadow>
-          <boxGeometry args={[0.06, 0.55, 0.5]} />
-          <meshStandardMaterial color={color} roughness={0.4} />
-        </mesh>
-      ))}
-      {/* wheels: front pair, rear pair */}
-      {([[-0.82, -1.15, 0.33], [0.82, -1.15, 0.33], [-0.86, 1.25, 0.36], [0.86, 1.25, 0.36]] as const).map(([x, z, r]) => (
-        <mesh key={`${x},${z}`} position={[x, r, z]} rotation={[0, 0, Math.PI / 2]} castShadow>
-          <cylinderGeometry args={[r, r, 0.38, 18]} />
-          <meshStandardMaterial color={TYRE} roughness={0.85} />
-        </mesh>
-      ))}
-    </group>
-  )
-}
