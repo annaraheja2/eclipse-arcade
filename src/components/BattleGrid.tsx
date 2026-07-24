@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { N, isSunk, isHoriz, anchorOf, shipAt, type Cell, type Ship } from '../lib/battleship'
 import Warship from './Warship'
 
 export type Shots = Record<string, 'hit' | 'miss'>
 export type PlacePhase = 'down' | 'move' | 'up'
+
+const SPARK_ANGLES = [15, 75, 135, 195, 255, 315]
 
 // Live geometry of a grab: the ship's floating top-left in px, tracked 1:1 with the
 // pointer (imperatively — no React re-render per pixel). React only hears about it
@@ -51,6 +53,19 @@ export default function BattleGrid({
   const [settling, setSettling] = useState<string | null>(null)
   const settleTimer = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearTimeout(settleTimer.current), [])
+
+  // A hit rocks the whole board (a decaying thud, delayed to the shell's
+  // impact — see .board-shake). Class reset + reflow retriggers it so
+  // back-to-back hits each land their own shake; reduced-motion CSS stills it.
+  useEffect(() => {
+    const el = oceanRef.current
+    if (!el || !lastShot || shots[lastShot] !== 'hit') return
+    el.classList.remove('board-shake')
+    void el.offsetWidth // reflow so the animation restarts
+    el.classList.add('board-shake')
+    const t = window.setTimeout(() => el.classList.remove('board-shake'), 700)
+    return () => window.clearTimeout(t)
+  }, [lastShot, shots])
 
   const clampCell = (v: number) => Math.max(0, Math.min(N - 1, v))
   function ptOf(e: { clientX: number; clientY: number }) {
@@ -266,7 +281,26 @@ export default function BattleGrid({
             const ctr = center(r, c)
             return (
               <div key={k} className="absolute" style={{ left: ctr.left, top: ctr.top }}>
-                {res === 'hit' ? <><span className="fx-fire" /><span className="fx-smoke" /></> : <><span className="fx-splash" /><span className="miss-dot" /></>}
+                {res === 'hit' ? (
+                  <>
+                    <span className="hit-scorch" />
+                    <span className="fx-burst-ring" />
+                    <span className="fx-burst" />
+                    {SPARK_ANGLES.map((a) => (
+                      <span key={a} className="fx-spark" style={{ '--a': `${a}deg` } as CSSProperties} />
+                    ))}
+                    <span className="fx-smoke" />
+                    <span className="hit-ember" />
+                  </>
+                ) : (
+                  <>
+                    <span className="fx-plop-ring" />
+                    <span className="fx-plop-ring fx-plop-ring2" />
+                    <span className="fx-plop" />
+                    <span className="fx-droplet" />
+                    <span className="miss-dot" />
+                  </>
+                )}
                 {k === lastShot && <span className="fx-shell" />}
               </div>
             )
