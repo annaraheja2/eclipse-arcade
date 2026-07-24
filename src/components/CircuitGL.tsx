@@ -1,6 +1,6 @@
 import { forwardRef, memo, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { ACESFilmicToneMapping, BackSide, CanvasTexture, Color, Object3D, SRGBColorSpace } from 'three'
+import { ACESFilmicToneMapping, BackSide, CanvasTexture, Color, Object3D, PerspectiveCamera, SRGBColorSpace } from 'three'
 import type { Group, InstancedMesh } from 'three'
 import type { Car } from '../lib/racer'
 import {
@@ -8,7 +8,7 @@ import {
   makePoseTable, fillPoseTable, samplePose, type Pose, type PoseTable,
 } from '../lib/circuit'
 import type { CircuitHandle } from './Circuit'
-import { F1Car } from './F1CarMesh'
+import { F1Car, WHEEL_RADIUS_M, type F1CarHandle } from './F1CarMesh'
 
 /**
  * The real-3D circuit stage: a WebGL scene (three.js via react-three-fiber)
@@ -44,6 +44,13 @@ interface SimBridge {
   /** One-shot camera kick on an answer; t counts up to PULSE_SECONDS. */
   pulse: { dir: 1 | -1; t: number } | null
   reduced: boolean
+  /** Screen-space edge-rush overlay (a DOM sibling of the canvas) — the frame
+   *  loop drives the outer layer's opacity and the dash layer's scroll
+   *  straight from live mph. */
+  rushEl: HTMLDivElement | null
+  rushLinesEl: HTMLDivElement | null
+  rushScroll: number
+  rushOpacity: number
 }
 
 interface Props {
@@ -78,6 +85,21 @@ const COAST_SECONDS = 1.4 // matches the old stage's roll-to-stop
 const PULSE_SECONDS = 0.45
 const CAM_BACK = 11.5 // chase camera trails this far down the centreline
 const CAM_LOOK_AHEAD = 22 // …and aims at the centreline this far up the road
+
+// ---- sense of speed ---------------------------------------------------------
+// The player car is camera-locked, so "fast" must come from the lens and the
+// frame edges. All of it rides speedFeel(mph) — the sqrt perceptual curve.
+const BASE_FOV = 52 // matches the Canvas camera prop — the standstill lens
+const FOV_SPREAD = 18 // …widening to 70° at the 30 mph cap: the rushing cue
+const FOV_KICK = 4 // extra degrees at the peak of a correct-answer surge
+const FOV_EASE = 5 // lerp rate (1/s) — the lens breathes, never snaps
+const CAM_CROUCH = 0.85 // camera drops this far at the cap…
+const CAM_CLOSE = 1.1 // …and closes in this much: the road rushes harder
+const MPH_TO_MPS = 0.44704
+// Edge-streak overlay: scroll rate in px/s per mph, wrapped on the CSS mask
+// period (.rc-rush in index.css — keep the two in sync).
+const RUSH_PX_PER_MPH = 18
+const RUSH_PERIOD_PX = 34
 
 // The pose table must cover everything sampled off it: road (−28…+118),
 // stand chunks incl. slot slack and seat jitter (−43…+141), cars, camera.
@@ -156,6 +178,7 @@ const CircuitGL = memo(forwardRef<CircuitHandle, Props>(function CircuitGL(
 ) {
   const bridge = useRef<SimBridge>({
     cars: [], youId, visual: 0, speedMph: 0, coast: null, pulse: null, reduced,
+    rushEl: null, rushLinesEl: null, rushScroll: 0, rushOpacity: 0,
   }).current
   bridge.reduced = reduced // props can change between races; the loop reads live
 
@@ -188,6 +211,9 @@ const CircuitGL = memo(forwardRef<CircuitHandle, Props>(function CircuitGL(
         <Scene bridge={bridge} field={field} youId={youId} />
       </Canvas>
       {flagged && <div aria-hidden className="rc-flag" />}
+      <div aria-hidden className="rc-rush" ref={(el) => { bridge.rushEl = el }}>
+        <div className="rc-rush-lines" ref={(el) => { bridge.rushLinesEl = el }} />
+      </div>
       <div aria-hidden className="rc-vignette" />
     </div>
   )
@@ -199,6 +225,7 @@ export default CircuitGL
 
 function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Car[]; youId: string }) {
   const carRefs = useRef(new Map<string, Group>())
+  const wheelRefs = useRef(new Map<string, F1CarHandle>())
   const roadRefs = useRef<(Group | null)[]>(Array.from({ length: ROAD_PIECES }, () => null))
   const standRefs = useRef<(Group | null)[]>(Array.from({ length: STAND_CHUNKS * 2 }, () => null))
   const path = useMemo<PathState>(() => ({
@@ -274,32 +301,70 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
       g.position.set(P1.x + Math.cos(P1.heading) * lane, 0, P1.z + Math.sin(P1.heading) * lane)
       samplePose(table, delta + CAR_AXLE_LOOK, P2)
       g.rotation.y = -P2.heading
+      // Wheels roll at this car's true angular speed (the player's follows the
+      // coast-down odometer, so its wheels slow with the world after the flag).
+      if (!bridge.reduced) {
+        const mph = car.id === bridge.youId ? bridge.speedMph : car.speed
+        if (mph > 0) wheelRefs.current.get(car.id)?.spin(((mph * MPH_TO_MPS) / WHEEL_RADIUS_M) * dt)
+      }
     }
 
     // Chase camera: trailing the player down the CENTRELINE — through a
     // corner it hangs back on the track's own curve — eyes on the road ahead,
     // so the upcoming bend swings into frame before the player reaches it.
-    // The bob is the speed you feel in the cockpit; the pulse is the answer kick.
-    let camY = 6
-    let camBack = CAM_BACK
+    // Speed is a lens: at pace the camera crouches lower and closer while the
+    // FOV widens (below) — the road planes stretch and rush past the frame
+    // edges. The bob is cockpit texture; the pulse is the answer kick.
+    const feel = bridge.reduced ? 0 : speedFeel(bridge.speedMph)
+    let kick = 0 // signed pulse envelope: + on a correct surge, − on a miss
+    let camY = 6 - feel * CAM_CROUCH
+    let camBack = CAM_BACK - feel * CAM_CLOSE
     if (!bridge.reduced) {
-      const feel = speedFeel(bridge.speedMph)
       camY += Math.sin(bridge.visual * 0.6) * feel * feel * 0.05
       if (bridge.pulse) {
         const p = bridge.pulse
         p.t += dt
         if (p.t >= PULSE_SECONDS) bridge.pulse = null
-        else {
-          const k = Math.sin((p.t / PULSE_SECONDS) * Math.PI) // in-out, one arc
-          camBack -= p.dir * k * 0.6 // surge in on a correct, sag back on a miss
-          camY += p.dir * k * -0.12
-        }
+        else kick = p.dir * Math.sin((p.t / PULSE_SECONDS) * Math.PI) // in-out, one arc
       }
+      camBack -= kick * 0.6 // surge in on a correct, sag back on a miss
+      camY -= kick * 0.12
     }
     samplePose(table, -camBack, P1)
     state.camera.position.set(P1.x, camY, P1.z)
     samplePose(table, CAM_LOOK_AHEAD, P2)
     state.camera.lookAt(P2.x, 0.6, P2.z)
+
+    // FOV punch — the single biggest "rushing" cue. Eased toward its target
+    // every frame so answers breathe the lens rather than snapping it; under
+    // reduced motion feel is 0 and the lens settles home and holds.
+    const cam = state.camera
+    if (cam instanceof PerspectiveCamera) {
+      const targetFov = BASE_FOV + feel * FOV_SPREAD + Math.max(0, kick) * FOV_KICK
+      const eased = cam.fov + (targetFov - cam.fov) * Math.min(1, dt * FOV_EASE)
+      if (Math.abs(eased - cam.fov) > 0.005) {
+        cam.fov = eased
+        cam.updateProjectionMatrix()
+      }
+    }
+
+    // Edge streaks: opacity rides feel² (off at a crawl, bites toward the
+    // cap, flares on a surge) and the dashes scroll at a rate proportional
+    // to live mph — slowing down visibly slows them; stopped, they die.
+    const rush = bridge.rushEl
+    const rushLines = bridge.rushLinesEl
+    if (rush && rushLines) {
+      const raw = bridge.reduced ? 0 : feel * feel * 0.6 + Math.max(0, kick) * 0.25
+      const target = raw < 0.02 ? 0 : Math.min(0.85, raw)
+      if (Math.abs(target - bridge.rushOpacity) > 0.01 || (target === 0 && bridge.rushOpacity > 0)) {
+        bridge.rushOpacity = target
+        rush.style.opacity = target.toFixed(3)
+      }
+      if (bridge.rushOpacity > 0) {
+        bridge.rushScroll = (bridge.rushScroll + bridge.speedMph * RUSH_PX_PER_MPH * dt) % RUSH_PERIOD_PX
+        rushLines.style.transform = `translate3d(0, ${bridge.rushScroll.toFixed(1)}px, 0)`
+      }
+    }
   }, -1)
 
   return (
@@ -372,7 +437,14 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
             else carRefs.current.delete(car.id)
           }}
         >
-          <F1Car color={car.color} isPlayer={car.id === youId} />
+          <F1Car
+            color={car.color}
+            isPlayer={car.id === youId}
+            ref={(h: F1CarHandle | null) => {
+              if (h) wheelRefs.current.set(car.id, h)
+              else wheelRefs.current.delete(car.id)
+            }}
+          />
         </group>
       ))}
     </>

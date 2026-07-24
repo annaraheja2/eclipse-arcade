@@ -468,6 +468,31 @@ body::after {
   -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 6px, transparent 6px 22px);
   mask-image: repeating-linear-gradient(180deg, #000 0 6px, transparent 6px 22px);
 }
+/* The 3D stage's edge rush — same contract as .rc-speed but for the GL chase
+   camera: CircuitGL's frame loop writes the OUTER layer's opacity from feel²
+   and scrolls the INNER dash layer at a rate proportional to live mph (period
+   34px = RUSH_PERIOD_PX in CircuitGL.tsx — keep in sync). Two layers because
+   the daylight scene is bright: the outer carries an unmasked dark edge wash
+   (a motion vignette) that gives the white dashes something to read against.
+   No CSS animation; a stopped car leaves the frame edges clean and reduced
+   motion never lights it up. */
+.rc-rush {
+  position: absolute; inset: 0;
+  pointer-events: none; opacity: 0;
+  will-change: opacity;
+  background-image:
+    linear-gradient(90deg, rgba(7, 10, 17, 0.55) 0%, rgba(7, 10, 17, 0) 15%),
+    linear-gradient(270deg, rgba(7, 10, 17, 0.55) 0%, rgba(7, 10, 17, 0) 15%);
+}
+.rc-rush-lines {
+  position: absolute; left: 0; right: 0; top: -40px; bottom: -40px;
+  will-change: transform;
+  background-image:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 11%),
+    linear-gradient(270deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 11%);
+  -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 14px, transparent 14px 34px);
+  mask-image: repeating-linear-gradient(180deg, #000 0 14px, transparent 14px 34px);
+}
 
 /* --- answer kick: a one-shot camera punch, retriggered via data-kick --- */
 /* Correct: a brief surge — the camera pushes in and the streaks flare, then
@@ -523,7 +548,7 @@ body::after {
      scrolling the world), but car POSITION is information, so cars still move.
      No .rc-flag rule is needed here — under reduced motion the page skips the
      finish stage entirely, so that element is never in the DOM. */
-  .rc-speed { display: none; }
+  .rc-speed, .rc-rush { display: none; }
   /* pulse rings and sheens are motion-only accents — hide their static frame */
   .tn-ping, .tn-shine { display: none; }
   .tn-draw { stroke-dashoffset: 0; }
@@ -559,6 +584,7 @@ body::after {
 :root[data-reduced-motion="true"] .blink-attract { opacity: 1; }
 :root[data-reduced-motion="true"] .tn-ping,
 :root[data-reduced-motion="true"] .rc-speed,
+:root[data-reduced-motion="true"] .rc-rush,
 :root[data-reduced-motion="true"] .tn-shine { display: none; }
 :root[data-reduced-motion="true"] .tn-draw { stroke-dashoffset: 0; }
 :root[data-reduced-motion="true"] .ocean::before,

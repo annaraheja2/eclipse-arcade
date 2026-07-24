@@ -1,3 +1,4 @@
+import { forwardRef, useImperativeHandle, useRef } from 'react'
 import {
   BoxGeometry,
   Color,
@@ -6,6 +7,7 @@ import {
   SphereGeometry,
   TorusGeometry,
 } from 'three'
+import type { Group } from 'three'
 
 /**
  * Procedural Formula 1 car + seated driver, built entirely from three.js
@@ -14,10 +16,20 @@ import {
  *
  * Everything below the component is module-level and shared: ONE set of
  * geometries and ONE material per role, with livery-tinted materials cached
- * per colour. Four cars on screen share every buffer; the component itself
- * does no per-frame work at all (wheels don't spin — the scrolling road
- * carries the motion, and reduced-motion stays honest).
+ * per colour. Four cars on screen share every buffer. The component renders
+ * no per-frame React — the ONLY live part is the `spin` handle, which the
+ * scene's frame loop drives with each car's true angular wheel speed (the
+ * dark rim crossbars are what make the rotation readable; a stopped car's
+ * wheels stand still, and reduced motion never calls it at all).
  */
+
+/** Tyre radius in metres — the scene derives angular speed from mph with it. */
+export const WHEEL_RADIUS_M = 0.36
+
+export interface F1CarHandle {
+  /** Advance all four wheels by `delta` radians (rolling forward). */
+  spin(delta: number): void
+}
 
 // ---- shared geometry (unit shapes, sized per-mesh via scale) ---------------
 const G = {
@@ -82,7 +94,17 @@ const WHEELS: readonly (readonly [number, number, number])[] = [
   [0.82, 1.45, 0.42],
 ]
 
-export function F1Car({ color, isPlayer }: { color: string; isPlayer: boolean }) {
+export const F1Car = forwardRef<F1CarHandle, { color: string; isPlayer: boolean }>(
+  function F1Car({ color, isPlayer }, ref,
+) {
+  const spinGroups = useRef<(Group | null)[]>([null, null, null, null])
+  useImperativeHandle(ref, () => ({
+    spin(delta) {
+      for (const g of spinGroups.current) {
+        if (g) g.rotation.y = (g.rotation.y + delta) % (Math.PI * 2)
+      }
+    },
+  }), [])
   const livery = liveryFor(color)
   // the player's car carries white top-surface strips + a white fin — exactly
   // the faces the above-behind chase camera reads
@@ -162,11 +184,20 @@ export function F1Car({ color, isPlayer }: { color: string; isPlayer: boolean })
       <mesh geometry={G.halo} material={MAT.halo} position={[0, 0.87, -0.05]} scale={[0.88, 1.1, 1]} rotation={[Math.PI / 2, 0, 0]} castShadow />
       <mesh geometry={G.box} material={MAT.halo} position={[0, 0.79, -0.38]} scale={[0.045, 0.05, 0.32]} rotation={[-0.65, 0, 0]} />
 
-      {/* ---- wheels: tyre + brighter rim face, plus a wishbone each ---- */}
-      {WHEELS.map(([x, z, w]) => (
+      {/* ---- wheels: tyre + brighter rim face, plus a wishbone each ----
+           The Rz(π/2) that used to sit on each cylinder now lives on a wrapper
+           group, so the inner spin group's local y IS the axle — spin() turns
+           it and the dark crossbars strobe across the bright rim face. ---- */}
+      {WHEELS.map(([x, z, w], i) => (
         <group key={`${x},${z}`} position={[x, 0.36, z]}>
-          <mesh geometry={G.tyre} material={MAT.tyre} scale={[1, w, 1]} rotation={[0, 0, Math.PI / 2]} castShadow />
-          <mesh geometry={G.rim} material={MAT.rim} scale={[1, w + 0.02, 1]} rotation={[0, 0, Math.PI / 2]} />
+          <group rotation={[0, 0, Math.PI / 2]}>
+            <group ref={(g: Group | null) => { spinGroups.current[i] = g }}>
+              <mesh geometry={G.tyre} material={MAT.tyre} scale={[1, w, 1]} castShadow />
+              <mesh geometry={G.rim} material={MAT.rim} scale={[1, w + 0.02, 1]} />
+              <mesh geometry={G.box} material={MAT.carbon} scale={[0.4, w + 0.06, 0.07]} />
+              <mesh geometry={G.box} material={MAT.carbon} scale={[0.07, w + 0.06, 0.4]} />
+            </group>
+          </group>
           <mesh
             geometry={G.box}
             material={MAT.carbon}
@@ -178,4 +209,4 @@ export function F1Car({ color, isPlayer }: { color: string; isPlayer: boolean })
       ))}
     </group>
   )
-}
+})
