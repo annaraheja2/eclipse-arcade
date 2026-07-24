@@ -9,6 +9,7 @@ import {
   trackCurvature, lapDistance, lapOf, lapFraction, finishLineDelta,
   swayPx, bankDeg, leanDeg,
   gapSeconds, formatGap, speedIntensity, speedFeel, tyreBlurPx, startLights,
+  TURN_RATE, makePoseTable, fillPoseTable, samplePose, type Pose,
 } from './circuit'
 import { COUNTDOWN_SECONDS, MAX_MPH } from './racer'
 
@@ -467,5 +468,107 @@ describe('startLights', () => {
   })
   it('treats a zero-length countdown as an instant go', () => {
     expect(startLights(0, 0)).toEqual({ kind: 'go' })
+  })
+})
+
+// ---- 3D centreline ---------------------------------------------------------
+// Segment map used below (from CIRCUIT): 0–140 straight, 140–230 right 0.7,
+// 230–290 straight, 290–410 left 1.0, … — test anchors sit well inside a
+// segment, clear of the CURVE_EASE/2 blend at each boundary.
+
+describe('fillPoseTable', () => {
+  const pose = (table: ReturnType<typeof makePoseTable>, delta: number): Pose => {
+    const out: Pose = { x: 0, z: 0, heading: 0 }
+    samplePose(table, delta, out)
+    return out
+  }
+
+  it('pins the anchor entry at the origin, heading down -z', () => {
+    const t = makePoseTable(30, 30)
+    fillPoseTable(t, 185)
+    expect(pose(t, 0)).toEqual({ x: 0, z: 0, heading: 0 })
+  })
+
+  it('runs dead straight down -z on the start straight', () => {
+    const t = makePoseTable(40, 40)
+    fillPoseTable(t, 70) // window 30..110, all inside the 0..140 straight
+    for (const d of [-40, -12, 7, 40]) {
+      const p = pose(t, d)
+      expect(p.x).toBeCloseTo(0, 5)
+      expect(p.z).toBeCloseTo(-d, 4)
+      expect(p.heading).toBeCloseTo(0, 5)
+    }
+  })
+
+  it('bows the road toward +x through a right-hander', () => {
+    const t = makePoseTable(30, 30)
+    fillPoseTable(t, 185) // window 155..215, inside the 140..230 right (k=0.7)
+    expect(pose(t, 30).x).toBeGreaterThan(1)
+    expect(pose(t, -30).x).toBeGreaterThan(1) // the arc bows right both ways
+    expect(pose(t, 30).heading).toBeCloseTo(0.7 * TURN_RATE * 30, 3)
+    expect(pose(t, -30).heading).toBeCloseTo(-0.7 * TURN_RATE * 30, 3)
+  })
+
+  it('bows the road toward -x through the hairpin left', () => {
+    const t = makePoseTable(30, 30)
+    fillPoseTable(t, 350) // window 320..380, inside the 290..410 left (k=1)
+    expect(pose(t, 30).x).toBeLessThan(-1)
+    expect(pose(t, 30).heading).toBeCloseTo(-TURN_RATE * 30, 3)
+  })
+
+  it('preserves arc length: consecutive entries sit one step apart', () => {
+    const t = makePoseTable(30, 30)
+    fillPoseTable(t, 350) // hardest case — full-curvature corner
+    for (let i = 1; i < t.x.length; i++) {
+      const chord = Math.hypot(t.x[i] - t.x[i - 1], t.z[i] - t.z[i - 1])
+      expect(chord).toBeCloseTo(t.step, 3)
+    }
+  })
+
+  it('backward integration exactly inverts forward (anchor-invariant path)', () => {
+    // Pose of 155 seen from an anchor at 185 must equal the rigid inverse of
+    // the pose of 185 seen from an anchor at 155 — mid-corner, so any
+    // asymmetry between the two passes would show up here.
+    const fwd = makePoseTable(0, 30)
+    fillPoseTable(fwd, 155)
+    const back = makePoseTable(30, 0)
+    fillPoseTable(back, 185)
+    const p = pose(fwd, 30) // 185 in the 155 frame
+    const sin = Math.sin(p.heading)
+    const cos = Math.cos(p.heading)
+    const expected = {
+      x: -p.x * cos - p.z * sin, // (0,0) - p, projected on the 185 frame's right
+      z: -(-p.x * sin + -p.z * -cos) * -1, // …and its -z forward axis
+      heading: -p.heading,
+    }
+    const q = pose(back, -30)
+    expect(q.x).toBeCloseTo(expected.x, 3)
+    expect(q.heading).toBeCloseTo(expected.heading, 4)
+    // forward axis component, written out directly for clarity:
+    const vFwd = -p.x * sin + -p.z * -cos
+    expect(q.z).toBeCloseTo(-vFwd, 3)
+  })
+
+  it('turns the full segment angle across a corner (blends conserve it)', () => {
+    // The smoothstep blend at each boundary is symmetric, so the integral of
+    // curvature — the total turn — across the hairpin is exactly k * length.
+    const t = makePoseTable(70, 70)
+    fillPoseTable(t, 350) // window 280..420 spans the whole 290..410 left
+    const turn = pose(t, 70).heading - pose(t, -70).heading
+    expect(turn).toBeCloseTo(-1 * TURN_RATE * 120, 3)
+  })
+})
+
+describe('samplePose', () => {
+  it('interpolates linearly between entries and clamps outside the table', () => {
+    const t = makePoseTable(0, 40)
+    fillPoseTable(t, 70) // straight: z = -delta exactly
+    const out: Pose = { x: 0, z: 0, heading: 0 }
+    samplePose(t, 12.5, out)
+    expect(out.z).toBeCloseTo(-12.5, 4)
+    samplePose(t, 999, out)
+    expect(out.z).toBeCloseTo(-40, 4)
+    samplePose(t, -999, out)
+    expect(out.z).toBeCloseTo(0, 4)
   })
 })

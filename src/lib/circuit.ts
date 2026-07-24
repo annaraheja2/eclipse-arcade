@@ -179,6 +179,90 @@ export function trackCurvature(distance: number): number {
   return k
 }
 
+// ---- 3D centreline ----------------------------------------------------------
+// The WebGL stage bends the road for REAL: the centreline's heading is the
+// integral of trackCurvature along distance. Poses are expressed RELATIVE to an
+// anchor distance (the player), so the path never needs to close into a loop —
+// the GL scene rebuilds the world around the player every frame from one table.
+//
+// Conventions: at heading 0 the track runs down −z; positive curvature (a
+// right-hander) turns the heading toward +x. The right-hand perpendicular of a
+// heading θ is (cos θ, sin θ) in (x, z) — lateral offsets ride on it.
+
+/** Turn rate at full curvature, in radians per metre — a ~45 m corner radius. */
+export const TURN_RATE = 1 / 45
+
+export interface Pose { x: number; z: number; heading: number }
+
+/** A strip of centreline poses around an anchor distance, entry i at track
+ *  delta (i·step − behind). Flat typed arrays: refilled every frame, sampled
+ *  thousands of times (crowd), never reallocated. */
+export interface PoseTable {
+  /** metres of track behind the anchor covered by entry 0 */
+  behind: number
+  /** metres between entries */
+  step: number
+  x: Float32Array
+  z: Float32Array
+  heading: Float32Array
+}
+
+export function makePoseTable(behind: number, ahead: number, step = 1): PoseTable {
+  const count = Math.round((behind + ahead) / step) + 1
+  return {
+    behind,
+    step,
+    x: new Float32Array(count),
+    z: new Float32Array(count),
+    heading: new Float32Array(count),
+  }
+}
+
+/**
+ * Fill `table` with centreline poses around `distance`: the anchor entry sits
+ * at the origin heading down −z, and every other entry is integrated out from
+ * it (midpoint rule, so the backward pass exactly inverts the forward one).
+ * Mutates the caller's table — the render loop calls this every frame and
+ * must not allocate — but is deterministic in (table shape, distance).
+ */
+export function fillPoseTable(table: PoseTable, distance: number): void {
+  const { behind, step, x, z, heading } = table
+  const anchor = Math.round(behind / step)
+  x[anchor] = 0
+  z[anchor] = 0
+  heading[anchor] = 0
+  for (let i = anchor + 1; i < x.length; i++) {
+    const from = distance + (i - 1 - anchor) * step
+    const turn = trackCurvature(from + step / 2) * TURN_RATE * step
+    const hMid = heading[i - 1] + turn / 2
+    x[i] = x[i - 1] + Math.sin(hMid) * step
+    z[i] = z[i - 1] - Math.cos(hMid) * step
+    heading[i] = heading[i - 1] + turn
+  }
+  for (let i = anchor - 1; i >= 0; i--) {
+    const from = distance + (i + 1 - anchor) * step
+    const turn = trackCurvature(from - step / 2) * TURN_RATE * step
+    const hMid = heading[i + 1] - turn / 2
+    x[i] = x[i + 1] - Math.sin(hMid) * step
+    z[i] = z[i + 1] + Math.cos(hMid) * step
+    heading[i] = heading[i + 1] - turn
+  }
+}
+
+/**
+ * Linear sample of the table at `delta` metres from the anchor, clamped to the
+ * table's range. Writes into `out` — the frame loop reuses one scratch Pose.
+ */
+export function samplePose(table: PoseTable, delta: number, out: Pose): void {
+  const t = clamp((delta + table.behind) / table.step, 0, table.x.length - 1)
+  const i = Math.floor(t)
+  const j = Math.min(i + 1, table.x.length - 1)
+  const f = t - i
+  out.x = table.x[i] + (table.x[j] - table.x[i]) * f
+  out.z = table.z[i] + (table.z[j] - table.z[i]) * f
+  out.heading = table.heading[i] + (table.heading[j] - table.heading[i]) * f
+}
+
 // How hard a full-curvature corner reads, screen-side. The world slides AWAY
 // from the turn (a left-hander slides the world right), the horizon end swings
 // INTO it via a roll pivoted low on the stage, and each car noses into it.
