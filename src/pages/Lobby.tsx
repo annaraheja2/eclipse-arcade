@@ -222,7 +222,7 @@ function Cabinet({ g }: { g: GameDef }) {
   return (
     <button
       disabled={soon}
-      onClick={() => { if (soon) return; navigate(g.type === 'battleship' ? '/battleship' : g.type === 'racer' ? '/racer' : `/play/${g.key}`) }}
+      onClick={() => { if (soon) return; navigate(g.type === 'battleship' ? '/battleship' : g.type === 'racer' ? '/racer' : g.type === 'cardgame' ? '/cardgame' : `/play/${g.key}`) }}
       className={`cab group relative text-left rounded-[14px] border border-white/10 transition-transform duration-200 ${soon ? 'opacity-60 cursor-default' : 'cab-live hover:-translate-y-1 active:translate-y-0.5'}`}
       style={cabStyle}
     >
