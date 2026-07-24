@@ -1,6 +1,7 @@
-import { forwardRef, memo, useImperativeHandle, useRef } from 'react'
+import { forwardRef, memo, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import type { Group } from 'three'
+import { Color, Object3D } from 'three'
+import type { Group, InstancedMesh } from 'three'
 import type { Car } from '../lib/racer'
 import { laneFor, speedFeel, TRACK_METRES, CAMERA_AHEAD, CAMERA_BEHIND } from '../lib/circuit'
 import type { CircuitHandle } from './Circuit'
@@ -63,6 +64,22 @@ const SKY = '#3a4454' // overcast horizon — the fog colour IS the sky colour
 const GRASS = '#37402f'
 const ASPHALT = '#262b33'
 const KERB_RED = '#b8302a'
+
+// ---- grandstands (metres) ---------------------------------------------------
+// Tiered stands flank the straight beyond the grass runoff, on both sides.
+const STAND_INNER_X = 16 // inner face of the first tier (runoff = kerb → here)
+const TIER_COUNT = 5
+const TIER_DEPTH = 1.7 // each tier steps this far back…
+const TIER_RISE = 0.95 // …and this far up
+const STAND_NEAR_Z = ROAD_NEAR_Z - 2
+const STAND_FAR_Z = ROAD_FAR_Z - 9 // run past the road into the fog
+const STAND_LEN = STAND_NEAR_Z - STAND_FAR_Z
+const STAND_MID_Z = (STAND_NEAR_Z + STAND_FAR_Z) / 2
+const STAND_WALL_H = TIER_COUNT * TIER_RISE + 2.6
+const ROOF_Y = STAND_WALL_H + 0.35
+const CONCRETE = '#565b64'
+const STAND_DARK = '#3c4049'
+const ROOF_TRIM = '#c8452f' // the kerb red carried up onto the roof fascia
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
@@ -217,6 +234,11 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
         </mesh>
       ))}
 
+      {/* ---- grandstands flanking the straight ---- */}
+      {([-1, 1] as const).map((side) => (
+        <Grandstand key={side} side={side} />
+      ))}
+
       {/* ---- scrolling markings: centre-line dashes + kerb stripes ---- */}
       <group ref={scrollRef}>
         {TILE_ROWS.map((z) => (
@@ -235,6 +257,9 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
         ))}
       </group>
 
+      {/* ---- the crowd ---- */}
+      <Crowd bridge={bridge} />
+
       {/* ---- the field ---- */}
       {field.map((car, i) => (
         <group
@@ -251,4 +276,218 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
     </>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Grandstands: five stepped concrete tiers, a back wall, and a roof slab with
+// a red fascia — one solid stand per side, long enough to vanish into the fog.
+
+const PILLAR_ZS: readonly number[] = Array.from(
+  { length: 7 },
+  (_, i) => STAND_NEAR_Z - (i + 0.5) * (STAND_LEN / 7),
+)
+
+function Grandstand({ side }: { side: -1 | 1 }) {
+  return (
+    <group>
+      {/* stepped tiers, each one taller and further back than the last */}
+      {Array.from({ length: TIER_COUNT }, (_, k) => (
+        <mesh
+          key={k}
+          position={[
+            side * (STAND_INNER_X + (k + 0.5) * TIER_DEPTH),
+            ((k + 1) * TIER_RISE) / 2,
+            STAND_MID_Z,
+          ]}
+          receiveShadow
+        >
+          <boxGeometry args={[TIER_DEPTH, (k + 1) * TIER_RISE, STAND_LEN]} />
+          <meshStandardMaterial color={CONCRETE} roughness={1} />
+        </mesh>
+      ))}
+      {/* spectator barrier between the runoff and the front row */}
+      <mesh position={[side * (STAND_INNER_X - 0.6), 0.55, STAND_MID_Z]}>
+        <boxGeometry args={[0.25, 1.1, STAND_LEN]} />
+        <meshStandardMaterial color="#c7ccd4" roughness={0.9} />
+      </mesh>
+      {/* back wall closing off the top tier */}
+      <mesh position={[side * (STAND_INNER_X + TIER_COUNT * TIER_DEPTH + 0.3), STAND_WALL_H / 2, STAND_MID_Z]}>
+        <boxGeometry args={[0.6, STAND_WALL_H, STAND_LEN]} />
+        <meshStandardMaterial color={STAND_DARK} roughness={1} />
+      </mesh>
+      {/* roof slab + the red fascia along its track-side edge */}
+      <mesh position={[side * (STAND_INNER_X + (TIER_COUNT * TIER_DEPTH) / 2 - 0.3), ROOF_Y, STAND_MID_Z]}>
+        <boxGeometry args={[TIER_COUNT * TIER_DEPTH + 2.4, 0.3, STAND_LEN]} />
+        <meshStandardMaterial color="#2b2f36" roughness={1} />
+      </mesh>
+      <mesh position={[side * (STAND_INNER_X - 1.7), ROOF_Y - 0.28, STAND_MID_Z]}>
+        <boxGeometry args={[0.3, 0.6, STAND_LEN]} />
+        <meshStandardMaterial color={ROOF_TRIM} roughness={0.85} />
+      </mesh>
+      {/* front pillars carrying the roof */}
+      {PILLAR_ZS.map((z) => (
+        <mesh key={z} position={[side * (STAND_INNER_X - 1.55), ROOF_Y / 2, z]}>
+          <boxGeometry args={[0.28, ROOF_Y, 0.28]} />
+          <meshStandardMaterial color={STAND_DARK} roughness={1} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The crowd: two InstancedMeshes (bodies + heads) — a couple of draw calls for
+// the whole thousand-strong crowd. Layout, colours, and cheer phases are baked
+// once from a seeded PRNG so every visit sees the same (varied) crowd.
+
+const SEAT_STEP = 1.15 // shoulder-to-shoulder spacing along the stand
+const SEATS_PER_TIER = Math.floor(STAND_LEN / SEAT_STEP)
+const CHEER_HZ = 3.1 // cheer wave angular speed multiplier (rad/s)
+const HEAD_LIFT = 1.25 // heads overshoot the body hop — reads as arms-up energy
+
+const CLOTHES = [
+  '#d94438', '#e88a2d', '#e8c93c', '#3fa864', '#3e7fd1', '#7c53c9',
+  '#d15a92', '#dcd6c8', '#2c313b', '#67b8c9', '#b03a52', '#4c8a3f',
+] as const
+const SKIN = ['#f0c8a0', '#d9a06a', '#a8703f', '#6f4a2f'] as const
+
+/** Deterministic PRNG (mulberry32) — the crowd never reshuffles between mounts. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+interface CrowdLayout {
+  count: number
+  x: Float32Array
+  z: Float32Array
+  scale: Float32Array
+  bodyY: Float32Array // resting body-centre height
+  headY: Float32Array // resting head-centre height
+  phase: Float32Array // cheer-wave offset per person
+  amp: Float32Array // how high this person hops
+  bodyColor: Color[]
+  headColor: Color[]
+}
+
+function buildCrowd(): CrowdLayout {
+  const rnd = mulberry32(0x5eed)
+  const xs: number[] = []
+  const zs: number[] = []
+  const scales: number[] = []
+  const bodyYs: number[] = []
+  const headYs: number[] = []
+  const phases: number[] = []
+  const amps: number[] = []
+  const bodyColor: Color[] = []
+  const headColor: Color[] = []
+  for (const side of [-1, 1] as const) {
+    for (let tier = 0; tier < TIER_COUNT; tier++) {
+      const tierTop = (tier + 1) * TIER_RISE
+      const tierX = STAND_INNER_X + (tier + 0.5) * TIER_DEPTH
+      for (let seat = 0; seat < SEATS_PER_TIER; seat++) {
+        if (rnd() < 0.12) continue // a few empty seats — full, not painted-on
+        const s = 0.85 + rnd() * 0.3
+        xs.push(side * (tierX + (rnd() - 0.5) * 0.5))
+        const z = STAND_NEAR_Z - (seat + 0.5) * SEAT_STEP + (rnd() - 0.5) * 0.5
+        zs.push(z)
+        scales.push(s)
+        bodyYs.push(tierTop + 0.5 * s)
+        headYs.push(tierTop + 1.1 * s)
+        // Phase rides mostly on z so the cheer RIPPLES down the stand as a
+        // wave, with per-person jitter so it never reads as a march.
+        phases.push(z * 0.28 + side * 1.4 + rnd() * 1.6)
+        amps.push(0.1 + rnd() * 0.3)
+        bodyColor.push(new Color(CLOTHES[Math.floor(rnd() * CLOTHES.length)]))
+        headColor.push(new Color(SKIN[Math.floor(rnd() * SKIN.length)]))
+      }
+    }
+  }
+  return {
+    count: xs.length,
+    x: Float32Array.from(xs),
+    z: Float32Array.from(zs),
+    scale: Float32Array.from(scales),
+    bodyY: Float32Array.from(bodyYs),
+    headY: Float32Array.from(headYs),
+    phase: Float32Array.from(phases),
+    amp: Float32Array.from(amps),
+    bodyColor,
+    headColor,
+  }
+}
+
+function Crowd({ bridge }: { bridge: SimBridge }) {
+  const bodies = useRef<InstancedMesh>(null)
+  const heads = useRef<InstancedMesh>(null)
+  const layout = useMemo(buildCrowd, [])
+  const scratch = useMemo(() => new Object3D(), [])
+
+  // Bake every instance's resting transform + colour once.
+  useLayoutEffect(() => {
+    const body = bodies.current
+    const head = heads.current
+    if (!body || !head) return
+    for (let i = 0; i < layout.count; i++) {
+      const s = layout.scale[i]
+      scratch.scale.setScalar(s)
+      scratch.position.set(layout.x[i], layout.bodyY[i], layout.z[i])
+      scratch.updateMatrix()
+      body.setMatrixAt(i, scratch.matrix)
+      body.setColorAt(i, layout.bodyColor[i])
+      scratch.position.y = layout.headY[i]
+      scratch.updateMatrix()
+      head.setMatrixAt(i, scratch.matrix)
+      head.setColorAt(i, layout.headColor[i])
+    }
+    body.instanceMatrix.needsUpdate = true
+    head.instanceMatrix.needsUpdate = true
+    if (body.instanceColor) body.instanceColor.needsUpdate = true
+    if (head.instanceColor) head.instanceColor.needsUpdate = true
+  }, [layout, scratch])
+
+  // The cheer: a cheap per-instance hop. Only the matrix's y-translation slot
+  // (element 13, column-major) is rewritten each frame — no allocation, no
+  // recompose. sin² keeps everyone grounded half the cycle, so it reads as
+  // jumping fans, and the z-keyed phase makes the wave roll down the stand.
+  useFrame(({ clock }) => {
+    if (bridge.reduced) return
+    const body = bodies.current
+    const head = heads.current
+    if (!body || !head) return
+    const t = clock.elapsedTime * CHEER_HZ
+    const bm = body.instanceMatrix.array
+    const hm = head.instanceMatrix.array
+    const { count, phase, amp, bodyY, headY } = layout
+    for (let i = 0; i < count; i++) {
+      const w = Math.sin(t + phase[i])
+      const hop = w > 0 ? w * w * amp[i] : 0
+      bm[i * 16 + 13] = bodyY[i] + hop
+      hm[i * 16 + 13] = headY[i] + hop * HEAD_LIFT
+    }
+    body.instanceMatrix.needsUpdate = true
+    head.instanceMatrix.needsUpdate = true
+  })
+
+  return (
+    <>
+      {/* geometry/material live in JSX so r3f disposes them on unmount; the
+          crowd casts no shadows and skips culling (it is always in frame) */}
+      <instancedMesh ref={bodies} args={[undefined, undefined, layout.count]} frustumCulled={false}>
+        <capsuleGeometry args={[0.22, 0.55, 2, 6]} />
+        <meshLambertMaterial color="#ffffff" />
+      </instancedMesh>
+      <instancedMesh ref={heads} args={[undefined, undefined, layout.count]} frustumCulled={false}>
+        <sphereGeometry args={[0.17, 6, 5]} />
+        <meshLambertMaterial color="#ffffff" />
+      </instancedMesh>
+    </>
+  )
+}
+
 
