@@ -1,6 +1,6 @@
-import { forwardRef, memo, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react'
+import { forwardRef, memo, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Color, Object3D } from 'three'
+import { ACESFilmicToneMapping, BackSide, CanvasTexture, Color, Object3D, SRGBColorSpace } from 'three'
 import type { Group, InstancedMesh } from 'three'
 import type { Car } from '../lib/racer'
 import {
@@ -84,11 +84,39 @@ const CAM_LOOK_AHEAD = 22 // …and aims at the centreline this far up the road
 const TABLE_BEHIND = 45
 const TABLE_AHEAD = 145
 
-const SKY = '#3a4454' // overcast horizon — the fog colour IS the sky colour
-const GRASS = '#37402f'
-const ASPHALT = '#262b33'
-const KERB_RED = '#b8302a'
-const KERB_WHITE = '#e8ecf2'
+// Clear afternoon. The sky is a gradient dome — vivid blue overhead melting
+// into a bright haze exactly at the horizon — and the fog is that same haze
+// colour, so distance reads as sky, not as a grey wash. The gradient is
+// compressed hard around the horizon because the chase camera only ever sees
+// the first ~10 degrees of sky above the grandstands: the blue must arrive
+// within that band or the frame reads overcast.
+const SUN_POS: readonly [number, number, number] = [-22, 38, 20]
+const HAZE = '#d5e7f8'
+
+function makeSkyTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 1
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const g = ctx.createLinearGradient(0, 0, 0, 512) // zenith (v=1) → below horizon (v=0)
+    g.addColorStop(0, '#2f7ccd')
+    g.addColorStop(0.4, '#4b93de')
+    g.addColorStop(0.46, '#7fb5ec')
+    g.addColorStop(0.485, '#b7d7f5')
+    g.addColorStop(0.5, HAZE)
+    g.addColorStop(1, HAZE)
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 1, 512)
+  }
+  const tex = new CanvasTexture(canvas)
+  tex.colorSpace = SRGBColorSpace
+  return tex
+}
+const GRASS = '#4f9440'
+const ASPHALT = '#31363e'
+const KERB_RED = '#d63a2c'
+const KERB_WHITE = '#f2f5f8'
 
 // ---- grandstands (metres) ---------------------------------------------------
 // Tiered stands flank the track beyond the grass runoff, on both sides,
@@ -104,9 +132,9 @@ const STAND_CHUNKS = Math.ceil((STAND_BEHIND + STAND_AHEAD) / STAND_CHUNK) + 1 /
 const CHUNK_LEN = STAND_CHUNK + 0.8 // same overlap trick as the road pieces
 const STAND_WALL_H = TIER_COUNT * TIER_RISE + 2.6
 const ROOF_Y = STAND_WALL_H + 0.35
-const CONCRETE = '#565b64'
-const STAND_DARK = '#3c4049'
-const ROOF_TRIM = '#c8452f' // the kerb red carried up onto the roof fascia
+const CONCRETE = '#7b828c'
+const STAND_DARK = '#4a515c'
+const ROOF_TRIM = '#d84a30' // the kerb red carried up onto the roof fascia
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 const wrap = (v: number, n: number) => ((v % n) + n) % n
@@ -152,8 +180,8 @@ const CircuitGL = memo(forwardRef<CircuitHandle, Props>(function CircuitGL(
       <Canvas
         shadows
         dpr={[1, 2]}
-        gl={{ antialias: true, toneMappingExposure: 1.3 }}
-        camera={{ fov: 52, near: 1, far: 220, position: [0, 6, 11.5] }}
+        gl={{ antialias: true, toneMapping: ACESFilmicToneMapping, toneMappingExposure: 1.15 }}
+        camera={{ fov: 52, near: 1, far: 600, position: [0, 6, 11.5] }}
         aria-label="3D race circuit"
         role="img"
       >
@@ -177,6 +205,8 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
     table: makePoseTable(TABLE_BEHIND, TABLE_AHEAD),
     chunkDelta: new Float32Array(STAND_CHUNKS),
   }), [])
+  const skyTex = useMemo(makeSkyTexture, [])
+  useEffect(() => () => skyTex.dispose(), [skyTex])
 
   // Priority −1: everything here — above all the pose table — must be settled
   // before the crowd's default-priority frame loop samples it.
@@ -274,16 +304,24 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
 
   return (
     <>
-      <color attach="background" args={[SKY]} />
-      <fog attach="fog" args={[SKY, 55, 165]} />
+      {/* sky dome: inside of a sphere wearing the gradient; never fogged,
+          never tone-mapped (the gradient IS the final colour), no depth
+          write so everything draws in front of it */}
+      <mesh>
+        <sphereGeometry args={[480, 24, 24]} />
+        <meshBasicMaterial map={skyTex} side={BackSide} fog={false} toneMapped={false} depthWrite={false} />
+      </mesh>
+      <fog attach="fog" args={[HAZE, 60, 185]} />
 
-      <hemisphereLight args={['#a7b6cc', '#333a2c', 1.15]} />
-      {/* key light from behind-left of the camera so the faces we actually
-          see are lit, and every car throws its shadow up the road ahead */}
+      {/* Clear early-afternoon sun: one warm shadow-casting key from high
+          behind-left of the camera so the faces we actually see are lit and
+          every car throws its shadow up the road ahead, plus a blue-sky /
+          green-ground hemisphere fill so nothing falls into murk. */}
+      <hemisphereLight args={['#cfe4ff', '#7d8f5a', 1.0]} />
       <directionalLight
-        position={[-16, 24, 18]}
-        intensity={2.2}
-        color="#fff2dd"
+        position={[SUN_POS[0], SUN_POS[1], SUN_POS[2]]}
+        intensity={3.1}
+        color="#fff4de"
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
@@ -298,7 +336,7 @@ function Scene({ bridge, field, youId }: { bridge: SimBridge; field: readonly Ca
 
       {/* ---- the world ---- */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, -60]} receiveShadow>
-        <planeGeometry args={[500, 420]} />
+        <planeGeometry args={[1400, 1100]} />
         <meshStandardMaterial color={GRASS} roughness={1} />
       </mesh>
 
@@ -402,7 +440,7 @@ const StandChunk = memo(forwardRef<Group, { side: -1 | 1 }>(function StandChunk(
       {/* roof slab + the red fascia along its track-side edge */}
       <mesh position={[side * (STAND_INNER_X + (TIER_COUNT * TIER_DEPTH) / 2 - 0.3), ROOF_Y, 0]}>
         <boxGeometry args={[TIER_COUNT * TIER_DEPTH + 2.4, 0.3, CHUNK_LEN]} />
-        <meshStandardMaterial color="#2b2f36" roughness={1} />
+        <meshStandardMaterial color="#3a414c" roughness={1} />
       </mesh>
       <mesh position={[side * (STAND_INNER_X - 1.7), ROOF_Y - 0.28, 0]}>
         <boxGeometry args={[0.3, 0.6, CHUNK_LEN]} />
