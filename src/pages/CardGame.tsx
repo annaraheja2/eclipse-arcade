@@ -9,7 +9,8 @@ type Game = ReturnType<typeof useCardGame>
 import type { Color } from '../lib/cardgame'
 import { colorName, placementFor } from '../lib/cardgameView'
 import { StaticCard } from '../components/CardFace'
-import CardTable from '../components/CardTable'
+import CardTable3D from '../components/CardTable3D'
+import { isReducedMotion } from '../lib/motion'
 import QuestionPanel from '../components/QuestionPanel'
 import { ArrowLeft, Volume, VolumeMute, Coin, Bolt, Replay, Star, Cards } from '../icons'
 import { sfxPick, sfxDeny, sfxWin, setMuted, isMuted } from '../lib/sound'
@@ -21,6 +22,12 @@ const MAX_TOPICS = 6
 
 const COLOR_HEX: Record<Color, string> = { red: '#c62828', yellow: '#e0a200', green: '#1f9d4d', blue: '#2f6fd8' }
 const subKey = (unitId: string, subId: string) => `${unitId}/${subId}`
+
+/** Combined reduced-motion preference: OS setting OR the in-app Settings toggle. */
+function prefersReducedMotion(): boolean {
+  if (isReducedMotion()) return true
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+}
 
 // Weight selected topics by their question count to size the AI field, snapping
 // the average back to a band (mirrors Racer's aggregateDifficulty).
@@ -203,7 +210,7 @@ export default function CardGame() {
 
         {screen === 'play' && !showResults && (
           <div>
-            <CardTable view={view} accent={ACCENT} onCardActivate={(card) => {
+            <CardTable3D view={view} accent={ACCENT} reduced={prefersReducedMotion()} onCardActivate={(card) => {
               if (view.phase === 'choose') view.actions.selectCard(card)
               else if (view.phase === 'penalty') view.actions.selectStack(card)
             }} />
