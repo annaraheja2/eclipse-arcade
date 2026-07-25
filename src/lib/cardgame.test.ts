@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   makeDeck, shuffle, createGame, legalPlays, requiredDifficulty,
-  playCard, stackOrTake, drawToPlay, aiChoose, aiSolves, aiCorrectRate,
+  playCard, stackOrTake, drawToPlay, passTurn, aiChoose, aiSolves, aiCorrectRate,
   topCard, winnerOf, handCounts, nextPlayer,
   COLORS, HAND_SIZE, DECK_SIZE, PLAYER_MIN, PLAYER_MAX,
   type Card, type GameState, type Color, type NumberCard,
@@ -97,9 +97,10 @@ describe('shuffle', () => {
 })
 
 describe('createGame', () => {
-  it('deals 7 to every player and opens on a non-wild, color set from it', () => {
+  it('deals 5 to every player and opens on a non-wild, color set from it', () => {
+    expect(HAND_SIZE).toBe(5)
     const g = createGame(4, mulberry32(3))
-    expect(handCounts(g)).toEqual([7, 7, 7, 7])
+    expect(handCounts(g)).toEqual([5, 5, 5, 5])
     const top = topCard(g)
     expect(top.kind === 'wild' || top.kind === 'wild4').toBe(false)
     expect(g.currentColor).toBe(top.color)
@@ -312,32 +313,46 @@ describe('stackOrTake', () => {
   })
 })
 
-describe('drawToPlay', () => {
+describe('drawToPlay — free draw, no question gate', () => {
   it('is illegal while a penalty is pending', () => {
     const g = mk({ players: [[num('red', 1)]], discard: [num('red', 9)], pendingDraw: 2, pendingKind: 'draw2' })
-    expect(drawToPlay(g, 0, true, seqRng(0)).outcome).toBe('illegal')
+    expect(drawToPlay(g, 0, seqRng(0)).outcome).toBe('illegal')
   })
-  it('draws one on a correct solve; keeps the turn when it is playable', () => {
+  it('always draws exactly one — no solve outcome exists, no draw-2 forfeit', () => {
+    const g = mk({ players: [[], []], drawPile: [num('blue', 3), num('blue', 4)], discard: [num('red', 9)], currentColor: 'red', turn: 0 })
+    const r = drawToPlay(g, 0, seqRng(0))
+    expect(r.state.players[0]).toHaveLength(1) // one card, never a penalty draw
+    expect(r.outcome).toBe('drew-pass')
+  })
+  it('keeps the turn when the drawn card is playable', () => {
     const g = mk({ players: [[], []], drawPile: [num('red', 3)], discard: [num('red', 9)], currentColor: 'red', turn: 0 })
-    const r = drawToPlay(g, 0, true, seqRng(0))
+    const r = drawToPlay(g, 0, seqRng(0))
     expect(r.outcome).toBe('drew-playable')
     expect(r.playableDrawn?.kind).toBe('number')
-    expect(r.state.turn).toBe(0) // stays so the caller can play it on the same solve
+    expect(r.state.turn).toBe(0) // stays so the caller may attempt the gated play
     expect(r.state.players[0]).toHaveLength(1)
   })
-  it('draws one on a correct solve; passes the turn when it is not playable', () => {
+  it('passes the turn when the drawn card is not playable', () => {
     const g = mk({ players: [[], []], drawPile: [num('blue', 3)], discard: [num('red', 9)], currentColor: 'red', turn: 0 })
-    const r = drawToPlay(g, 0, true, seqRng(0))
+    const r = drawToPlay(g, 0, seqRng(0))
     expect(r.outcome).toBe('drew-pass')
     expect(r.playableDrawn).toBeNull()
     expect(r.state.turn).toBe(1)
   })
-  it('draws two and skips on a wrong solve', () => {
-    const g = mk({ players: [[], []], drawPile: [num('blue', 3), num('blue', 4)], discard: [num('red', 9)], turn: 0 })
-    const r = drawToPlay(g, 0, false, seqRng(0))
-    expect(r.outcome).toBe('drew-forfeit')
-    expect(r.state.players[0]).toHaveLength(2)
-    expect(r.state.turn).toBe(1)
+})
+
+describe('passTurn — keeping a playable drawn card', () => {
+  it('advances the turn in the current direction, hand untouched', () => {
+    const g = mk({ players: [[num('red', 3)], [], []], discard: [num('red', 9)], turn: 0, direction: 1 })
+    const next = passTurn(g, 0)
+    expect(next.turn).toBe(1)
+    expect(next.players[0]).toHaveLength(1)
+  })
+  it('is a no-op off-turn, once won, or with a penalty pending', () => {
+    const g = mk({ players: [[], []], discard: [num('red', 9)], turn: 0 })
+    expect(passTurn(g, 1)).toBe(g)
+    expect(passTurn({ ...g, winner: 1 }, 0)).toEqual({ ...g, winner: 1 })
+    expect(passTurn({ ...g, pendingDraw: 2, pendingKind: 'draw2' }, 0).turn).toBe(0)
   })
 })
 
@@ -349,7 +364,7 @@ describe('reshuffle when the stock runs dry', () => {
     const a = num('blue', 3)
     const b = num('green', 4)
     const g = mk({ players: [[], []], drawPile: [], discard: [a, b, top], currentColor: 'red', turn: 0 })
-    const r = drawToPlay(g, 0, true, seqRng(0))
+    const r = drawToPlay(g, 0, seqRng(0))
     expect(r.state.players[0]).toHaveLength(1) // successfully drew after reshuffle
     expect(r.state.discard).toEqual([top]) // only the top survives
     expect(r.state.drawPile).toHaveLength(1) // the other recycled card, minus the draw

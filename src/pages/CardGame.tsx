@@ -285,32 +285,34 @@ function ActionPanel({ view }: { view: Game }) {
       <Panel>
         <div className="flex items-center justify-center gap-3 mb-4">
           <StaticCard card={card} size="md" />
-          <p className="text-sm text-white/80">You drew a playable card.</p>
+          <p className="text-sm text-white/80">You drew a playable card — solve a question to play it, or keep it.</p>
         </div>
-        {isWild ? (
-          <>
-            <p className="text-center font-sans font-semibold text-sm text-white/80 mb-3">Choose a color to play it</p>
+        {isWild && <p className="text-center font-sans font-semibold text-sm text-white/80 mb-3">Choose a color to play it</p>}
+        <div className="flex flex-col items-center gap-3">
+          {isWild ? (
             <ColorPicker onPick={(c) => actions.playDrawn(c)} />
-          </>
-        ) : (
-          <div className="flex justify-center">
+          ) : (
             <button onClick={() => actions.playDrawn()}
               className="font-sans font-bold text-sm px-6 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
-              Play it
+              Solve to play it
             </button>
-          </div>
-        )}
+          )}
+          <button onClick={actions.keepDrawn}
+            className="font-sans font-semibold text-sm px-6 py-3 rounded-lg bg-white/5 border border-white/15 text-white/85 hover:bg-white/10 transition">
+            Keep it
+          </button>
+        </div>
       </Panel>
     )
   }
   if (phase === 'choose' && view.legal.length === 0) {
     return (
       <Panel>
-        <p className="text-center text-sm text-white/70 mb-4">No playable card — solve a question to draw one.</p>
+        <p className="text-center text-sm text-white/70 mb-4">No playable card — draw one.</p>
         <div className="flex justify-center">
           <button onClick={actions.requestDraw}
             className="font-sans font-bold text-sm px-6 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
-            Solve to draw
+            Draw a card
           </button>
         </div>
       </Panel>

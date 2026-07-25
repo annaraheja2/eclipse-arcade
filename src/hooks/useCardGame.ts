@@ -9,12 +9,13 @@
 // Effects live only here at the edge: a timer paces the AI so the human watches
 // each move, Math.random is the injected rng, and sound/reward callbacks are
 // passed in. Human interaction is modelled as an explicit in-flight `act`
-// (play / stack / draw) that a color pick and/or a solved question resolve.
+// (play / stack) that a color pick and/or a solved question resolve. Drawing
+// with no playable card is FREE — it never routes through a question.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Difficulty, Question } from '../data/subjects'
 import {
-  createGame, legalPlays, requiredDifficulty, playCard, stackOrTake, drawToPlay,
+  createGame, legalPlays, requiredDifficulty, playCard, stackOrTake, drawToPlay, passTurn,
   aiChoose, aiSolves, aiCorrectRate, topCard, handCounts,
   type Card, type Color, type GameState,
 } from '../lib/cardgame'
@@ -39,7 +40,6 @@ export interface CardGameConfig {
 type HumanAct =
   | { kind: 'play'; card: Card; color?: Color }
   | { kind: 'stack'; card: Card; color?: Color }
-  | { kind: 'draw' }
 
 export type CardPhase =
   | 'idle' // no game yet
@@ -48,7 +48,7 @@ export type CardPhase =
   | 'penalty' // human faces a pending draw: stack a matching card or take it
   | 'color' // human is declaring a wild's color
   | 'question' // a question gates the in-flight act
-  | 'drawn' // human drew a playable card: play it (same solve) — engine keeps the turn
+  | 'drawn' // human drew a playable card: solve to play it, or keep it and pass
   | 'gameover'
 
 export interface CardGameResult {
@@ -80,12 +80,13 @@ export interface CardGameActions {
   begin: (config: CardGameConfig) => void
   replay: () => void
   selectCard: (card: Card) => void // 'choose': play this legal card
-  requestDraw: () => void // 'choose' with no legal card: solve to draw
+  requestDraw: () => void // 'choose' with no legal card: draw one, free
   selectStack: (card: Card) => void // 'penalty': answer with this matching card
   takePenalty: () => void // 'penalty': take the whole stack
   chooseColor: (color: Color) => void // 'color': declare a wild's color
   answer: (correct: boolean) => void // 'question': resolve the in-flight act
-  playDrawn: (color?: Color) => void // 'drawn': play the just-drawn card
+  playDrawn: (color?: Color) => void // 'drawn': solve to play the just-drawn card
+  keepDrawn: () => void // 'drawn': keep the card and pass the turn
 }
 
 interface Hooks {
@@ -198,12 +199,10 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
         return
       }
       case 'draw': {
-        const solved = aiSolves(rng, rate)
-        const res = drawToPlay(s, ai, solved, rng)
-        // 'drew-playable' keeps the turn on the AI; the next tick plays the card.
-        settle(res.state, res.outcome === 'drew-forfeit'
-          ? `${name} can't answer — draws 2`
-          : `${name} draws a card`)
+        // Drawing is free — no question. 'drew-playable' keeps the turn on the
+        // AI; the next tick attempts the (still question-gated) play.
+        const res = drawToPlay(s, ai, rng)
+        settle(res.state, `${name} draws a card`)
         return
       }
     }
@@ -250,13 +249,22 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
     setPhase('question')
   }, [phase, pullFor])
 
+  // Drawing with no playable card is free: draw immediately, no question. A
+  // playable draw keeps the turn (engine contract) and offers the gated play.
   const requestDraw = useCallback(() => {
     if (phase !== 'choose') return
-    setAct({ kind: 'draw' })
-    setQuestion(pullFor('easy'))
-    setQuestionLabel('SOLVE TO DRAW')
-    setPhase('question')
-  }, [phase, pullFor])
+    const s = stateRef.current
+    if (!s) return
+    const res = drawToPlay(s, HUMAN, rng)
+    if (res.outcome === 'drew-playable' && res.playableDrawn) {
+      setGame(res.state)
+      setDrawnCard(res.playableDrawn)
+      setLog(`You drew ${describeCard(res.playableDrawn)} — playable`)
+      setPhase('drawn')
+      return
+    }
+    settle(res.state, 'You draw a card')
+  }, [phase, settle, setGame])
 
   const selectStack = useCallback((card: Card) => {
     if (phase !== 'penalty') return
@@ -283,7 +291,7 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
   }, [phase, settle])
 
   const chooseColor = useCallback((color: Color) => {
-    if (phase !== 'color' || !act || act.kind === 'draw') return
+    if (phase !== 'color' || !act) return
     setAct({ ...act, color })
     setQuestion(pullFor('hard')) // wild plays and wild4 stacks are always the hard tier
     setQuestionLabel(act.kind === 'stack' ? 'SOLVE TO STACK' : 'SOLVE TO PLAY')
@@ -304,38 +312,33 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
         : `Wrong — you forfeit the play and draw 1`)
       return
     }
-    if (act.kind === 'stack') {
-      const owed = s.pendingDraw
-      const res = stackOrTake(s, HUMAN, act.card, correct, rng, act.color)
-      settle(res.state, correct
-        ? `You stack ${describeCard(act.card, act.color)}`
-        : `Wrong — you take +${owed}`)
-      return
-    }
-    // draw
-    const res = drawToPlay(s, HUMAN, correct, rng)
-    if (res.outcome === 'drew-playable' && res.playableDrawn) {
-      setGame(res.state)
-      setAct(null)
-      setQuestion(null)
-      setDrawnCard(res.playableDrawn)
-      setLog(`You drew ${describeCard(res.playableDrawn)} — playable, so play it`)
-      setPhase('drawn')
-      return
-    }
-    settle(res.state, correct ? 'You draw a card' : 'Wrong — you draw 2 and pass')
-  }, [phase, act, settle, setGame])
+    // stack
+    const owed = s.pendingDraw
+    const res = stackOrTake(s, HUMAN, act.card, correct, rng, act.color)
+    settle(res.state, correct
+      ? `You stack ${describeCard(act.card, act.color)}`
+      : `Wrong — you take +${owed}`)
+  }, [phase, act, settle])
 
+  // The drawn card was free; PLAYING it is a normal gated play — route to a
+  // question (the 'drawn' overlay supplies a wild's color before calling this).
   const playDrawn = useCallback((color?: Color) => {
     if (phase !== 'drawn' || !drawnCard) return
+    const isWild = drawnCard.kind === 'wild' || drawnCard.kind === 'wild4'
+    if (isWild && !color) return
+    setAct({ kind: 'play', card: drawnCard, color })
+    setDrawnCard(null)
+    setQuestion(pullFor(requiredDifficulty(drawnCard)))
+    setQuestionLabel('SOLVE TO PLAY')
+    setPhase('question')
+  }, [phase, drawnCard, pullFor])
+
+  const keepDrawn = useCallback(() => {
+    if (phase !== 'drawn') return
     const s = stateRef.current
     if (!s) return
-    const isWild = drawnCard.kind === 'wild' || drawnCard.kind === 'wild4'
-    if (isWild && !color) return // the overlay must supply a color for a wild
-    // Same solve that drew the card — no second question (engine's turn-stays contract).
-    const res = playCard(s, HUMAN, drawnCard, true, rng, color)
-    settle(res.state, `You play ${describeCard(drawnCard, color)}`)
-  }, [phase, drawnCard, settle])
+    settle(passTurn(s, HUMAN), 'You keep the card')
+  }, [phase, settle])
 
   // ---- derived view ----
   const cfg = configRef.current
@@ -351,7 +354,7 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
         current: state.turn === i + 1 && state.winner === null,
       }))
     : []
-  const activeCard = phase === 'drawn' ? drawnCard : (phase === 'color' && act && act.kind !== 'draw' ? act.card : null)
+  const activeCard = phase === 'drawn' ? drawnCard : (phase === 'color' && act ? act.card : null)
 
   return {
     phase,
@@ -370,7 +373,7 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
     log,
     result,
     actions: {
-      begin, replay, selectCard, requestDraw, selectStack, takePenalty, chooseColor, answer, playDrawn,
+      begin, replay, selectCard, requestDraw, selectStack, takePenalty, chooseColor, answer, playDrawn, keepDrawn,
     },
   }
 }

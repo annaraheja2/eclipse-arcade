@@ -33,7 +33,7 @@ export type Card = NumberCard | SkipCard | ReverseCard | Draw2Card | WildCard | 
 
 // ---- setup constants -----------------------------------------------------
 
-export const HAND_SIZE = 7
+export const HAND_SIZE = 5
 export const PLAYER_MIN = 2
 export const PLAYER_MAX = 5
 export const DEFAULT_PLAYERS = 4
@@ -106,7 +106,7 @@ const seatAway = (turn: number, dir: Direction, n: number, steps = 1) =>
   (((turn + dir * steps) % n) + n) % n
 
 /**
- * Deal a new game: shuffle a full deck, deal 7 to each of `playerCount`
+ * Deal a new game: shuffle a full deck, deal 5 to each of `playerCount`
  * (2–5, clamped; defaults to 4 for a nonsensical count), flip the first
  * non-wild card to open the discard, and set the active color from it. Turn 0,
  * direction +1. Any wilds passed over while seeking that opener are buried at
@@ -362,42 +362,25 @@ export function stackOrTake(
   }
 }
 
-export type DrawOutcome = 'illegal' | 'drew-playable' | 'drew-pass' | 'drew-forfeit'
+export type DrawOutcome = 'illegal' | 'drew-playable' | 'drew-pass'
 export interface DrawResult { state: GameState; outcome: DrawOutcome; playableDrawn: Card | null }
 
 /**
- * A normal turn where the player draws (usually because they hold no legal card).
- * - `solvedCorrectly === true` → draw 1. If the drawn card is legal, the turn
- *   STAYS so the caller may play it on the same solve (no second question) —
- *   returned as `playableDrawn`, outcome 'drew-playable'. Otherwise the turn
- *   passes → 'drew-pass'.
- * - `solvedCorrectly === false` → draw 2 and the turn is skipped → 'drew-forfeit'.
+ * A normal turn where the player draws (because they hold no legal card).
+ * Drawing is FREE — no question gates it. Draw 1: if the drawn card is legal,
+ * the turn STAYS so the caller may attempt to play it (a normal, question-gated
+ * play) or pass with `passTurn` — returned as `playableDrawn`, outcome
+ * 'drew-playable'. Otherwise the turn passes → 'drew-pass'.
  * Illegal off-turn, once won, or while a penalty is pending (use stackOrTake).
  */
 export function drawToPlay(
-  state: GameState, playerId: number, solvedCorrectly: boolean, rng: () => number,
+  state: GameState, playerId: number, rng: () => number,
 ): DrawResult {
   const n = state.players.length
   if (state.winner !== null || playerId !== state.turn || state.pendingDraw > 0) {
     return { state, outcome: 'illegal', playableDrawn: null }
   }
   const pass = seatAway(state.turn, state.direction, n)
-
-  if (!solvedCorrectly) {
-    const d = drawFrom(state.drawPile, state.discard, 2, rng)
-    return {
-      state: {
-        ...state,
-        players: setHand(state.players, playerId, [...state.players[playerId], ...d.drawn]),
-        drawPile: d.drawPile,
-        discard: d.discard,
-        turn: pass,
-      },
-      outcome: 'drew-forfeit',
-      playableDrawn: null,
-    }
-  }
-
   const d = drawFrom(state.drawPile, state.discard, 1, rng)
   const base = {
     ...state,
@@ -410,6 +393,17 @@ export function drawToPlay(
     return { state: base, outcome: 'drew-playable', playableDrawn: drawn } // turn stays
   }
   return { state: { ...base, turn: pass }, outcome: 'drew-pass', playableDrawn: null }
+}
+
+/**
+ * Pass the turn without playing — the follow-up to a 'drew-playable' draw when
+ * the player keeps the card instead of attempting the (question-gated) play.
+ * Unchanged state when it isn't their turn, the game is over, or a penalty is
+ * pending.
+ */
+export function passTurn(state: GameState, playerId: number): GameState {
+  if (state.winner !== null || playerId !== state.turn || state.pendingDraw > 0) return state
+  return { ...state, turn: seatAway(state.turn, state.direction, state.players.length) }
 }
 
 // ---- AI (pure) -----------------------------------------------------------
