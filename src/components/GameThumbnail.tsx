@@ -21,6 +21,7 @@ function pick(g: GameDef): JSX.Element {
     case 'battleship': return <BattleshipThumb />
     case 'racer': return <RacerThumb color={g.color} />
     case 'cardgame': return <CardGameThumb color={g.color} />
+    case 'ascend': return <AscendThumb color={g.color} />
     case 'daily': return <DailyThumb color={g.color} />
     case 'pinpoint': return <PinPointThumb color={g.color} />
     case 'slider': return <SliderThumb color={g.color} />
@@ -142,6 +143,39 @@ function CardGameThumb({ color }: { color: string }) {
       </g>
       {card(104, 40, 8, '#181328', '#e9dcba', '+2', '-0.6s')}
       <circle className="tn-ping" cx="104" cy="40" r="24" fill="none" stroke={hi} strokeWidth="2" />
+    </>
+  )
+}
+
+/* ---- Ascend: mini board grid, a glowing ladder, a snake, a bouncing die ---- */
+function AscendThumb({ color }: { color: string }) {
+  const hi = bright(color)
+  return (
+    <>
+      {/* board grid */}
+      {[40, 64, 88, 112, 136, 160].map((x) => <line key={`v${x}`} x1={x} y1="18" x2={x} y2="102" stroke={GRID} />)}
+      {[18, 39, 60, 81, 102].map((y) => <line key={`h${y}`} x1="40" y1={y} x2="160" y2={y} stroke={GRID} />)}
+      {/* ladder rising across the board */}
+      <g stroke={hi} strokeWidth="3" strokeLinecap="round" className="tn-glowpulse">
+        <line x1="58" y1="96" x2="102" y2="30" />
+        <line x1="74" y1="98" x2="118" y2="32" />
+        <line x1="64" y1="82" x2="80" y2="84" />
+        <line x1="74" y1="66" x2="90" y2="68" />
+        <line x1="84" y1="50" x2="100" y2="52" />
+        <line x1="94" y1="35" x2="110" y2="37" />
+      </g>
+      {/* a snake sliding the other way */}
+      <path d="M148 26 C 160 42 132 52 144 66 C 154 78 132 86 138 96"
+        fill="none" stroke="#ff4d8d" strokeWidth="5" strokeLinecap="round" opacity="0.9" />
+      <circle cx="148" cy="26" r="5" fill="#ff4d8d" />
+      {/* the die, hopping */}
+      <g className="tn-bob">
+        <rect x="30" y="34" width="22" height="22" rx="5" fill="#f0f2f8" />
+        <circle cx="36.5" cy="40.5" r="2" fill="#1a1030" />
+        <circle cx="45.5" cy="49.5" r="2" fill="#1a1030" />
+        <circle cx="45.5" cy="40.5" r="2" fill="#1a1030" />
+        <circle cx="36.5" cy="49.5" r="2" fill="#1a1030" />
+      </g>
     </>
   )
 }

@@ -23,6 +23,7 @@ import {
   Object3D, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TubeGeometry, Vector3,
 } from 'three'
 import type { Group, InstancedMesh, Mesh } from 'three'
+import Character3D, { SEAT_TINTS } from './Character3D'
 import type { Card, Color } from '../lib/cardgame'
 import { colorName, describeCard } from '../lib/cardgameView'
 import type { CardGameView, CardPhase } from '../hooks/useCardGame'
@@ -58,9 +59,6 @@ const WOOD_RIM = '#7a5230'
 const WOOD_SKIRT = '#5d3f26'
 const WOOD_DARK = '#46301c'
 const DECK_TOP_Y = -1.35 // the wooden deck surface the table stands on
-// Placeholder-character tints, one per seat (0 = you). Swap the Character
-// component below for real designs later — everything else stays.
-const SEAT_TINTS = ['#7c3aff', '#ff4d8d', '#3df5ff', '#3dffa2', '#ffb43d'] as const
 
 // ---- world layout (units: 1 card is 1 x 1.5) --------------------------------
 const TABLE_R = 3.6
@@ -468,49 +466,6 @@ function useLabelMaterial(draw: (ctx: CanvasRenderingContext2D) => void, w: numb
   return mat
 }
 
-// ---- placeholder characters ---------------------------------------------------
-// Deliberately simple team-tinted figures (torso + head + arms) so real designs
-// can replace this ONE component later without touching layout or camera.
-
-function Character({ tint, dimmed }: { tint: string; dimmed: boolean }) {
-  const body = useMemo(() => {
-    const c = new ThreeColor(tint)
-    if (dimmed) c.lerp(new ThreeColor(DUSK_DIM), 0.3)
-    return c
-  }, [tint, dimmed])
-  const head = useMemo(() => {
-    const c = new ThreeColor(tint).lerp(new ThreeColor('#ffffff'), 0.45)
-    if (dimmed) c.lerp(new ThreeColor(DUSK_DIM), 0.3)
-    return c
-  }, [tint, dimmed])
-  return (
-    <group>
-      {/* torso */}
-      <mesh position={[0, 1.05, 0]} castShadow>
-        <capsuleGeometry args={[0.42, 0.7, 4, 12]} />
-        <meshStandardMaterial color={body} roughness={0.7} />
-      </mesh>
-      {/* head */}
-      <mesh position={[0, 1.95, 0]} castShadow>
-        <sphereGeometry args={[0.3, 16, 12]} />
-        <meshStandardMaterial color={head} roughness={0.6} />
-      </mesh>
-      {/* visor band — gives the head a facing */}
-      <mesh position={[0, 1.96, 0.24]}>
-        <boxGeometry args={[0.36, 0.13, 0.1]} />
-        <meshStandardMaterial color="#2b2233" roughness={0.3} />
-      </mesh>
-      {/* arms resting toward the table */}
-      {[-1, 1].map((s) => (
-        <mesh key={s} position={[s * 0.5, 1.0, 0.3]} rotation={[0.9, 0, s * -0.5]}>
-          <capsuleGeometry args={[0.13, 0.55, 3, 8]} />
-          <meshStandardMaterial color={body} roughness={0.7} />
-        </mesh>
-      ))}
-    </group>
-  )
-}
-
 // ---- opponent seat -------------------------------------------------------------
 
 const FAN_MAX = 10 // fan display cap; the label always carries the true count
@@ -562,7 +517,7 @@ function OpponentSeat({ seat, index, total, skins, cardGeo, accent, reduced }: {
         <meshStandardMaterial color={WOOD_DARK} roughness={0.9} />
       </mesh>
       <group scale={1.15}>
-        <Character tint={SEAT_TINTS[index % SEAT_TINTS.length]} dimmed={!seat.current} />
+        <Character3D tint={SEAT_TINTS[index % SEAT_TINTS.length]} dimmed={!seat.current} dimColor={DUSK_DIM} />
       </group>
       {/* face-down fan on the table edge — counter-yawed so it always faces
           the camera side instead of reading edge-on from side seats */}
