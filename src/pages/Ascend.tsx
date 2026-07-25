@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { COURSES, type Question } from '../data/subjects'
+import { COURSES, COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
+import { loadCourse } from '../lib/content'
 import {
   RACERS, START_SQUARE, LAST_SQUARE, rollDie, resolveMove, nextRacer,
   placements, finalScore, POINTS_PER_CORRECT, PLACEMENT_BONUS,
 } from '../lib/ascend'
 import AscendBoard3D, { type BoardMove } from '../components/AscendBoard3D'
 import QuestionPanel from '../components/QuestionPanel'
-import { usePlayer } from '../lib/player'
+import { usePlayer, resolveCourseId } from '../lib/player'
 import { isReducedMotion } from '../lib/motion'
 import { SEAT_TINTS } from '../components/Character3D'
 import { ArrowLeft, Ladder } from '../icons'
@@ -17,13 +18,15 @@ const ACCENT_BTN: CSSProperties & { '--btn': string; '--edge': string; '--glow':
   '--btn': ACCENT, '--edge': `color-mix(in srgb, ${ACCENT} 50%, #000)`, '--glow': `${ACCENT}88`,
 }
 
-// v1 content: reuse the bundled Algebra 1 "Solving Linear Equations" unit —
-// no new authoring; real curriculum picking can come later.
-const QUESTION_POOL: readonly Question[] =
-  COURSES[0].units.find((u) => u.id === 'solving-linear-equations')?.subunits.flatMap((s) => s.questions)
-  ?? COURSES[0].units.flatMap((u) => u.subunits.flatMap((s) => s.questions))
+const MAX_TOPICS = 6
+const subKey = (unitId: string, subId: string) => `${unitId}/${subId}`
 
-const randomQ = (): Question => QUESTION_POOL[Math.floor(Math.random() * QUESTION_POOL.length)]
+// Safety net only: if a selection somehow yields zero questions, the race draws
+// from the bundled first course rather than crashing mid-climb.
+const FALLBACK_POOL: readonly Question[] =
+  COURSES[0].units.flatMap((u) => u.subunits.flatMap((s) => s.questions))
+
+const draw = (pool: readonly Question[]): Question => pool[Math.floor(Math.random() * pool.length)]
 
 /** Combined reduced-motion preference: OS setting OR the in-app toggle. */
 function prefersReducedMotion(): boolean {
@@ -36,15 +39,25 @@ function prefersReducedMotion(): boolean {
 // then auto-roll. Both funnel through 'moving' (the board animates) and back.
 type Phase = 'question' | 'wrong' | 'moving' | 'ai-think' | 'over'
 
+// Pre-race chrome (mirrors CardGame): pick a course, then topics, then climb.
+type Screen = 'course' | 'build' | 'play'
+
 export default function Ascend() {
   const navigate = useNavigate()
-  const { finishGame, recordAnswer } = usePlayer()
+  const { player, finishGame, recordAnswer } = usePlayer()
+  const preferredCourseId = resolveCourseId(player.preferredCourseId)
   const reduced = prefersReducedMotion()
+
+  const [screen, setScreen] = useState<Screen>('course')
+  const [courseId, setCourseId] = useState<string | null>(null)
+  const [course, setCourse] = useState<Course | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [pool, setPool] = useState<readonly Question[]>(FALLBACK_POOL)
 
   const [positions, setPositions] = useState<number[]>(() => RACERS.map(() => START_SQUARE))
   const [turn, setTurn] = useState(0)
   const [phase, setPhase] = useState<Phase>('question')
-  const [q, setQ] = useState<Question>(randomQ)
+  const [q, setQ] = useState<Question>(() => draw(FALLBACK_POOL))
   const [move, setMove] = useState<BoardMove | null>(null)
   const [lastRoll, setLastRoll] = useState<{ racer: number; value: number } | null>(null)
   const [correct, setCorrect] = useState(0)
@@ -52,6 +65,58 @@ export default function Ascend() {
   const [reward, setReward] = useState<{ score: number; place: number; xp: number; coins: number; best: boolean } | null>(null)
   const seqRef = useRef(0)
   const correctRef = useRef(0)
+
+  // Load the picked course (loadCourse always resolves — bundled fallback).
+  useEffect(() => {
+    if (!courseId) return
+    let cancelled = false
+    setCourse(null)
+    void loadCourse(courseId).then((c) => { if (!cancelled) setCourse(c) })
+    return () => { cancelled = true }
+  }, [courseId])
+
+  const selectedSubs: Subunit[] = useMemo(() => course
+    ? course.units.flatMap((u) => u.subunits.filter((s) => selected.has(subKey(u.id, s.id))))
+    : [], [course, selected])
+  const questionCount = selectedSubs.reduce((n, s) => n + s.questions.length, 0)
+  const canStart = selectedSubs.length > 0 && questionCount > 0
+
+  function toggleSub(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else { if (next.size >= MAX_TOPICS) return prev; next.add(key) }
+      return next
+    })
+  }
+
+  // Reset every piece of race state and open on your first question.
+  function startRace(nextPool: readonly Question[]) {
+    setPool(nextPool)
+    setPositions(RACERS.map(() => START_SQUARE))
+    setTurn(0)
+    setQ(draw(nextPool))
+    setMove(null)
+    setLastRoll(null)
+    setCorrect(0)
+    correctRef.current = 0
+    setWinner(null)
+    setReward(null)
+    setPhase('question')
+  }
+
+  function start() {
+    if (!canStart) return
+    const qs = selectedSubs.flatMap((s) => s.questions)
+    startRace(qs.length > 0 ? qs : FALLBACK_POOL)
+    setScreen('play')
+  }
+
+  function goBack() {
+    if (screen === 'course') { navigate('/'); return }
+    if (screen === 'build') { setScreen('course'); return }
+    setScreen('build') // leave a race in progress back to setup
+  }
 
   function startMove(racer: number) {
     const value = rollDie(Math.random)
@@ -107,20 +172,7 @@ export default function Ascend() {
     }
     const who = nextRacer(racer, RACERS.length)
     setTurn(who)
-    if (who === 0) { setQ(randomQ()); setPhase('question') } else { setPhase('ai-think') }
-  }
-
-  function playAgain() {
-    setPositions(RACERS.map(() => START_SQUARE))
-    setTurn(0)
-    setQ(randomQ())
-    setMove(null)
-    setLastRoll(null)
-    setCorrect(0)
-    correctRef.current = 0
-    setWinner(null)
-    setReward(null)
-    setPhase('question')
+    if (who === 0) { setQ(draw(pool)); setPhase('question') } else { setPhase('ai-think') }
   }
 
   const statusText =
@@ -135,7 +187,7 @@ export default function Ascend() {
       <div aria-hidden className="pointer-events-none fixed inset-0 grid-floor" />
       <div className="relative max-w-3xl mx-auto px-5 py-6">
         <div className="flex items-center justify-between mb-5">
-          <button aria-label="Back" onClick={() => navigate('/')}
+          <button aria-label="Back" onClick={goBack}
             className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">
             <ArrowLeft width={18} height={18} />
           </button>
@@ -145,6 +197,90 @@ export default function Ascend() {
           <div aria-hidden className="w-10 h-10" />
         </div>
 
+        {screen === 'course' && (
+          <Section title="CHOOSE A COURSE">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {COURSE_LIST.map((c) => {
+                const preferred = c.id === preferredCourseId
+                return (
+                  <button key={c.id} onClick={() => { setCourseId(c.id); setSelected(new Set()); setScreen('build') }}
+                    aria-label={preferred ? `${c.name} — your math level` : c.name}
+                    className={`text-left rounded-xl border bg-white/[0.03] p-4 transition ${preferred ? 'border-neon-green/70' : 'border-white/10 hover:border-neon-green/60'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold">{c.name}</span>
+                      {preferred && <span className="shrink-0 font-sans text-[10px] font-bold tracking-wide px-2 py-1 rounded" style={{ background: `${ACCENT}33`, color: ACCENT }}>YOUR LEVEL</span>}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </Section>
+        )}
+
+        {screen === 'build' && !course && (
+          <p className="text-center text-white/70 font-sans text-sm py-16">Loading course…</p>
+        )}
+
+        {screen === 'build' && course && (
+          <Section title="PICK YOUR TOPICS">
+            <p className="text-center text-sm text-white/60 mb-5">
+              Load up to {MAX_TOPICS} topics. Each correct answer earns you a roll toward the summit.
+            </p>
+            <div className="flex items-center justify-between mb-4 rounded-lg bg-white/[0.03] border border-white/10 px-4 py-2.5">
+              <span className="font-sans text-xs font-semibold tracking-wide text-white/80">{selected.size}/{MAX_TOPICS} topics · {questionCount} questions</span>
+              <button onClick={() => setSelected(new Set())} disabled={selected.size === 0}
+                className="font-sans text-xs font-semibold px-3 py-1.5 rounded bg-white/5 border border-white/10 text-white/80 enabled:hover:bg-white/10 disabled:opacity-40">Clear</button>
+            </div>
+            {course.units.every((u) => u.subunits.every((s) => s.questions.length === 0)) ? (
+              <p className="text-center text-sm text-white/60 py-8">This course has no authored questions yet — pick another course.</p>
+            ) : (
+              <div className="grid gap-5">
+                {course.units.filter((u) => u.subunits.length > 0).map((u) => (
+                  <div key={u.id}>
+                    <div className="font-bold text-white/90 mb-2">{u.name}</div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {u.subunits.map((s) => {
+                        const key = subKey(u.id, s.id)
+                        const checked = selected.has(key)
+                        const noQ = s.questions.length === 0
+                        const blocked = !checked && selected.size >= MAX_TOPICS
+                        const disabled = noQ || blocked
+                        return (
+                          <button key={s.id} role="checkbox" aria-checked={checked} aria-disabled={disabled}
+                            onClick={() => { if (!disabled) toggleSub(key) }}
+                            className={`flex items-center gap-3 text-left rounded-lg border p-3 transition ${disabled ? 'opacity-45 cursor-default border-white/10' : 'hover:border-neon-green/50 border-white/10'}`}
+                            style={checked ? { borderColor: ACCENT, background: `${ACCENT}1f` } : undefined}>
+                            <span aria-hidden className="grid place-items-center w-5 h-5 rounded border shrink-0"
+                              style={{ borderColor: checked ? ACCENT : 'rgba(255,255,255,0.4)', background: checked ? ACCENT : 'transparent' }}>
+                              {checked && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0a2b18" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-11" /></svg>}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="font-semibold truncate">{s.name}</span>
+                                <DiffBadge d={s.difficulty} />
+                              </span>
+                              <span className="block text-xs text-white/55 mt-0.5">{noQ ? 'No questions yet' : `${s.questions.length} questions`}</span>
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-7 flex flex-col items-center gap-2">
+              <button onClick={start} disabled={!canStart}
+                className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-[#0a0620] disabled:opacity-40 transition"
+                style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+                Start the climb
+              </button>
+              {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+            </div>
+          </Section>
+        )}
+
+        {screen === 'play' && (<>
         {/* racer standings — square 0 is the start pad, 100 the summit */}
         <div className="flex justify-center gap-3 mb-4">
           {RACERS.map((r) => (
@@ -188,10 +324,14 @@ export default function Ascend() {
               {' '}({correct} × {POINTS_PER_CORRECT} + {PLACEMENT_BONUS[reward.place - 1] ?? 0} place bonus)
               {' '}· +{reward.xp} XP · +{reward.coins} coins{reward.best ? ' · NEW BEST' : ''}
             </p>
-            <div className="flex justify-center gap-3">
-              <button onClick={playAgain}
+            <div className="flex flex-wrap justify-center gap-3">
+              <button onClick={() => startRace(pool)}
                 className="arcade-btn font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={ACCENT_BTN}>
                 PLAY AGAIN
+              </button>
+              <button onClick={() => setScreen('build')}
+                className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">
+                NEW TOPICS
               </button>
               <button onClick={() => navigate('/')}
                 className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">
@@ -200,9 +340,19 @@ export default function Ascend() {
             </div>
           </div>
         )}
+        </>)}
       </div>
     </div>
   )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return <div><h2 className="font-pixel text-[12px] tracking-wide mb-6 text-center" style={{ color: ACCENT }}>{title}</h2>{children}</div>
+}
+
+function DiffBadge({ d }: { d: Difficulty }) {
+  const c = d === 'easy' ? '#3dffa2' : d === 'medium' ? '#ffb43d' : '#ff4d8d'
+  return <span className="text-[10px] font-sans font-bold tracking-wide px-2 py-1 rounded" style={{ background: `${c}22`, color: c }}>{d.toUpperCase()}</span>
 }
 
 function ordinal(n: number): string {
