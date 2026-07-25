@@ -24,17 +24,32 @@ import {
 } from 'three'
 import type { Group, InstancedMesh, Mesh } from 'three'
 import type { Card, Color } from '../lib/cardgame'
-import { cardGlyph, colorName, describeCard } from '../lib/cardgameView'
+import { colorName, describeCard } from '../lib/cardgameView'
 import type { CardGameView, CardPhase } from '../hooks/useCardGame'
 
-// ---- palette (mirrors CardFace.tsx so 2D overlays and 3D faces agree) -------
-const SKIN: Record<Color, { fill: string; edge: string; ink: string }> = {
-  red: { fill: '#c62828', edge: '#7f1414', ink: '#ffffff' },
-  yellow: { fill: '#e0a200', edge: '#906500', ink: '#1a1400' },
-  green: { fill: '#1f9d4d', edge: '#0f5e2c', ink: '#ffffff' },
-  blue: { fill: '#2f6fd8', edge: '#123f8c', ink: '#ffffff' },
+// ---- the ECLIPSE deck --------------------------------------------------------
+// The user's own deck design: elegant celestial art-deco. Four suits replace
+// the UNO hues — SOLAR (cream), LUNAR (navy), FOREST (emerald), EMBER
+// (crimson) — while the engine's Color keys stay untouched (presentation-only
+// remap, mirrored in CardFace.tsx and the CardGame page).
+type Suit = {
+  stock0: string; stock1: string // card-stock gradient, top → bottom
+  ink: string //   numerals / symbols / the color name (AA on the stock)
+  gold: string //  border + celestial linework
+  motif: number // linework alpha — the motif stays behind the numeral
+  swatch: string // UI indicator hex: discard halo, color sign, pick buttons
+  swatchInk: string // text on the swatch (the cream suit takes dark ink)
 }
-const QUAD_COLORS = ['#c62828', '#e0a200', '#1f9d4d', '#2f6fd8'] as const
+const SUIT: Record<Color, Suit> = {
+  yellow: { stock0: '#f0e4c6', stock1: '#ddcaa0', ink: '#26190e', gold: '#96742f', motif: 0.4, swatch: '#e9dcba', swatchInk: '#26190e' },
+  blue: { stock0: '#243550', stock1: '#152238', ink: '#f0e4c4', gold: '#c9a35c', motif: 0.5, swatch: '#3c5c94', swatchInk: '#ffffff' },
+  green: { stock0: '#465c3c', stock1: '#31452b', ink: '#f0e6c8', gold: '#c9a35c', motif: 0.5, swatch: '#4e7a48', swatchInk: '#ffffff' },
+  red: { stock0: '#96352a', stock1: '#75251d', ink: '#f2e4c4', gold: '#dcb46a', motif: 0.5, swatch: '#b8412f', swatchInk: '#ffffff' },
+}
+// Wilds are suitless: near-black night stock, the full gold treatment.
+const WILD_SUIT: Suit = { stock0: '#1e1930', stock1: '#110d1f', ink: '#f0e4c4', gold: '#c9a35c', motif: 0.5, swatch: '#c9a35c', swatchInk: '#26190e' }
+// The wild diamond's four quadrants, N/E/S/W: solar, lunar, ember, forest.
+const QUAD_COLORS = ['#e9dcba', '#3c5c94', '#b8412f', '#4e7a48'] as const
 // ---- golden-hour palette -----------------------------------------------------
 const HAZE = '#f0a066' // warm atmospheric haze — the fog AND the horizon band
 const DUSK_DIM = '#3a2f45' // dimmed characters/cards sink toward dusk, not void
@@ -69,10 +84,15 @@ function seatPosition(i: number, n: number): { x: number; z: number } {
 // crisp at any dpr, zero per-frame cost. Faces are cached per unique face (54
 // max) with their materials, and disposed when the table unmounts.
 
-const FACE_W = 256
-const FACE_H = 384
-// Clean geometric sans for everything drawn to canvas — no pixel glyphs.
+const FACE_W = 320
+const FACE_H = 480
+// Clean geometric sans for UI labels drawn to canvas — no pixel glyphs.
 const SANS = 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif'
+// The ECLIPSE deck's numerals are an elegant high-contrast serif — a deliberate
+// divergence for this cabinet. Loaded in index.html; textures bake after
+// document.fonts resolves so the canvas never rasterizes the fallback.
+const SERIF_FAMILY = '"Playfair Display"'
+const SERIF = `${SERIF_FAMILY}, Georgia, "Times New Roman", serif`
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath()
@@ -96,117 +116,307 @@ function makeTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2D)
   return tex
 }
 
-// A clean modern playing card: white body, thin inner frame, big colored
-// center pip on a soft tinted disc, crisp corner indices, and the color NAME
-// pinned bottom-left (fans overlap from the right — the left strip survives).
-function drawFace(ctx: CanvasRenderingContext2D, card: Card) {
-  const isWild = card.kind === 'wild' || card.kind === 'wild4'
-  const skin = card.color ? SKIN[card.color] : null
-  const accent = skin ? skin.fill : '#2b2438'
-  // yellow pips need the darker edge tone to read on the white card stock
-  const ink = card.color === 'yellow' ? SKIN.yellow.edge : accent
-  const glyph = cardGlyph(card)
+// ---- ECLIPSE face painting ---------------------------------------------------
+// Every face shares the same anatomy as the reference deck: suit card stock,
+// an ornate double gold border with corner accents, a subtle celestial motif
+// (eclipse circle + sunburst, an orbit line, scattered stars) behind a large
+// high-contrast serif glyph, corner indices top-left/bottom-right, and the
+// color NAME bottom-left (fans overlap from the right — the left strip survives).
 
-  // card body — near-white with a faint top-light sheen
-  roundedRect(ctx, 0, 0, FACE_W, FACE_H, 24)
+const FACE_CX = FACE_W / 2
+const FACE_CY = 222 // the eclipse circle's centre — above the name strip
+const ECLIPSE_R = 104
+
+/** A 4-point sparkle (two pinched diamonds) — the deck's star mark. */
+function drawSparkle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  ctx.beginPath()
+  ctx.moveTo(x, y - r)
+  ctx.quadraticCurveTo(x + r * 0.18, y - r * 0.18, x + r, y)
+  ctx.quadraticCurveTo(x + r * 0.18, y + r * 0.18, x, y + r)
+  ctx.quadraticCurveTo(x - r * 0.18, y + r * 0.18, x - r, y)
+  ctx.quadraticCurveTo(x - r * 0.18, y - r * 0.18, x, y - r)
+  ctx.closePath()
+  ctx.fill()
+}
+
+/** Card stock + ornate gold frame + the celestial linework, shared by all faces. */
+function drawEclipseBase(ctx: CanvasRenderingContext2D, suit: Suit) {
+  // stock — darkens gently toward the foot, like aged paper
+  roundedRect(ctx, 0, 0, FACE_W, FACE_H, 28)
   const body = ctx.createLinearGradient(0, 0, 0, FACE_H)
-  body.addColorStop(0, '#fdfbf7')
-  body.addColorStop(1, '#ece7de')
+  body.addColorStop(0, suit.stock0)
+  body.addColorStop(1, suit.stock1)
   ctx.fillStyle = body
   ctx.fill()
-  // soft outer edge so stacked cards separate
+  // dark outer edge so stacked/fanned cards separate
   ctx.lineWidth = 3
-  ctx.strokeStyle = 'rgba(30,24,20,0.35)'
-  roundedRect(ctx, 1.5, 1.5, FACE_W - 3, FACE_H - 3, 22)
-  ctx.stroke()
-  // the colored inner frame
-  ctx.lineWidth = 7
-  ctx.strokeStyle = accent
-  roundedRect(ctx, 12, 12, FACE_W - 24, FACE_H - 24, 16)
+  ctx.strokeStyle = 'rgba(12,8,4,0.5)'
+  roundedRect(ctx, 1.5, 1.5, FACE_W - 3, FACE_H - 3, 26)
   ctx.stroke()
 
+  // double gold border, the fine inner line ghosted
+  ctx.strokeStyle = suit.gold
+  ctx.lineWidth = 3
+  roundedRect(ctx, 12, 12, FACE_W - 24, FACE_H - 24, 20)
+  ctx.stroke()
+  ctx.save()
+  ctx.globalAlpha = 0.55
+  ctx.lineWidth = 1.4
+  roundedRect(ctx, 19, 19, FACE_W - 38, FACE_H - 38, 14)
+  ctx.stroke()
+  ctx.restore()
+  // corner flourish diamonds on the corners the indices don't occupy
+  ctx.fillStyle = suit.gold
+  drawSparkle(ctx, FACE_W - 34, 34, 9)
+  drawSparkle(ctx, 34, FACE_H - 34, 9)
+
+  // celestial motif, clipped inside the fine border so nothing kisses the edge
+  ctx.save()
+  roundedRect(ctx, 21, 21, FACE_W - 42, FACE_H - 42, 13)
+  ctx.clip()
+  ctx.strokeStyle = suit.gold
+  ctx.fillStyle = suit.gold
+  // orbit line sweeping across the card behind the eclipse
+  ctx.globalAlpha = suit.motif * 0.55
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.ellipse(FACE_CX, FACE_CY + 10, 215, 82, -0.42, 0, Math.PI * 2)
+  ctx.stroke()
+  // the eclipse circle
+  ctx.globalAlpha = suit.motif
+  ctx.lineWidth = 2.4
+  ctx.beginPath()
+  ctx.arc(FACE_CX, FACE_CY, ECLIPSE_R, 0, Math.PI * 2)
+  ctx.stroke()
+  // fine sunburst rays radiating off it, alternating lengths
+  ctx.globalAlpha = suit.motif * 0.75
+  ctx.lineWidth = 1.1
+  ctx.beginPath()
+  for (let i = 0; i < 72; i++) {
+    const a = (i / 72) * Math.PI * 2
+    const r0 = ECLIPSE_R + 5
+    const r1 = r0 + (i % 3 === 0 ? 16 : i % 3 === 1 ? 8 : 12)
+    ctx.moveTo(FACE_CX + Math.cos(a) * r0, FACE_CY + Math.sin(a) * r0)
+    ctx.lineTo(FACE_CX + Math.cos(a) * r1, FACE_CY + Math.sin(a) * r1)
+  }
+  ctx.stroke()
+  // scattered stars — sparse, asymmetric, like the reference
+  ctx.globalAlpha = suit.motif * 0.9
+  drawSparkle(ctx, 52, 74, 6)
+  drawSparkle(ctx, 268, 96, 4.5)
+  drawSparkle(ctx, 42, 250, 3.5)
+  drawSparkle(ctx, 280, 320, 4)
+  drawSparkle(ctx, 74, 396, 4.5)
+  drawSparkle(ctx, 252, 408, 5.5)
+  ctx.restore()
+}
+
+/** The color-name strip, bottom-left in suit ink — the non-color signal (AA
+ *  against the stock, no pill: the deck's own typography carries it). */
+function drawFaceName(ctx: CanvasRenderingContext2D, label: string, suit: Suit) {
+  ctx.save()
+  ctx.font = `600 23px ${SANS}`
+  ctx.letterSpacing = '4px'
+  ctx.fillStyle = suit.ink
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText(label, 30, FACE_H - 32)
+  ctx.restore()
+}
+
+/** Serif corner indices: top-left, and bottom-right rotated 180°. */
+function drawCornerIndices(ctx: CanvasRenderingContext2D, glyph: string, suit: Suit) {
+  ctx.fillStyle = suit.ink
+  ctx.font = `600 50px ${SERIF}`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+  ctx.fillText(glyph, 30, 26)
+  ctx.save()
+  ctx.translate(FACE_W - 30, FACE_H - 26)
+  ctx.rotate(Math.PI)
+  ctx.fillText(glyph, 0, 0)
+  ctx.restore()
+}
+
+function drawFace(ctx: CanvasRenderingContext2D, card: Card) {
+  const isWild = card.kind === 'wild' || card.kind === 'wild4'
+  const suit = card.color ? SUIT[card.color] : WILD_SUIT
+  drawEclipseBase(ctx, suit)
+
   if (isWild) {
-    // charcoal panel with the four-color quad
-    roundedRect(ctx, 12, 12, FACE_W - 24, FACE_H - 24, 16)
-    ctx.fillStyle = '#2b2438'
-    ctx.fill()
-    const s = 58
-    const cx = FACE_W / 2
-    const cy = FACE_H / 2 - 22
-    const gap = 5
+    // the suit diamond: a rhombus quartered into the four ECLIPSE colors
+    const hw = 78
+    const hh = 96
+    const cx = FACE_CX
+    const cy = FACE_CY
+    const pts: readonly (readonly [number, number])[] = [
+      [cx, cy - hh], [cx + hw, cy], [cx, cy + hh], [cx - hw, cy],
+    ]
     QUAD_COLORS.forEach((c, i) => {
-      const dx = i % 2 === 0 ? -s - gap : gap
-      const dy = i < 2 ? -s - gap : gap
-      roundedRect(ctx, cx + dx, cy + dy, s, s, 12)
+      ctx.beginPath()
+      ctx.moveTo(cx, cy)
+      ctx.lineTo(pts[i][0], pts[i][1])
+      ctx.lineTo(pts[(i + 1) % 4][0], pts[(i + 1) % 4][1])
+      ctx.closePath()
       ctx.fillStyle = c
       ctx.fill()
     })
-    if (card.kind === 'wild4') {
-      ctx.fillStyle = '#ffffff'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.font = `700 44px ${SANS}`
-      ctx.fillText('+4', cx, cy + s + gap + 34)
-    }
-  } else {
-    // tinted center disc carrying the big pip
+    // gold rhombus outline + diagonals
+    ctx.strokeStyle = suit.gold
+    ctx.lineWidth = 3
     ctx.beginPath()
-    ctx.ellipse(FACE_W / 2, FACE_H / 2 - 14, 86, 104, 0, 0, Math.PI * 2)
-    ctx.fillStyle = `${accent}22`
-    ctx.fill()
-    ctx.fillStyle = ink
+    ctx.moveTo(pts[0][0], pts[0][1])
+    for (const [x, y] of pts) ctx.lineTo(x, y)
+    ctx.closePath()
+    ctx.stroke()
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[2][0], pts[2][1])
+    ctx.moveTo(pts[3][0], pts[3][1]); ctx.lineTo(pts[1][0], pts[1][1])
+    ctx.stroke()
+    if (card.kind === 'wild4') drawCornerIndices(ctx, '+4', suit)
+  } else if (card.kind === 'number') {
+    const glyph = String(card.value)
+    ctx.fillStyle = suit.ink
+    ctx.font = `600 196px ${SERIF}`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.font = `700 ${card.kind === 'number' ? 128 : 56}px ${SANS}`
-    ctx.fillText(glyph, FACE_W / 2, FACE_H / 2 - 14)
-    // corner indices — top-left, and rotated bottom-right
-    ctx.font = `700 36px ${SANS}`
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'top'
-    ctx.fillText(glyph, 24, 22)
+    ctx.fillText(glyph, FACE_CX, FACE_CY + 12)
+    drawCornerIndices(ctx, glyph, suit)
+  } else if (card.kind === 'draw2') {
+    ctx.fillStyle = suit.ink
+    ctx.font = `600 110px ${SERIF}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('+2', FACE_CX, FACE_CY + 8)
+    drawCornerIndices(ctx, '+2', suit)
+  } else {
+    // skip / reverse — drawn vector symbols, centre + corner minis
+    drawTurnSymbol(ctx, card.kind, FACE_CX, FACE_CY, 62, suit.ink)
+    drawTurnSymbol(ctx, card.kind, 52, 52, 22, suit.ink)
     ctx.save()
-    ctx.translate(FACE_W - 24, FACE_H - 22)
+    ctx.translate(FACE_W - 52, FACE_H - 52)
     ctx.rotate(Math.PI)
-    ctx.fillText(glyph, 0, 0)
+    drawTurnSymbol(ctx, card.kind, 0, 0, 22, suit.ink)
     ctx.restore()
   }
 
-  // color/kind name — the non-color signal, white on a dark pill for AA.
   const label = isWild ? (card.kind === 'wild4' ? 'WILD +4' : 'WILD') : colorName(card.color!).toUpperCase()
-  ctx.font = `700 24px ${SANS}`
-  const tw = ctx.measureText(label).width
-  roundedRect(ctx, 16, FACE_H - 60, tw + 26, 38, 12)
-  ctx.fillStyle = 'rgba(20,14,10,0.72)'
-  ctx.fill()
-  ctx.fillStyle = '#ffffff'
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(label, 29, FACE_H - 40)
+  drawFaceName(ctx, label, suit)
 }
 
+/** Skip (a slashed circle) and Reverse (two chasing arc arrows) — pure vector,
+ *  no emoji glyphs, so they stay crisp and identical across platforms. */
+function drawTurnSymbol(ctx: CanvasRenderingContext2D, kind: 'skip' | 'reverse', x: number, y: number, r: number, ink: string) {
+  ctx.save()
+  ctx.strokeStyle = ink
+  ctx.fillStyle = ink
+  ctx.lineCap = 'round'
+  if (kind === 'skip') {
+    ctx.lineWidth = r * 0.22
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.stroke()
+    const d = r * Math.SQRT1_2
+    ctx.beginPath()
+    ctx.moveTo(x - d, y + d)
+    ctx.lineTo(x + d, y - d)
+    ctx.stroke()
+  } else {
+    // two arcs in circular flow, each ending in a solid arrowhead
+    ctx.lineWidth = r * 0.2
+    const head = r * 0.42
+    for (const start of [-0.35, Math.PI - 0.35]) {
+      const end = start + Math.PI * 0.72
+      ctx.beginPath()
+      ctx.arc(x, y, r * 0.82, start, end)
+      ctx.stroke()
+      // arrowhead tangent to the arc at its end
+      const hx = x + Math.cos(end) * r * 0.82
+      const hy = y + Math.sin(end) * r * 0.82
+      const t = end + Math.PI / 2 // direction of travel
+      ctx.beginPath()
+      ctx.moveTo(hx + Math.cos(t) * head, hy + Math.sin(t) * head)
+      ctx.lineTo(hx + Math.cos(end) * head * 0.62, hy + Math.sin(end) * head * 0.62)
+      ctx.lineTo(hx - Math.cos(end) * head * 0.62, hy - Math.sin(end) * head * 0.62)
+      ctx.closePath()
+      ctx.fill()
+    }
+  }
+  ctx.restore()
+}
+
+// The card back: the ECLIPSE brand — deep navy, a large gold crescent inside
+// a fine sunburst, scattered stars, and the same ornate gold border.
 function drawBack(ctx: CanvasRenderingContext2D) {
-  roundedRect(ctx, 0, 0, FACE_W, FACE_H, 24)
-  const g = ctx.createLinearGradient(0, 0, FACE_W, FACE_H)
-  g.addColorStop(0, '#3b3560')
-  g.addColorStop(1, '#211c3c')
+  roundedRect(ctx, 0, 0, FACE_W, FACE_H, 28)
+  const g = ctx.createLinearGradient(0, 0, 0, FACE_H)
+  g.addColorStop(0, '#182338')
+  g.addColorStop(1, '#0d1424')
   ctx.fillStyle = g
   ctx.fill()
-  // cream frame, like a real deck's back
-  ctx.lineWidth = 8
-  ctx.strokeStyle = '#e8ddc8'
-  roundedRect(ctx, 10, 10, FACE_W - 20, FACE_H - 20, 18)
+  ctx.lineWidth = 3
+  ctx.strokeStyle = 'rgba(8,6,2,0.6)'
+  roundedRect(ctx, 1.5, 1.5, FACE_W - 3, FACE_H - 3, 26)
   ctx.stroke()
-  // the Eclipse crescent motif in muted gold
+
+  const gold = '#c9a35c'
+  ctx.strokeStyle = gold
+  ctx.fillStyle = gold
+  ctx.lineWidth = 3
+  roundedRect(ctx, 12, 12, FACE_W - 24, FACE_H - 24, 20)
+  ctx.stroke()
+  ctx.save()
+  ctx.globalAlpha = 0.55
+  ctx.lineWidth = 1.4
+  roundedRect(ctx, 19, 19, FACE_W - 38, FACE_H - 38, 14)
+  ctx.stroke()
+  ctx.restore()
+  drawSparkle(ctx, 34, 34, 9)
+  drawSparkle(ctx, FACE_W - 34, 34, 9)
+  drawSparkle(ctx, 34, FACE_H - 34, 9)
+  drawSparkle(ctx, FACE_W - 34, FACE_H - 34, 9)
+
   const cx = FACE_W / 2
   const cy = FACE_H / 2
+  // fine sunburst around the moon
+  ctx.save()
+  ctx.globalAlpha = 0.5
+  ctx.lineWidth = 1.2
   ctx.beginPath()
-  ctx.arc(cx, cy, 62, 0, Math.PI * 2)
-  ctx.fillStyle = '#d9b36a'
+  for (let i = 0; i < 60; i++) {
+    const a = (i / 60) * Math.PI * 2
+    const r0 = 104
+    const r1 = r0 + (i % 2 === 0 ? 22 : 11)
+    ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0)
+    ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1)
+  }
+  ctx.stroke()
+  ctx.globalAlpha = 0.35
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.arc(cx, cy, 96, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.restore()
+  // the crescent: gold disc, night disc offset to carve the sliver
+  ctx.beginPath()
+  ctx.arc(cx, cy, 74, 0, Math.PI * 2)
   ctx.fill()
   ctx.beginPath()
-  ctx.arc(cx + 24, cy - 17, 55, 0, Math.PI * 2)
-  ctx.fillStyle = '#282247'
+  ctx.arc(cx + 30, cy - 20, 68, 0, Math.PI * 2)
+  ctx.fillStyle = '#111a2c'
   ctx.fill()
+  // stars in the field
+  ctx.fillStyle = gold
+  ctx.save()
+  ctx.globalAlpha = 0.85
+  drawSparkle(ctx, 74, 92, 7)
+  drawSparkle(ctx, 250, 76, 5)
+  drawSparkle(ctx, 262, 200, 4)
+  drawSparkle(ctx, 58, 356, 5)
+  drawSparkle(ctx, 240, 396, 7)
+  drawSparkle(ctx, 160, 428, 4)
+  ctx.restore()
 }
 
 const faceKey = (card: Card) => (card.kind === 'number' ? `n${card.color}${card.value}` : `${card.kind}${card.color ?? ''}`)
@@ -433,7 +643,7 @@ function TableCentre({ view, skins, cardGeo, reduced }: {
     arrowRef.current.rotation.z += direction * 0.5 * dt
   })
 
-  const colorHex = currentColor ? SKIN[currentColor].fill : '#ffffff'
+  const colorHex = currentColor ? SUIT[currentColor].swatch : '#ffffff'
   const signMat = useLabelMaterial((ctx) => {
     if (!currentColor) return
     ctx.font = `700 50px ${SANS}`
@@ -444,7 +654,7 @@ function TableCentre({ view, skins, cardGeo, reduced }: {
     ctx.fillStyle = 'rgba(24,16,14,0.82)'
     ctx.fill()
     roundedRect(ctx, 256 - w / 2 + 22, 42, 44, 44, 8)
-    ctx.fillStyle = SKIN[currentColor].fill
+    ctx.fillStyle = SUIT[currentColor].swatch
     ctx.fill()
     ctx.fillStyle = '#ffffff'
     ctx.textAlign = 'left'
@@ -1395,7 +1605,20 @@ export default function CardTable3D({ view, accent, reduced, onCardActivate }: {
   reduced: boolean
   onCardActivate: (card: Card) => void
 }) {
-  const skins = useMemo(() => new CardSkins(), [])
+  // Bake face textures only once the serif is actually loaded — canvas text
+  // never triggers a webfont fetch on its own, so request the face explicitly
+  // and rebuild the skin cache when it lands (the fallback serif bakes are
+  // discarded; the old materials are disposed by the effect below).
+  const [fontsReady, setFontsReady] = useState(false)
+  useEffect(() => {
+    let live = true
+    void Promise.all([
+      document.fonts.load(`600 196px ${SERIF_FAMILY}`),
+      document.fonts.ready,
+    ]).then(() => { if (live) setFontsReady(true) })
+    return () => { live = false }
+  }, [])
+  const skins = useMemo(() => new CardSkins(), [fontsReady])
   useEffect(() => () => skins.dispose(), [skins])
   const [focusedId, setFocusedId] = useState<string | null>(null)
 

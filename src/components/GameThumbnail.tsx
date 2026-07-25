@@ -121,26 +121,26 @@ function RacerThumb({ color }: { color: string }) {
 /* ---- Card Game: a fanned hand, top card lifting off the discard ---- */
 function CardGameThumb({ color }: { color: string }) {
   const hi = bright(color)
-  // A card in the game's accent: rounded body, slanted inner oval, a glyph.
-  const card = (x: number, y: number, rot: number, fill: string, glyph: string, delay?: string) => (
+  // An ECLIPSE deck card: suit stock, fine gold inner border, a serif glyph.
+  const card = (x: number, y: number, rot: number, fill: string, ink: string, glyph: string, delay?: string) => (
     <g transform={`translate(${x} ${y}) rotate(${rot})`} className={delay !== undefined ? 'tn-bob' : undefined} style={delay !== undefined ? { animationDelay: delay } : undefined}>
       <rect x="-16" y="-24" width="32" height="48" rx="5" fill={fill} stroke="rgba(0,0,0,0.35)" strokeWidth="1.5" />
-      <rect x="-12" y="-20" width="24" height="40" rx="4" fill="rgba(255,255,255,0.16)" transform="skewX(-14)" />
-      <text x="0" y="6" textAnchor="middle" fontFamily='"Press Start 2P", monospace' fontSize="15" fill="#fff">{glyph}</text>
+      <rect x="-13" y="-21" width="26" height="42" rx="3.5" fill="none" stroke="#c9a35c" strokeWidth="1" opacity="0.9" />
+      <text x="0" y="7" textAnchor="middle" fontFamily='"Playfair Display", Georgia, serif' fontWeight="600" fontSize="20" fill={ink}>{glyph}</text>
     </g>
   )
   return (
     <>
-      {/* fanned hand along the bottom */}
-      {card(64, 92, -20, '#c62828', '7')}
-      {card(88, 98, -8, '#1f9d4d', '4')}
-      {card(112, 98, 8, '#2f6fd8', '2')}
-      {card(136, 92, 20, '#e0a200', '9')}
+      {/* fanned hand along the bottom — the four ECLIPSE suits */}
+      {card(64, 92, -20, '#8a2f26', '#f2e4c4', '7')}
+      {card(88, 98, -8, '#3d5234', '#f0e6c8', '4')}
+      {card(112, 98, 8, '#1e2c46', '#f0e4c4', '2')}
+      {card(136, 92, 20, '#eadfc0', '#26190e', '9')}
       {/* discard pile + a lifted accent card mid-play */}
       <g transform="translate(100 44) rotate(-6)">
-        <rect x="-17" y="-25" width="34" height="50" rx="5" fill="#171033" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
+        <rect x="-17" y="-25" width="34" height="50" rx="5" fill="#0d1424" stroke="#c9a35c" strokeWidth="1" />
       </g>
-      {card(104, 40, 8, color, '+2', '-0.6s')}
+      {card(104, 40, 8, '#181328', '#e9dcba', '+2', '-0.6s')}
       <circle className="tn-ping" cx="104" cy="40" r="24" fill="none" stroke={hi} strokeWidth="2" />
     </>
   )

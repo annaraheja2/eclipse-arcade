@@ -20,7 +20,14 @@ const PLAYER_COUNT = 4 // player 0 is you; 1–3 are AI
 const AI_NAMES = ['NOVA', 'VEGA', 'ORION'] as const
 const MAX_TOPICS = 6
 
-const COLOR_HEX: Record<Color, string> = { red: '#c62828', yellow: '#e0a200', green: '#1f9d4d', blue: '#2f6fd8' }
+// ECLIPSE suit swatches (mirrors SUIT in CardTable3D): engine colors remap to
+// Ember/Solar/Forest/Lunar. Solar's cream button takes dark ink for AA.
+const SUIT_UI: Record<Color, { hex: string; ink: string }> = {
+  red: { hex: '#b8412f', ink: '#ffffff' },
+  yellow: { hex: '#e9dcba', ink: '#26190e' },
+  green: { hex: '#4e7a48', ink: '#ffffff' },
+  blue: { hex: '#3c5c94', ink: '#ffffff' },
+}
 const subKey = (unitId: string, subId: string) => `${unitId}/${subId}`
 
 /** Combined reduced-motion preference: OS setting OR the in-app Settings toggle. */
@@ -322,9 +329,9 @@ function ColorPicker({ onPick }: { onPick: (c: Color) => void }) {
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       {colors.map((c) => (
         <button key={c} onClick={() => onPick(c)} aria-label={`Choose ${colorName(c)}`}
-          className="flex items-center justify-center gap-2 py-3 rounded-lg font-sans font-bold text-sm text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-          style={{ background: COLOR_HEX[c], boxShadow: `0 4px 14px -4px ${COLOR_HEX[c]}` }}>
-          <span aria-hidden className="w-3 h-3 rounded-sm bg-white/85" />
+          className="flex items-center justify-center gap-2 py-3 rounded-lg font-sans font-bold text-sm tracking-wide focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: SUIT_UI[c].hex, color: SUIT_UI[c].ink, border: '1px solid rgba(201,163,92,0.6)', boxShadow: `0 4px 14px -4px ${SUIT_UI[c].hex}` }}>
+          <span aria-hidden className="w-3 h-3 rotate-45 rounded-[2px]" style={{ background: SUIT_UI[c].ink, opacity: 0.85 }} />
           {colorName(c).toUpperCase()}
         </button>
       ))}

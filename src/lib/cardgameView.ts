@@ -8,11 +8,15 @@ import type { Card, Color } from './cardgame'
 
 // ---- labels (color-blind support: every card carries a text name, never just a hue) ----
 
+// The ECLIPSE deck's suit names. The engine's Color keys stay UNO's primaries;
+// only the DISPLAYED name remaps: red→Ember (crimson), yellow→Solar (cream),
+// green→Forest (emerald), blue→Lunar (navy). Four distinct words — the text
+// signal color-blind players rely on.
 const COLOR_NAME: Record<Color, string> = {
-  red: 'Red', yellow: 'Yellow', green: 'Green', blue: 'Blue',
+  red: 'Ember', yellow: 'Solar', green: 'Forest', blue: 'Lunar',
 }
 
-/** Human-readable color name, capitalized (e.g. 'Blue'). */
+/** Human-readable suit name, capitalized (e.g. 'Lunar'). */
 export function colorName(color: Color): string {
   return COLOR_NAME[color]
 }

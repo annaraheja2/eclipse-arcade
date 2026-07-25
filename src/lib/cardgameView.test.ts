@@ -5,17 +5,17 @@ import type { Card, Color } from './cardgame'
 const num = (color: Color, value: number): Card => ({ kind: 'number', color, value, id: 'x' })
 
 describe('describeCard / cardGlyph — labels for logs, aria, and card faces', () => {
-  it('names colored cards with their color and value/action', () => {
-    expect(describeCard(num('red', 7))).toBe('Red 7')
-    expect(describeCard({ kind: 'skip', color: 'blue', id: 's' })).toBe('Blue Skip')
-    expect(describeCard({ kind: 'reverse', color: 'green', id: 'r' })).toBe('Green Reverse')
-    expect(describeCard({ kind: 'draw2', color: 'yellow', id: 'd' })).toBe('Yellow Draw Two')
+  it('names colored cards with their ECLIPSE suit and value/action', () => {
+    expect(describeCard(num('red', 7))).toBe('Ember 7')
+    expect(describeCard({ kind: 'skip', color: 'blue', id: 's' })).toBe('Lunar Skip')
+    expect(describeCard({ kind: 'reverse', color: 'green', id: 'r' })).toBe('Forest Reverse')
+    expect(describeCard({ kind: 'draw2', color: 'yellow', id: 'd' })).toBe('Solar Draw Two')
   })
 
   it('appends the declared color to a wild only once one is chosen', () => {
     expect(describeCard({ kind: 'wild', color: null, id: 'w' })).toBe('Wild')
-    expect(describeCard({ kind: 'wild', color: null, id: 'w' }, 'blue')).toBe('Wild (Blue)')
-    expect(describeCard({ kind: 'wild4', color: null, id: 'w4' }, 'red')).toBe('Wild Draw Four (Red)')
+    expect(describeCard({ kind: 'wild', color: null, id: 'w' }, 'blue')).toBe('Wild (Lunar)')
+    expect(describeCard({ kind: 'wild4', color: null, id: 'w4' }, 'red')).toBe('Wild Draw Four (Ember)')
   })
 
   it('gives a compact glyph for each kind', () => {
@@ -25,9 +25,11 @@ describe('describeCard / cardGlyph — labels for logs, aria, and card faces', (
     expect(cardGlyph({ kind: 'wild', color: null, id: 'w' })).toBe('WILD')
   })
 
-  it('capitalizes color names', () => {
-    expect(colorName('red')).toBe('Red')
-    expect(colorName('yellow')).toBe('Yellow')
+  it('maps engine colors to the ECLIPSE suit names', () => {
+    expect(colorName('red')).toBe('Ember')
+    expect(colorName('yellow')).toBe('Solar')
+    expect(colorName('green')).toBe('Forest')
+    expect(colorName('blue')).toBe('Lunar')
   })
 })
 
