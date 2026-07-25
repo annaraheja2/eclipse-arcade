@@ -14,6 +14,7 @@ import {
 } from 'three'
 import type { Group } from 'three'
 import Character3D, { SEAT_TINTS } from './Character3D'
+import AscendJungle from './AscendJungle'
 import {
   BOARD_N, LADDERS, SNAKES, LAST_SQUARE, TILE, squareToWorld, START_SQUARE,
   type Chute,
@@ -46,8 +47,7 @@ export interface BoardMove {
 const BOARD_FACE_URL: string | null = null
 // ------------------------------------------------------------------------------
 
-const ROOM = '#241309' // the warm room tone behind the table
-const TABLE_WOOD = '#3a2314'
+const HAZE = '#8fac6d' // humid green-gold air — background + depth fog
 const BOARD_EDGE = '#452a15'
 const GOLD = '#d9b45c'
 
@@ -284,7 +284,6 @@ function Scene({ positions, activeRacer, move, onMoveDone, reduced }: {
   const mats = useMemo(() => ({
     face: new MeshStandardMaterial({ map: faceTex, roughness: 0.82 }),
     boardEdge: new MeshStandardMaterial({ color: BOARD_EDGE, roughness: 0.75 }),
-    table: new MeshStandardMaterial({ color: TABLE_WOOD, roughness: 0.92 }),
     startPad: new MeshStandardMaterial({ color: '#6b4423', roughness: 0.7 }),
     goldRing: new MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.85 }),
     shadowBlob: new MeshBasicMaterial({ color: '#120a04', transparent: true, opacity: 0.28 }),
@@ -397,21 +396,23 @@ function Scene({ positions, activeRacer, move, onMoveDone, reduced }: {
 
   return (
     <>
-      <color attach="background" args={[ROOM]} />
-      <fog attach="fog" args={[ROOM, 18, 46]} />
-      <ambientLight intensity={0.55} color="#ffe6c4" />
+      <color attach="background" args={[HAZE]} />
+      <fog attach="fog" args={[HAZE, 15, 40]} />
+      {/* sun through the canopy: bright green-gold sky, dark mossy bounce */}
+      <hemisphereLight args={['#d9e8b2', '#2e3c1c', 0.85]} />
       <directionalLight
-        castShadow position={[6, 9, 4]} intensity={1.5} color="#fff0d8"
+        castShadow position={[5, 12, 3]} intensity={1.7} color="#ffe9b8"
         shadow-mapSize={[1024, 1024]}
         shadow-camera-left={-9} shadow-camera-right={9}
         shadow-camera-top={9} shadow-camera-bottom={-9}
       />
-      <directionalLight position={[-5, 6, -4]} intensity={0.35} color="#ffd9a0" />
+      <directionalLight position={[-6, 5, -4]} intensity={0.3} color="#bfe08a" />
+      {/* soft top-down fill so numerals stay legible on the dark tiles even in
+          the canopy shade — no shadow, keeps the god-ray mood intact */}
+      <directionalLight position={[0, 11, 1]} intensity={0.5} color="#fff4d8" />
 
-      {/* the table the board rests on */}
-      <mesh position={[0, -0.18, 0]} rotation={[-Math.PI / 2, 0, 0]} material={mats.table} receiveShadow>
-        <planeGeometry args={[44, 44]} />
-      </mesh>
+      {/* the rainforest clearing around the board */}
+      <AscendJungle reduced={reduced} />
       {/* board slab + the painted face laid flat on top */}
       <mesh position={[0, -0.09, 0]} material={mats.boardEdge}>
         <boxGeometry args={[faceSpan + 0.12, 0.18, faceSpan + 0.12]} />
@@ -491,21 +492,21 @@ export default function AscendBoard3D(props: {
   reduced: boolean
 }) {
   return (
-    <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#241309]">
+    <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#16240f]">
       <div className="h-[340px] sm:h-[420px]">
         <Canvas
           dpr={[1, 2]}
           shadows
           camera={{ fov: 55, near: 0.1, far: 80, position: [-8, 3, 6.5] }}
-          aria-label="3D Ascend board"
+          aria-label="3D Ascend board in a rainforest clearing"
           role="img"
         >
           <Scene {...props} />
         </Canvas>
       </div>
-      {/* warm tabletop vignette */}
+      {/* deep-jungle vignette */}
       <div aria-hidden className="pointer-events-none absolute inset-0"
-        style={{ background: 'radial-gradient(ellipse at 50% 42%, transparent 55%, rgba(18, 9, 3, 0.45) 100%)' }} />
+        style={{ background: 'radial-gradient(ellipse at 50% 42%, transparent 55%, rgba(8, 18, 6, 0.5) 100%)' }} />
     </div>
   )
 }
