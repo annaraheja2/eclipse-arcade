@@ -2,9 +2,11 @@
 // CardTable in the same slot. It consumes the SAME view model from useCardGame
 // and routes every interaction through the same callbacks; no rules live here.
 //
-// Scene: a round neon-felt table with the players seated around it. Your hand
-// is a fan of legible 3D cards in the near foreground; opponents sit across the
-// table behind face-down fans, receding into fog. The camera is the storyteller:
+// Scene: a felt-topped wooden table on an open-air deck at golden hour — a low
+// sun on the horizon, a hand-tuned sunset gradient dome, silhouetted hills and
+// a lake catching the sun's streak, warm fog for depth. The sun is the key
+// light (long soft shadows across the table); a dusk hemisphere + a soft
+// camera-side fill keep the card faces readable. The camera is the storyteller:
 // on your turn it closes in on your hand; on an opponent's turn your hand
 // minimizes and the camera pulls back and turns toward the active player.
 //
@@ -16,7 +18,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import {
-  CanvasTexture, Color as ThreeColor, MeshBasicMaterial, PlaneGeometry,
+  ACESFilmicToneMapping, BackSide, CanvasTexture, Color as ThreeColor,
+  MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, RepeatWrapping,
   SRGBColorSpace, Vector3,
 } from 'three'
 import type { Group, Mesh } from 'three'
@@ -32,10 +35,14 @@ const SKIN: Record<Color, { fill: string; edge: string; ink: string }> = {
   blue: { fill: '#2f6fd8', edge: '#123f8c', ink: '#ffffff' },
 }
 const QUAD_COLORS = ['#c62828', '#e0a200', '#1f9d4d', '#2f6fd8'] as const
-const BASE_BG = '#0a0620'
-const FELT = '#2a1857'
-const FELT_EDGE = '#160c33'
-const TABLE_SKIRT = '#120a2c'
+// ---- golden-hour palette -----------------------------------------------------
+const HAZE = '#f0a066' // warm atmospheric haze — the fog AND the horizon band
+const DUSK_DIM = '#3a2f45' // dimmed characters/cards sink toward dusk, not void
+const FELT = '#2e6647' // classic deep-green card felt, warmed by the sun
+const WOOD_RIM = '#7a5230'
+const WOOD_SKIRT = '#5d3f26'
+const WOOD_DARK = '#46301c'
+const DECK_TOP_Y = -1.35 // the wooden deck surface the table stands on
 // Placeholder-character tints, one per seat (0 = you). Swap the Character
 // component below for real designs later — everything else stays.
 const SEAT_TINTS = ['#7c3aff', '#ff4d8d', '#3df5ff', '#3dffa2', '#ffb43d'] as const
@@ -64,7 +71,8 @@ function seatPosition(i: number, n: number): { x: number; z: number } {
 
 const FACE_W = 256
 const FACE_H = 384
-const PIXEL_FONT = '"Press Start 2P", monospace'
+// Clean geometric sans for everything drawn to canvas — no pixel glyphs.
+const SANS = 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif'
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath()
@@ -88,122 +96,146 @@ function makeTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2D)
   return tex
 }
 
+// A clean modern playing card: white body, thin inner frame, big colored
+// center pip on a soft tinted disc, crisp corner indices, and the color NAME
+// pinned bottom-left (fans overlap from the right — the left strip survives).
 function drawFace(ctx: CanvasRenderingContext2D, card: Card) {
   const isWild = card.kind === 'wild' || card.kind === 'wild4'
   const skin = card.color ? SKIN[card.color] : null
-  const fill = skin ? skin.fill : '#171033'
-  const edge = skin ? skin.edge : '#000000'
-  const ink = skin ? skin.ink : '#ffffff'
+  const accent = skin ? skin.fill : '#2b2438'
+  // yellow pips need the darker edge tone to read on the white card stock
+  const ink = card.color === 'yellow' ? SKIN.yellow.edge : accent
   const glyph = cardGlyph(card)
 
-  roundedRect(ctx, 0, 0, FACE_W, FACE_H, 26)
-  ctx.fillStyle = fill
+  // card body — near-white with a faint top-light sheen
+  roundedRect(ctx, 0, 0, FACE_W, FACE_H, 24)
+  const body = ctx.createLinearGradient(0, 0, 0, FACE_H)
+  body.addColorStop(0, '#fdfbf7')
+  body.addColorStop(1, '#ece7de')
+  ctx.fillStyle = body
   ctx.fill()
-  ctx.lineWidth = 10
-  ctx.strokeStyle = edge
-  roundedRect(ctx, 5, 5, FACE_W - 10, FACE_H - 10, 22)
+  // soft outer edge so stacked cards separate
+  ctx.lineWidth = 3
+  ctx.strokeStyle = 'rgba(30,24,20,0.35)'
+  roundedRect(ctx, 1.5, 1.5, FACE_W - 3, FACE_H - 3, 22)
+  ctx.stroke()
+  // the colored inner frame
+  ctx.lineWidth = 7
+  ctx.strokeStyle = accent
+  roundedRect(ctx, 12, 12, FACE_W - 24, FACE_H - 24, 16)
   ctx.stroke()
 
-  // the classic slanted inner oval
-  ctx.save()
-  ctx.translate(FACE_W / 2, FACE_H / 2)
-  ctx.rotate(-0.35)
-  ctx.beginPath()
-  ctx.ellipse(0, 0, FACE_W * 0.36, FACE_H * 0.42, 0, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(255,255,255,0.14)'
-  ctx.fill()
-  ctx.restore()
-
   if (isWild) {
-    const s = 66
+    // charcoal panel with the four-color quad
+    roundedRect(ctx, 12, 12, FACE_W - 24, FACE_H - 24, 16)
+    ctx.fillStyle = '#2b2438'
+    ctx.fill()
+    const s = 58
     const cx = FACE_W / 2
-    const cy = FACE_H / 2 - 14
+    const cy = FACE_H / 2 - 22
     const gap = 5
     QUAD_COLORS.forEach((c, i) => {
       const dx = i % 2 === 0 ? -s - gap : gap
       const dy = i < 2 ? -s - gap : gap
-      roundedRect(ctx, cx + dx, cy + dy, s, s, 10)
+      roundedRect(ctx, cx + dx, cy + dy, s, s, 12)
       ctx.fillStyle = c
       ctx.fill()
     })
+    if (card.kind === 'wild4') {
+      ctx.fillStyle = '#ffffff'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.font = `700 44px ${SANS}`
+      ctx.fillText('+4', cx, cy + s + gap + 34)
+    }
   } else {
+    // tinted center disc carrying the big pip
+    ctx.beginPath()
+    ctx.ellipse(FACE_W / 2, FACE_H / 2 - 14, 86, 104, 0, 0, Math.PI * 2)
+    ctx.fillStyle = `${accent}22`
+    ctx.fill()
     ctx.fillStyle = ink
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.font = `700 ${card.kind === 'number' ? 128 : 56}px ${SANS}`
+    ctx.fillText(glyph, FACE_W / 2, FACE_H / 2 - 14)
+    // corner indices — top-left, and rotated bottom-right
+    ctx.font = `700 36px ${SANS}`
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
-    ctx.font = `34px ${PIXEL_FONT}`
-    ctx.fillText(glyph, 18, 18)
+    ctx.fillText(glyph, 24, 22)
     ctx.save()
-    ctx.translate(FACE_W - 18, FACE_H - 18)
+    ctx.translate(FACE_W - 24, FACE_H - 22)
     ctx.rotate(Math.PI)
     ctx.fillText(glyph, 0, 0)
     ctx.restore()
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.font = `${card.kind === 'number' ? 118 : 52}px ${PIXEL_FONT}`
-    ctx.fillText(glyph, FACE_W / 2, FACE_H / 2 - 10)
   }
 
   // color/kind name — the non-color signal, white on a dark pill for AA.
-  // LEFT-aligned: fanned cards overlap from the right, so the left strip is
-  // the part guaranteed visible — the name must live there.
   const label = isWild ? (card.kind === 'wild4' ? 'WILD +4' : 'WILD') : colorName(card.color!).toUpperCase()
-  ctx.font = `20px ${PIXEL_FONT}`
+  ctx.font = `700 24px ${SANS}`
   const tw = ctx.measureText(label).width
-  roundedRect(ctx, 12, FACE_H - 62, tw + 24, 42, 10)
-  ctx.fillStyle = 'rgba(0,0,0,0.62)'
+  roundedRect(ctx, 16, FACE_H - 60, tw + 26, 38, 12)
+  ctx.fillStyle = 'rgba(20,14,10,0.72)'
   ctx.fill()
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.fillText(label, 24, FACE_H - 40)
+  ctx.fillText(label, 29, FACE_H - 40)
 }
 
 function drawBack(ctx: CanvasRenderingContext2D) {
-  roundedRect(ctx, 0, 0, FACE_W, FACE_H, 26)
+  roundedRect(ctx, 0, 0, FACE_W, FACE_H, 24)
   const g = ctx.createLinearGradient(0, 0, FACE_W, FACE_H)
-  g.addColorStop(0, '#2a1a55')
-  g.addColorStop(1, '#150c30')
+  g.addColorStop(0, '#3b3560')
+  g.addColorStop(1, '#211c3c')
   ctx.fillStyle = g
   ctx.fill()
-  ctx.lineWidth = 10
-  ctx.strokeStyle = '#3a2470'
-  roundedRect(ctx, 5, 5, FACE_W - 10, FACE_H - 10, 22)
+  // cream frame, like a real deck's back
+  ctx.lineWidth = 8
+  ctx.strokeStyle = '#e8ddc8'
+  roundedRect(ctx, 10, 10, FACE_W - 20, FACE_H - 20, 18)
   ctx.stroke()
-  // the Eclipse crescent motif
+  // the Eclipse crescent motif in muted gold
   const cx = FACE_W / 2
   const cy = FACE_H / 2
   ctx.beginPath()
-  ctx.arc(cx, cy, 66, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(124,58,255,0.6)'
+  ctx.arc(cx, cy, 62, 0, Math.PI * 2)
+  ctx.fillStyle = '#d9b36a'
   ctx.fill()
   ctx.beginPath()
-  ctx.arc(cx + 26, cy - 18, 58, 0, Math.PI * 2)
-  ctx.fillStyle = '#150c30'
+  ctx.arc(cx + 24, cy - 17, 55, 0, Math.PI * 2)
+  ctx.fillStyle = '#282247'
   ctx.fill()
 }
 
 const faceKey = (card: Card) => (card.kind === 'number' ? `n${card.color}${card.value}` : `${card.kind}${card.color ?? ''}`)
 
-/** Per-mount cache of face/back textures + their unlit materials. */
+/** Per-mount cache of face/back textures + their materials. PBR with a
+ *  self-lit floor: the emissive map keeps every face readable while the
+ *  standard shading lets the card stock catch the golden light. */
 class CardSkins {
-  private mats = new Map<string, MeshBasicMaterial>()
+  private mats = new Map<string, MeshStandardMaterial>()
   private textures: CanvasTexture[] = []
 
-  private material(key: string, draw: (ctx: CanvasRenderingContext2D) => void): MeshBasicMaterial {
+  private material(key: string, draw: (ctx: CanvasRenderingContext2D) => void): MeshStandardMaterial {
     const hit = this.mats.get(key)
     if (hit) return hit
     const tex = makeTexture(FACE_W, FACE_H, draw)
     this.textures.push(tex)
-    const mat = new MeshBasicMaterial({ map: tex, alphaTest: 0.5, toneMapped: false })
+    const mat = new MeshStandardMaterial({
+      map: tex, emissiveMap: tex, emissive: new ThreeColor('#5c5c5c'),
+      roughness: 0.55, alphaTest: 0.5,
+    })
     this.mats.set(key, mat)
     return mat
   }
 
-  face(card: Card): MeshBasicMaterial {
+  face(card: Card): MeshStandardMaterial {
     return this.material(faceKey(card), (ctx) => drawFace(ctx, card))
   }
 
-  back(): MeshBasicMaterial {
+  back(): MeshStandardMaterial {
     return this.material('back', drawBack)
   }
 
@@ -233,12 +265,12 @@ function useLabelMaterial(draw: (ctx: CanvasRenderingContext2D) => void, w: numb
 function Character({ tint, dimmed }: { tint: string; dimmed: boolean }) {
   const body = useMemo(() => {
     const c = new ThreeColor(tint)
-    if (dimmed) c.lerp(new ThreeColor(BASE_BG), 0.3)
+    if (dimmed) c.lerp(new ThreeColor(DUSK_DIM), 0.3)
     return c
   }, [tint, dimmed])
   const head = useMemo(() => {
     const c = new ThreeColor(tint).lerp(new ThreeColor('#ffffff'), 0.45)
-    if (dimmed) c.lerp(new ThreeColor(BASE_BG), 0.3)
+    if (dimmed) c.lerp(new ThreeColor(DUSK_DIM), 0.3)
     return c
   }, [tint, dimmed])
   return (
@@ -256,7 +288,7 @@ function Character({ tint, dimmed }: { tint: string; dimmed: boolean }) {
       {/* visor band — gives the head a facing */}
       <mesh position={[0, 1.96, 0.24]}>
         <boxGeometry args={[0.36, 0.13, 0.1]} />
-        <meshStandardMaterial color="#171033" roughness={0.3} />
+        <meshStandardMaterial color="#2b2233" roughness={0.3} />
       </mesh>
       {/* arms resting toward the table */}
       {[-1, 1].map((s) => (
@@ -294,19 +326,19 @@ function OpponentSeat({ seat, index, total, skins, cardGeo, accent, reduced }: {
   const shown = Math.min(seat.count, FAN_MAX)
   const labelKey = `${seat.name}|${seat.count}|${seat.current}`
   const labelMat = useLabelMaterial((ctx) => {
-    ctx.font = `40px ${PIXEL_FONT}`
+    ctx.font = `600 44px ${SANS}`
     const text = `${seat.name} · ${seat.count}`
     const tw = ctx.measureText(text).width
-    roundedRect(ctx, 256 - tw / 2 - 26, 24, tw + 52, 80, 18)
-    ctx.fillStyle = 'rgba(10,6,32,0.82)'
+    roundedRect(ctx, 256 - tw / 2 - 26, 24, tw + 52, 80, 22)
+    ctx.fillStyle = 'rgba(24,16,14,0.78)'
     ctx.fill()
     if (seat.current) {
       ctx.lineWidth = 6
       ctx.strokeStyle = accent
-      roundedRect(ctx, 256 - tw / 2 - 26, 24, tw + 52, 80, 18)
+      roundedRect(ctx, 256 - tw / 2 - 26, 24, tw + 52, 80, 22)
       ctx.stroke()
     }
-    ctx.fillStyle = seat.current ? '#e3d2ff' : 'rgba(255,255,255,0.88)'
+    ctx.fillStyle = '#ffffff'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(text, 256, 66)
@@ -314,6 +346,11 @@ function OpponentSeat({ seat, index, total, skins, cardGeo, accent, reduced }: {
 
   return (
     <group position={[x, 0, z]} rotation={[0, yaw, 0]}>
+      {/* stool grounding the character on the deck */}
+      <mesh position={[0, (DECK_TOP_Y + 0.45) / 2, 0]} castShadow>
+        <cylinderGeometry args={[0.4, 0.48, 0.45 - DECK_TOP_Y, 12]} />
+        <meshStandardMaterial color={WOOD_DARK} roughness={0.9} />
+      </mesh>
       <group scale={1.15}>
         <Character tint={SEAT_TINTS[index % SEAT_TINTS.length]} dimmed={!seat.current} />
       </group>
@@ -349,7 +386,7 @@ function OpponentSeat({ seat, index, total, skins, cardGeo, accent, reduced }: {
             <circleGeometry args={[0.95, 24]} />
             <meshBasicMaterial color={accent} transparent opacity={0.35} toneMapped={false} />
           </mesh>
-          <pointLight position={[0, 3.2, 0.6]} intensity={14} color="#e8dcff" distance={6} decay={2} />
+          <pointLight position={[0, 3.2, 0.6]} intensity={10} color="#ffe3c0" distance={6} decay={2} />
         </>
       )}
     </group>
@@ -399,12 +436,12 @@ function TableCentre({ view, skins, cardGeo, reduced }: {
   const colorHex = currentColor ? SKIN[currentColor].fill : '#ffffff'
   const signMat = useLabelMaterial((ctx) => {
     if (!currentColor) return
-    ctx.font = `44px ${PIXEL_FONT}`
+    ctx.font = `700 50px ${SANS}`
     const text = colorName(currentColor).toUpperCase()
     const tw = ctx.measureText(text).width
     const w = tw + 150
-    roundedRect(ctx, 256 - w / 2, 20, w, 88, 20)
-    ctx.fillStyle = 'rgba(10,6,32,0.85)'
+    roundedRect(ctx, 256 - w / 2, 20, w, 88, 24)
+    ctx.fillStyle = 'rgba(24,16,14,0.82)'
     ctx.fill()
     roundedRect(ctx, 256 - w / 2 + 22, 42, 44, 44, 8)
     ctx.fillStyle = SKIN[currentColor].fill
@@ -519,7 +556,7 @@ function Hand({ view, skins, cardGeo, accent, focusedId, onActivate, groupRef }:
             {/* dim veil over unplayable cards during your decision */}
             {dim && (
               <mesh geometry={cardGeo} position={[0, 0, 0.006]}>
-                <meshBasicMaterial color="#0a0620" transparent opacity={0.55} toneMapped={false} depthWrite={false} />
+                <meshBasicMaterial color={DUSK_DIM} transparent opacity={0.55} toneMapped={false} depthWrite={false} />
               </mesh>
             )}
           </group>
@@ -529,34 +566,206 @@ function Hand({ view, skins, cardGeo, accent, focusedId, onActivate, groupRef }:
   )
 }
 
-// ---- the table + room -----------------------------------------------------------
+// ---- the sunset world -------------------------------------------------------------
+// A hand-tuned gradient dome (vivid gold at the horizon, dusky violet-blue
+// overhead), a low sun disc with a cheap billboard glow, silhouetted hills, a
+// lake whose "reflection" is a gradient streak plane — no reflection pass, no
+// post. Warm fog carries the haze; the dome itself is never fogged/tone-mapped.
 
-function Room() {
+const SUN_POS: readonly [number, number, number] = [-11, 5.6, -95]
+
+function makeSkyTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 1
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const g = ctx.createLinearGradient(0, 0, 0, 512) // zenith (top) → below horizon
+    g.addColorStop(0, '#2b2a55')
+    g.addColorStop(0.26, '#4a3670')
+    g.addColorStop(0.38, '#7e4374')
+    g.addColorStop(0.45, '#b84f5e')
+    g.addColorStop(0.485, '#e8703f')
+    g.addColorStop(0.505, '#ff9a4a')
+    g.addColorStop(0.53, '#f7b273')
+    // below the horizon the dome darkens toward the tone-mapped haze the
+    // fogged ground actually renders as — hides the ground/dome seam
+    g.addColorStop(0.62, '#d18a58')
+    g.addColorStop(1, '#c07a4c')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 1, 512)
+  }
+  const tex = new CanvasTexture(canvas)
+  tex.colorSpace = SRGBColorSpace
+  return tex
+}
+
+function makeSunGlowTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 128
+  canvas.height = 128
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+    g.addColorStop(0, 'rgba(255,236,190,0.95)')
+    g.addColorStop(0.22, 'rgba(255,190,110,0.55)')
+    g.addColorStop(0.55, 'rgba(255,150,70,0.18)')
+    g.addColorStop(1, 'rgba(255,140,60,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 128, 128)
+  }
+  const tex = new CanvasTexture(canvas)
+  tex.colorSpace = SRGBColorSpace
+  return tex
+}
+
+function makeLakeTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 8
+  canvas.height = 128
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    // far edge (toward the sun) blazes; the near shore cools and darkens
+    const g = ctx.createLinearGradient(0, 0, 0, 128)
+    g.addColorStop(0, 'rgba(255,214,150,0.96)')
+    g.addColorStop(0.45, 'rgba(240,164,110,0.9)')
+    g.addColorStop(1, 'rgba(150,102,110,0.85)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 8, 128)
+  }
+  const tex = new CanvasTexture(canvas)
+  tex.colorSpace = SRGBColorSpace
+  return tex
+}
+
+function makeDeckTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    ctx.fillStyle = '#7d5533'
+    ctx.fillRect(0, 0, 256, 256)
+    const tones = ['#84592f', '#775030', '#8a5f38', '#71482a']
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = tones[i % tones.length]
+      ctx.fillRect(0, i * 32, 256, 32)
+      ctx.fillStyle = 'rgba(40,24,12,0.55)'
+      ctx.fillRect(0, i * 32, 256, 2)
+    }
+  }
+  const tex = new CanvasTexture(canvas)
+  tex.colorSpace = SRGBColorSpace
+  tex.wrapS = RepeatWrapping
+  tex.wrapT = RepeatWrapping
+  tex.repeat.set(3, 3)
+  return tex
+}
+
+/** Sky dome, sun, hills, lake, grass, deck — everything around the table. */
+function SunsetWorld() {
+  const skyTex = useMemo(makeSkyTexture, [])
+  const glowTex = useMemo(makeSunGlowTexture, [])
+  const lakeTex = useMemo(makeLakeTexture, [])
+  const deckTex = useMemo(makeDeckTexture, [])
+  useEffect(() => () => { skyTex.dispose(); glowTex.dispose(); lakeTex.dispose(); deckTex.dispose() },
+    [skyTex, glowTex, lakeTex, deckTex])
+  return (
+    <group>
+      {/* sky dome — the gradient IS the final colour: no fog, no tone map */}
+      <mesh>
+        <sphereGeometry args={[300, 24, 24]} />
+        <meshBasicMaterial map={skyTex} side={BackSide} fog={false} toneMapped={false} depthWrite={false} />
+      </mesh>
+      {/* the sun: bright disc + billboard glow, sitting on the horizon */}
+      <group position={[SUN_POS[0], SUN_POS[1], SUN_POS[2]]}>
+        <mesh>
+          <circleGeometry args={[5.5, 40]} />
+          <meshBasicMaterial color="#fff3d2" fog={false} toneMapped={false} depthWrite={false} />
+        </mesh>
+        <mesh position={[0, 0, 1]}>
+          <planeGeometry args={[52, 52]} />
+          <meshBasicMaterial map={glowTex} transparent fog={false} toneMapped={false} depthWrite={false} />
+        </mesh>
+      </group>
+      {/* rolling plain, hazing out toward the horizon */}
+      <mesh position={[0, DECK_TOP_Y - 0.22, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <circleGeometry args={[280, 48]} />
+        <meshStandardMaterial color="#5f7a42" roughness={1} />
+      </mesh>
+      {/* lake catching the sun — a gradient disc (blazing at the far shore,
+          cooling toward us) + a glow streak: a faked reflection, no passes */}
+      <group position={[-9, DECK_TOP_Y - 0.14, -84]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} scale={[34, 12, 1]}>
+          <circleGeometry args={[1, 36]} />
+          <meshBasicMaterial map={lakeTex} transparent fog={false} toneMapped={false} />
+        </mesh>
+        <mesh position={[-0.5, 0.05, 0]} rotation={[-Math.PI / 2, 0, -0.04]}>
+          <planeGeometry args={[6, 22]} />
+          <meshBasicMaterial map={glowTex} transparent opacity={0.9} fog={false} toneMapped={false} depthWrite={false} />
+        </mesh>
+      </group>
+      {/* silhouetted trees frame the mid-ground (the centre stays open
+          for the sun and its reflection) */}
+      {([
+        [-34, -46, 3.4], [-26, -60, 4.6], [-44, -70, 5.2], [-58, -52, 4.0],
+        [30, -52, 4.2], [42, -68, 5.6], [55, -48, 3.6], [24, -80, 5.0],
+      ] as const).map(([x, z, h], i) => (
+        <group key={i} position={[x, DECK_TOP_Y - 0.2, z]}>
+          <mesh position={[0, h * 0.55, 0]}>
+            <coneGeometry args={[h * 0.32, h * 1.1, 7]} />
+            <meshStandardMaterial color="#33402a" roughness={1} />
+          </mesh>
+          <mesh position={[0, h * 0.12, 0]}>
+            <cylinderGeometry args={[h * 0.05, h * 0.07, h * 0.35, 5]} />
+            <meshStandardMaterial color="#3a2a1c" roughness={1} />
+          </mesh>
+        </group>
+      ))}
+      {/* silhouetted hills along the horizon (fog warms them into the haze) */}
+      {([
+        [-130, -190, 100, 15],
+        [30, -215, 130, 21],
+        [140, -170, 85, 12],
+        [-45, -240, 160, 18],
+      ] as const).map(([x, z, rx, ry], i) => (
+        <mesh key={i} position={[x, DECK_TOP_Y, z]} scale={[rx, ry, rx * 0.7]}>
+          <sphereGeometry args={[1, 16, 10]} />
+          <meshBasicMaterial color="#41305c" />
+        </mesh>
+      ))}
+      {/* the wooden deck the table sits on */}
+      <mesh position={[0, DECK_TOP_Y - 0.09, 0]} receiveShadow>
+        <cylinderGeometry args={[7.4, 7.4, 0.18, 40]} />
+        <meshStandardMaterial map={deckTex} color="#c9a377" roughness={0.85} />
+      </mesh>
+    </group>
+  )
+}
+
+// ---- the table ---------------------------------------------------------------------
+
+function Table() {
   return (
     <group>
       {/* felt top */}
-      <mesh position={[0, -0.12, 0]}>
+      <mesh position={[0, -0.12, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[TABLE_R, TABLE_R, 0.24, 48]} />
         <meshStandardMaterial color={FELT} roughness={0.95} />
       </mesh>
-      {/* neon rim */}
-      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[TABLE_R - 0.16, TABLE_R, 64]} />
-        <meshBasicMaterial color="#7c3aff" transparent opacity={0.55} toneMapped={false} />
+      {/* wooden rim */}
+      <mesh position={[0, -0.06, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow>
+        <torusGeometry args={[TABLE_R, 0.14, 12, 64]} />
+        <meshStandardMaterial color={WOOD_RIM} roughness={0.55} />
       </mesh>
-      {/* skirt + pedestal */}
-      <mesh position={[0, -0.6, 0]}>
+      {/* skirt + pedestal down to the deck */}
+      <mesh position={[0, -0.6, 0]} castShadow>
         <cylinderGeometry args={[TABLE_R - 0.05, TABLE_R - 0.35, 0.75, 48]} />
-        <meshStandardMaterial color={TABLE_SKIRT} roughness={1} />
+        <meshStandardMaterial color={WOOD_SKIRT} roughness={0.9} />
       </mesh>
-      <mesh position={[0, -1.6, 0]}>
-        <cylinderGeometry args={[0.7, 1.1, 1.6, 24]} />
-        <meshStandardMaterial color={FELT_EDGE} roughness={1} />
-      </mesh>
-      {/* floor */}
-      <mesh position={[0, -2.4, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[30, 48]} />
-        <meshStandardMaterial color="#0d0828" roughness={1} />
+      <mesh position={[0, (DECK_TOP_Y - 0.95) / 2, 0]}>
+        <cylinderGeometry args={[0.75, 1.5, -0.95 - DECK_TOP_Y, 24]} />
+        <meshStandardMaterial color={WOOD_DARK} roughness={1} />
       </mesh>
     </group>
   )
@@ -571,8 +780,9 @@ function Room() {
 
 type Framing = 'you' | 'watch' | 'wide'
 
-const CAM_YOU: readonly [number, number, number] = [0, 4.5, 8.0]
-const LOOK_YOU: readonly [number, number, number] = [0, 0.15, -0.7]
+// Framings tilt up enough that the horizon and sun stay in the top of frame.
+const CAM_YOU: readonly [number, number, number] = [0, 3.9, 8.4]
+const LOOK_YOU: readonly [number, number, number] = [0, 1.0, -2.2]
 const CAM_WATCH: readonly [number, number, number] = [0, 4.7, 9.6]
 const CAM_WIDE: readonly [number, number, number] = [0, 6.2, 10.4]
 const HAND_MIN: readonly [number, number, number] = [0, 0.42, 3.7] // minimized fan, low at the table edge
@@ -615,7 +825,7 @@ function CameraRig({ view, reduced, handRef }: {
       const seat = seatPosition(activeIdx + 1, total)
       rig.look.set(seat.x * 0.8, 1.15, seat.z * 0.8)
     } else {
-      rig.look.set(0, 0.4, 0)
+      rig.look.set(0, 0.7, -0.8)
     }
   }
 
@@ -666,13 +876,31 @@ function Scene({ view, accent, skins, reduced, focusedId, onActivate }: {
 
   return (
     <>
-      <color attach="background" args={[BASE_BG]} />
-      <fog attach="fog" args={[BASE_BG, 9.5, 19]} />
-      <hemisphereLight args={['#5c48a8', '#0a0620', 1.5]} />
-      <directionalLight position={[4, 9, 6]} intensity={2.1} color="#cfd6ff" />
-      <pointLight position={[0, 5.5, 0]} intensity={46} color={accent} distance={15} decay={2} />
+      <fog attach="fog" args={[HAZE, 30, 190]} />
+      {/* dusk-sky fill from above, warm ground bounce from below */}
+      <hemisphereLight args={['#9a7fc0', '#7a5638', 0.85]} />
+      {/* the sun: warm low key from behind the table — long shadows toward
+          the camera, golden rims on the characters */}
+      <directionalLight
+        position={[-14, 8, -34]}
+        intensity={2.7}
+        color="#ffb46b"
+        castShadow
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        shadow-camera-left={-12}
+        shadow-camera-right={12}
+        shadow-camera-top={12}
+        shadow-camera-bottom={-12}
+        shadow-camera-near={1}
+        shadow-camera-far={80}
+        shadow-bias={-0.0004}
+      />
+      {/* soft camera-side fill so faces (cards and characters) stay readable */}
+      <directionalLight position={[4, 7, 14]} intensity={0.7} color="#ffd9c0" />
 
-      <Room />
+      <SunsetWorld />
+      <Table />
       <TableCentre view={view} skins={skins} cardGeo={cardGeo} reduced={reduced} />
       {view.seats.map((seat, i) => (
         <OpponentSeat key={seat.name} seat={seat} index={i + 1} total={total} skins={skins} cardGeo={cardGeo} accent={accent} reduced={reduced} />
@@ -712,9 +940,10 @@ export default function CardTable3D({ view, accent, reduced, onCardActivate }: {
     <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#0a0620]">
       <div className="h-[380px] sm:h-[470px]">
         <Canvas
+          shadows
           dpr={[1, 2]}
-          gl={{ antialias: true }}
-          camera={{ fov: 50, near: 0.1, far: 60, position: [0, 3.1, 7.6] }}
+          gl={{ antialias: true, toneMapping: ACESFilmicToneMapping, toneMappingExposure: 1.12 }}
+          camera={{ fov: 50, near: 0.1, far: 500, position: [0, 3.9, 8.4] }}
           aria-label="3D card table"
           role="img"
         >
@@ -724,8 +953,8 @@ export default function CardTable3D({ view, accent, reduced, onCardActivate }: {
 
       {/* turn banner over the canvas */}
       <div className="pointer-events-none absolute top-2.5 inset-x-0 text-center">
-        <span className="inline-block font-pixel text-[10px] tracking-wide rounded-lg px-3 py-2"
-          style={{ color: yourTurn ? '#e3d2ff' : 'rgba(255,255,255,0.85)', background: 'rgba(10,6,32,0.75)', border: `1px solid ${yourTurn ? accent : 'rgba(255,255,255,0.14)'}` }}>
+        <span className="inline-block font-sans font-semibold text-[13px] tracking-wide rounded-full px-4 py-1.5"
+          style={{ color: '#ffffff', background: 'rgba(22,14,10,0.78)', border: `1px solid ${yourTurn ? accent : 'rgba(255,255,255,0.22)'}` }}>
           {turnText}
         </span>
       </div>
@@ -756,9 +985,9 @@ export default function CardTable3D({ view, accent, reduced, onCardActivate }: {
         if (!card) return null
         return (
           <div className="pointer-events-none absolute bottom-2.5 inset-x-0 text-center">
-            <span className="inline-block font-pixel text-[9px] tracking-wide rounded-lg px-3 py-2"
-              style={{ color: '#ffffff', background: 'rgba(10,6,32,0.85)', border: '1px solid rgba(255,255,255,0.35)' }}>
-              {describeCard(card).toUpperCase()} — ENTER TO {phase === 'penalty' ? 'STACK' : 'PLAY'}
+            <span className="inline-block font-sans font-semibold text-[12px] tracking-wide rounded-full px-4 py-1.5"
+              style={{ color: '#ffffff', background: 'rgba(22,14,10,0.85)', border: '1px solid rgba(255,255,255,0.35)' }}>
+              {describeCard(card)} — Enter to {phase === 'penalty' ? 'stack' : 'play'}
             </span>
           </div>
         )

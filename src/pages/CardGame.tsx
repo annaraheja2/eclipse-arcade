@@ -121,7 +121,7 @@ export default function CardGame() {
       <div className="relative max-w-3xl mx-auto px-5 py-6">
         <div className="flex items-center justify-between mb-6">
           <button aria-label="Back" onClick={goBack} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white"><ArrowLeft width={18} height={18} /></button>
-          <div className="flex items-center gap-2 font-pixel text-[12px]" style={{ color: ACCENT }}><Cards width={18} height={18} /> CARD GAME</div>
+          <div className="flex items-center gap-2 font-sans font-bold text-sm tracking-[0.14em]" style={{ color: '#c9b3ff' }}><Cards width={18} height={18} /> CARD GAME</div>
           <button aria-label={muted ? 'Unmute sound' : 'Mute sound'} onClick={() => { const m = !muted; setMuted(m); setMutedState(m) }} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">{muted ? <VolumeMute width={18} height={18} /> : <Volume width={18} height={18} />}</button>
         </div>
 
@@ -136,7 +136,7 @@ export default function CardGame() {
                     className={`text-left rounded-xl border bg-white/[0.03] p-4 transition ${preferred ? 'border-neon-violet/70' : 'border-white/10 hover:border-neon-violet/60'}`}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-bold">{c.name}</span>
-                      {preferred && <span className="shrink-0 font-pixel text-[8px] px-2 py-1 rounded" style={{ background: `${ACCENT}33`, color: '#c9b3ff' }}>YOUR LEVEL</span>}
+                      {preferred && <span className="shrink-0 font-sans text-[10px] font-bold tracking-wide px-2 py-1 rounded" style={{ background: `${ACCENT}33`, color: '#c9b3ff' }}>YOUR LEVEL</span>}
                     </div>
                   </button>
                 )
@@ -146,7 +146,7 @@ export default function CardGame() {
         )}
 
         {screen === 'build' && !course && (
-          <p className="text-center text-white/70 font-pixel text-[10px] py-16">LOADING COURSE…</p>
+          <p className="text-center text-white/70 font-sans text-sm py-16">Loading course…</p>
         )}
 
         {screen === 'build' && course && (
@@ -155,9 +155,9 @@ export default function CardGame() {
               Load up to {MAX_TOPICS} topics. Number cards ask an easy question; action &amp; wild cards ask a hard one.
             </p>
             <div className="flex items-center justify-between mb-4 rounded-lg bg-white/[0.03] border border-white/10 px-4 py-2.5">
-              <span className="font-pixel text-[9px] tracking-wide text-white/80">{selected.size}/{MAX_TOPICS} TOPICS · {questionCount} Q</span>
+              <span className="font-sans text-xs font-semibold tracking-wide text-white/80">{selected.size}/{MAX_TOPICS} topics · {questionCount} questions</span>
               <button onClick={() => setSelected(new Set())} disabled={selected.size === 0}
-                className="font-pixel text-[9px] px-3 py-1.5 rounded bg-white/5 border border-white/10 text-white/80 enabled:hover:bg-white/10 disabled:opacity-40">CLEAR</button>
+                className="font-sans text-xs font-semibold px-3 py-1.5 rounded bg-white/5 border border-white/10 text-white/80 enabled:hover:bg-white/10 disabled:opacity-40">Clear</button>
             </div>
             {course.units.every((u) => u.subunits.every((s) => s.questions.length === 0)) ? (
               <p className="text-center text-sm text-white/60 py-8">This course has no authored questions yet — pick another course.</p>
@@ -199,9 +199,9 @@ export default function CardGame() {
             )}
             <div className="mt-7 flex flex-col items-center gap-2">
               <button onClick={start} disabled={!canStart}
-                className="font-pixel text-[11px] px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
+                className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
                 style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-                DEAL CARDS
+                Deal cards
               </button>
               {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
             </div>
@@ -242,12 +242,12 @@ export default function CardGame() {
 function ActionPanel({ view }: { view: Game }) {
   const { phase, actions } = view
   if (phase === 'question' && view.question) {
-    return <QuestionPanel q={view.question} color={ACCENT} onSubmit={actions.answer} label={view.questionLabel} />
+    return <QuestionPanel q={view.question} color={ACCENT} onSubmit={actions.answer} label={view.questionLabel} surface="plain" />
   }
   if (phase === 'color' && view.activeCard) {
     return (
       <Panel>
-        <p className="text-center font-pixel text-[10px] text-white/80 mb-4">CHOOSE A COLOR FOR YOUR WILD</p>
+        <p className="text-center font-sans font-semibold text-sm text-white/85 mb-4">Choose a color for your wild</p>
         <ColorPicker onPick={actions.chooseColor} />
       </Panel>
     )
@@ -264,8 +264,8 @@ function ActionPanel({ view }: { view: Game }) {
         </p>
         <div className="flex justify-center">
           <button onClick={actions.takePenalty}
-            className="font-pixel text-[11px] px-6 py-3 rounded-lg text-white" style={{ background: '#5a3a86' }}>
-            TAKE +{view.pendingDraw}
+            className="font-sans font-bold text-sm px-6 py-3 rounded-lg text-white" style={{ background: '#5a3a86' }}>
+            Take +{view.pendingDraw}
           </button>
         </div>
       </Panel>
@@ -282,14 +282,14 @@ function ActionPanel({ view }: { view: Game }) {
         </div>
         {isWild ? (
           <>
-            <p className="text-center font-pixel text-[9px] text-white/70 mb-3">CHOOSE A COLOR TO PLAY IT</p>
+            <p className="text-center font-sans font-semibold text-sm text-white/80 mb-3">Choose a color to play it</p>
             <ColorPicker onPick={(c) => actions.playDrawn(c)} />
           </>
         ) : (
           <div className="flex justify-center">
             <button onClick={() => actions.playDrawn()}
-              className="font-pixel text-[11px] px-6 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
-              PLAY IT
+              className="font-sans font-bold text-sm px-6 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
+              Play it
             </button>
           </div>
         )}
@@ -302,8 +302,8 @@ function ActionPanel({ view }: { view: Game }) {
         <p className="text-center text-sm text-white/70 mb-4">No playable card — solve a question to draw one.</p>
         <div className="flex justify-center">
           <button onClick={actions.requestDraw}
-            className="font-pixel text-[11px] px-6 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
-            SOLVE TO DRAW
+            className="font-sans font-bold text-sm px-6 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
+            Solve to draw
           </button>
         </div>
       </Panel>
@@ -322,7 +322,7 @@ function ColorPicker({ onPick }: { onPick: (c: Color) => void }) {
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       {colors.map((c) => (
         <button key={c} onClick={() => onPick(c)} aria-label={`Choose ${colorName(c)}`}
-          className="flex items-center justify-center gap-2 py-3 rounded-lg font-pixel text-[10px] text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="flex items-center justify-center gap-2 py-3 rounded-lg font-sans font-bold text-sm text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           style={{ background: COLOR_HEX[c], boxShadow: `0 4px 14px -4px ${COLOR_HEX[c]}` }}>
           <span aria-hidden className="w-3 h-3 rounded-sm bg-white/85" />
           {colorName(c).toUpperCase()}
@@ -350,8 +350,8 @@ function Results({ view, level, onAgain, onPick, onHome }: {
     .sort((a, b) => a.count - b.count)
   return (
     <div className="text-center py-6">
-      <div className="font-pixel text-2xl mb-2" style={{ color: won ? '#3dffa2' : ACCENT }}>
-        {won ? 'YOU WIN!' : `${ord} PLACE`}
+      <div className="font-sans font-extrabold text-3xl tracking-tight mb-2" style={{ color: won ? '#3dffa2' : '#c9b3ff' }}>
+        {won ? 'You win!' : `${ord} place`}
       </div>
       <p className="text-white/60 text-sm mb-6">
         {won ? 'You emptied your hand first.' : `You finished with ${view.hand.length} card${view.hand.length === 1 ? '' : 's'} in hand.`}
@@ -367,15 +367,15 @@ function Results({ view, level, onAgain, onPick, onHome }: {
         <span className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-neon-amber font-bold"><Coin width={18} height={18} /> +{r.rewards.coins}</span>
         <span className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/[0.04] border border-white/10 font-bold" style={{ color: '#c9b3ff' }}><Bolt width={18} height={18} /> +{r.rewards.xp} XP</span>
       </div>
-      {r.rewards.best && <div className="inline-flex items-center gap-1 font-pixel text-[9px] px-2.5 py-1 rounded bg-neon-amber text-[#2a1a00] mb-2"><Star width={12} height={12} /> NEW BEST</div>}
+      {r.rewards.best && <div className="inline-flex items-center gap-1 font-sans font-bold text-[11px] tracking-wide px-2.5 py-1 rounded bg-neon-amber text-[#2a1a00] mb-2"><Star width={12} height={12} /> NEW BEST</div>}
       <div className="text-xs text-white/50 mb-6">Level {level}</div>
 
       <div className="flex flex-wrap justify-center gap-3">
-        <button onClick={onAgain} className="flex items-center gap-2 font-pixel text-[10px] px-5 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
-          <Replay width={16} height={16} /> PLAY AGAIN
+        <button onClick={onAgain} className="flex items-center gap-2 font-sans font-bold text-sm px-5 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
+          <Replay width={16} height={16} /> Play again
         </button>
-        <button onClick={onPick} className="font-pixel text-[10px] px-5 py-3 rounded-lg bg-white/5 border border-white/15 text-white/85 hover:bg-white/10 transition">NEW TOPICS</button>
-        <button onClick={onHome} className="font-pixel text-[10px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 transition">ARCADE</button>
+        <button onClick={onPick} className="font-sans font-semibold text-sm px-5 py-3 rounded-lg bg-white/5 border border-white/15 text-white/85 hover:bg-white/10 transition">New topics</button>
+        <button onClick={onHome} className="font-sans font-semibold text-sm px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 transition">Arcade</button>
       </div>
     </div>
   )
@@ -384,7 +384,7 @@ function Results({ view, level, onAgain, onPick, onHome }: {
 function Row({ place, you, label, count }: { place: number; you: boolean; label: string; count: number }) {
   return (
     <div className={`flex items-center gap-3 px-3 py-2 text-sm ${you ? 'text-white font-bold' : 'text-white/75'}`}>
-      <span className="font-pixel text-[9px] w-8 text-left" style={{ color: place === 1 ? '#3dffa2' : '#ffffff70' }}>P{place}</span>
+      <span className="font-sans font-bold text-[11px] w-8 text-left tabular-nums" style={{ color: place === 1 ? '#3dffa2' : '#ffffff70' }}>P{place}</span>
       <span className="flex-1 text-left truncate">{label}</span>
       <span className="tabular-nums text-white/60 text-xs">{count} left</span>
     </div>
@@ -392,12 +392,12 @@ function Row({ place, you, label, count }: { place: number; you: boolean; label:
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div><h2 className="font-pixel text-[11px] tracking-wider neon-text mb-5 text-center" style={{ color: ACCENT }}>{title}</h2>{children}</div>
+  return <div><h2 className="font-sans font-bold text-sm tracking-[0.18em] mb-5 text-center" style={{ color: '#c9b3ff' }}>{title}</h2>{children}</div>
 }
 function Panel({ children }: { children: React.ReactNode }) {
   return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">{children}</div>
 }
 function DiffBadge({ d }: { d: Difficulty }) {
   const c = d === 'easy' ? '#3dffa2' : d === 'medium' ? '#ffb43d' : '#ff4d8d'
-  return <span className="text-[9px] font-pixel px-2 py-1 rounded" style={{ background: `${c}22`, color: c }}>{d.toUpperCase()}</span>
+  return <span className="text-[10px] font-sans font-bold tracking-wide px-2 py-1 rounded" style={{ background: `${c}22`, color: c }}>{d.toUpperCase()}</span>
 }
