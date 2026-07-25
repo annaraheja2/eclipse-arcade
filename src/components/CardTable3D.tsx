@@ -20,9 +20,9 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import {
   ACESFilmicToneMapping, AdditiveBlending, BackSide, CanvasTexture,
   CatmullRomCurve3, Color as ThreeColor, MeshBasicMaterial, MeshStandardMaterial,
-  PlaneGeometry, RepeatWrapping, SRGBColorSpace, TubeGeometry, Vector3,
+  Object3D, PlaneGeometry, RepeatWrapping, SRGBColorSpace, TubeGeometry, Vector3,
 } from 'three'
-import type { Group, Mesh } from 'three'
+import type { Group, InstancedMesh, Mesh } from 'three'
 import type { Card, Color } from '../lib/cardgame'
 import { cardGlyph, colorName, describeCard } from '../lib/cardgameView'
 import type { CardGameView, CardPhase } from '../hooks/useCardGame'
@@ -1073,6 +1073,150 @@ function StringLights() {
   )
 }
 
+// ---- background gathering -----------------------------------------------------------
+// Ambiance only: more card tables with seated figures scattered across the
+// meadow so the sunset reads as a lively outdoor card night. Five instanced
+// meshes total (tops, pedestals, bodies, heads, lanterns) — a handful of draw
+// calls regardless of crowd size. Layout is baked once from hand-picked
+// anchors + a seeded PRNG, keeping the sun / lake-shimmer corridor and the
+// player's deck clear. No shadows; the existing fog hazes the far tables.
+
+const MEADOW_Y = DECK_TOP_Y - 0.22
+// Anchor spots (x, z) flanking the sun corridor (x ≈ -4…-7 over z -20…-55).
+const BG_ANCHORS: readonly (readonly [number, number])[] = [
+  [-15, -18], [-22, -27], [-36, -42], [-17, -45],
+  [4, -22], [12, -16], [21, -28], [33, -41], [14, -47], [44, -31],
+]
+// Dusk-muted figure tones — silhouettes catching warm backlight, not team neon.
+const BG_TINTS = ['#a06a8a', '#8a6aa0', '#6a7ea0', '#a0836a', '#93705f'] as const
+const BG_DUSK = new ThreeColor(DUSK_DIM)
+const BG_DUMMY = new Object3D() // matrix scratch — never allocated per frame
+
+type BgFigure = { x: number; z: number; s: number; yaw: number; tint: ThreeColor; phase: number }
+type BgTable = { x: number; z: number; r: number; felt: ThreeColor }
+
+function bakeGathering(): { tables: BgTable[]; figures: BgFigure[]; lanterns: (readonly [number, number, number])[] } {
+  const rnd = mulberry32(1204)
+  const tables: BgTable[] = []
+  const figures: BgFigure[] = []
+  const lanterns: (readonly [number, number, number])[] = []
+  BG_ANCHORS.forEach(([ax, az], ti) => {
+    const x = ax + (rnd() - 0.5) * 2
+    const z = az + (rnd() - 0.5) * 2
+    const dim = Math.min(1, Math.max(0, (-z - 14) / 40)) // 0 near → 1 far
+    const r = 1.4 + rnd() * 0.5
+    tables.push({ x, z, r, felt: new ThreeColor(FELT).lerp(BG_DUSK, 0.12 + dim * 0.5) })
+    const seats = 3 + (rnd() > 0.45 ? 1 : 0)
+    const a0 = rnd() * Math.PI * 2
+    for (let i = 0; i < seats; i++) {
+      const a = a0 + (i / seats) * Math.PI * 2 + (rnd() - 0.5) * 0.6
+      const fx = x + Math.cos(a) * (r + 0.55)
+      const fz = z + Math.sin(a) * (r + 0.55)
+      const s = 0.78 + rnd() * 0.24
+      const tint = new ThreeColor(BG_TINTS[(ti + i) % BG_TINTS.length]).lerp(BG_DUSK, 0.3 + dim * 0.45)
+      figures.push({ x: fx, z: fz, s, yaw: Math.atan2(x - fx, z - fz), tint, phase: rnd() * Math.PI * 2 })
+    }
+    if (ti % 2 === 0) lanterns.push([x + (rnd() - 0.5) * 0.6, MEADOW_Y + 1.32, z + (rnd() - 0.5) * 0.6] as const)
+  })
+  return { tables, figures, lanterns }
+}
+
+function BackgroundGathering({ reduced }: { reduced: boolean }) {
+  const topRef = useRef<InstancedMesh>(null)
+  const baseRef = useRef<InstancedMesh>(null)
+  const bodyRef = useRef<InstancedMesh>(null)
+  const headRef = useRef<InstancedMesh>(null)
+  const layout = useMemo(bakeGathering, [])
+
+  // Bake every instance matrix/tint once — static except the head idle below.
+  useEffect(() => {
+    const top = topRef.current
+    const base = baseRef.current
+    const body = bodyRef.current
+    const head = headRef.current
+    if (!top || !base || !body || !head) return
+    layout.tables.forEach((t, i) => {
+      BG_DUMMY.rotation.set(0, 0, 0)
+      BG_DUMMY.position.set(t.x, MEADOW_Y + 1.14, t.z)
+      BG_DUMMY.scale.set(t.r, 1, t.r)
+      BG_DUMMY.updateMatrix()
+      top.setMatrixAt(i, BG_DUMMY.matrix)
+      top.setColorAt(i, t.felt)
+      BG_DUMMY.position.set(t.x, MEADOW_Y + 0.57, t.z)
+      BG_DUMMY.scale.set(1, 1, 1)
+      BG_DUMMY.updateMatrix()
+      base.setMatrixAt(i, BG_DUMMY.matrix)
+    })
+    layout.figures.forEach((f, i) => {
+      BG_DUMMY.rotation.set(0, f.yaw, 0)
+      BG_DUMMY.scale.setScalar(f.s)
+      BG_DUMMY.position.set(f.x, MEADOW_Y + 0.78 * f.s, f.z)
+      BG_DUMMY.updateMatrix()
+      body.setMatrixAt(i, BG_DUMMY.matrix)
+      body.setColorAt(i, f.tint)
+      BG_DUMMY.position.set(f.x, MEADOW_Y + 1.5 * f.s, f.z)
+      BG_DUMMY.updateMatrix()
+      head.setMatrixAt(i, BG_DUMMY.matrix)
+      head.setColorAt(i, f.tint)
+    })
+    for (const m of [top, base, body, head]) m.instanceMatrix.needsUpdate = true
+    for (const m of [top, body, head]) { if (m.instanceColor) m.instanceColor.needsUpdate = true }
+  }, [layout])
+
+  // Tiny head bob so the crowd reads alive — frozen under reduced motion.
+  useFrame(({ clock }) => {
+    const head = headRef.current
+    if (!head || reduced) return
+    const t = clock.elapsedTime
+    layout.figures.forEach((f, i) => {
+      BG_DUMMY.rotation.set(0, f.yaw, 0)
+      BG_DUMMY.scale.setScalar(f.s)
+      BG_DUMMY.position.set(f.x, MEADOW_Y + 1.5 * f.s + Math.sin(t * 1.4 + f.phase) * 0.022, f.z)
+      BG_DUMMY.updateMatrix()
+      head.setMatrixAt(i, BG_DUMMY.matrix)
+    })
+    head.instanceMatrix.needsUpdate = true
+  })
+
+  return (
+    // frustumCulled off: instanced bounds ignore per-instance transforms
+    <group>
+      <instancedMesh ref={topRef} args={[undefined, undefined, layout.tables.length]} frustumCulled={false}>
+        <cylinderGeometry args={[1, 1, 0.12, 18]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.95} />
+      </instancedMesh>
+      <instancedMesh ref={baseRef} args={[undefined, undefined, layout.tables.length]} frustumCulled={false}>
+        <cylinderGeometry args={[0.16, 0.42, 1.14, 10]} />
+        <meshStandardMaterial color={WOOD_DARK} roughness={1} />
+      </instancedMesh>
+      <instancedMesh ref={bodyRef} args={[undefined, undefined, layout.figures.length]} frustumCulled={false}>
+        <capsuleGeometry args={[0.3, 0.5, 3, 8]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.8} />
+      </instancedMesh>
+      <instancedMesh ref={headRef} args={[undefined, undefined, layout.figures.length]} frustumCulled={false}>
+        <sphereGeometry args={[0.21, 10, 8]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.7} />
+      </instancedMesh>
+      {/* warm lantern dots on a few tables — cozy points of light in the field */}
+      <instancedMesh args={[undefined, undefined, layout.lanterns.length]} frustumCulled={false}
+        ref={(mesh: InstancedMesh | null) => {
+          if (!mesh) return
+          layout.lanterns.forEach(([x, y, z], i) => {
+            BG_DUMMY.rotation.set(0, 0, 0)
+            BG_DUMMY.scale.setScalar(1)
+            BG_DUMMY.position.set(x, y, z)
+            BG_DUMMY.updateMatrix()
+            mesh.setMatrixAt(i, BG_DUMMY.matrix)
+          })
+          mesh.instanceMatrix.needsUpdate = true
+        }}>
+        <sphereGeometry args={[0.12, 8, 6]} />
+        <meshBasicMaterial color="#ffd9a0" toneMapped={false} />
+      </instancedMesh>
+    </group>
+  )
+}
+
 // ---- the table ---------------------------------------------------------------------
 
 function Table() {
@@ -1230,6 +1374,7 @@ function Scene({ view, accent, skins, reduced, focusedId, onActivate }: {
       <directionalLight position={[4, 7, 14]} intensity={0.7} color="#ffd9c0" />
 
       <SunsetWorld reduced={reduced} />
+      <BackgroundGathering reduced={reduced} />
       <StringLights />
       <Table />
       <TableCentre view={view} skins={skins} cardGeo={cardGeo} reduced={reduced} />
