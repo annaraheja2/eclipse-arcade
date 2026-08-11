@@ -99,6 +99,22 @@ This is the biggest thing to understand before adding content or a game:
    difficulty and a third answer type (`fill`, via `FillInput`/`QuestionPanel`). Currently
    wired **only into Battleship**, where solving a question is what lets you fire.
 
+   `data/subjects.ts` is the single public surface (every importer goes through it), but the
+   bundled content itself lives **one file per course** in `data/courses/`, with the shared
+   types and the `g`/`s`/`f` authoring helpers in `data/types.ts`. Author with those helpers —
+   **`checkAnswer` dispatches on which FIELDS are set, not on `subunit.type`**, so a slider
+   question missing `answer` silently becomes an unanswerable fill. Three authoring rules the
+   grader imposes:
+   - **slider** is graded within `±step` and the handle snaps to `step`, so the *neighbouring*
+     tick always grades correct. Keep answers integers on the default `0.5` step (no whole
+     number near-miss can pass) and the track ≤ ~100 steps wide or it can't be aimed.
+   - **graph** is graded within ±0.5 per axis; keep `|x|`,`|y|` inside `range`.
+   - **fill** has **no alternate-answer support** (just trim/lowercase/collapse-space plus a
+     numeric fallback), so `"90 degrees"` fails against `"90"`. Use it only for single
+     vocabulary words; anything numeric or unit-bearing belongs on a slider.
+
+   `data/courses.test.ts` enforces all of the above across every bundled question.
+
 These are not unified yet. When touching content, pick the model the target route already
 uses; don't cross-wire them. If they ever converge, that's a deliberate refactor to plan,
 not a drive-by.
@@ -194,9 +210,9 @@ stays focused.
 
 ## In-flight / gotchas
 
-- **Prototype (`0.1.0`).** Sample content is placeholder ("replace with team-authored
-  questions later"); several cabinets are `type: 'soon'`. Real content is expected to
-  land in the curriculum model.
+- **Prototype (`0.1.0`).** Several cabinets are still `type: 'soon'`. All four courses now
+  carry authored content (788 bundled questions; every unit has ≥20 except the four original
+  Algebra 1 sample units, which still ship 4 each and are worth topping up).
 - **Two content models** (above) are the main structural debt.
 - **Deploy is live but manual.** Remote is `github.com/annaraheja2/eclipse-arcade`; GitHub
   Pages already serves from the **`gh-pages`** branch at
