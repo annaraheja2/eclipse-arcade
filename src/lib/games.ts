@@ -9,7 +9,7 @@ export interface GameDef {
   key: string
   name: string
   color: string
-  type: 'pin' | 'slider' | 'battleship' | 'daily' | 'racer' | 'cardgame' | 'ascend' | 'soon'
+  type: 'pin' | 'slider' | 'battleship' | 'daily' | 'racer' | 'cardgame' | 'ascend' | 'laststanding' | 'soon'
   rounds: Round[]
 }
 
@@ -48,6 +48,7 @@ export const GAMES: GameDef[] = [
   { key: 'racer', name: 'Racer', color: '#4d8dff', type: 'racer', rounds: [] },
   { key: 'cardgame', name: 'Card Game', color: '#7c3aff', type: 'cardgame', rounds: [] },
   { key: 'ascend', name: 'Ascend', color: '#3dffa2', type: 'ascend', rounds: [] },
+  { key: 'laststanding', name: 'Last Standing', color: '#ff4d8d', type: 'laststanding', rounds: [] },
   { key: 'daily', name: 'Daily Challenge', color: '#ffb43d', type: 'daily', rounds: [] },
   { key: 'pinpoint', name: 'PinPoint', color: '#a24bff', type: 'pin', rounds: PINPOINT_ROUNDS },
   { key: 'gridfill', name: 'Grid-Fill', color: '#3dffa2', type: 'soon', rounds: [] },

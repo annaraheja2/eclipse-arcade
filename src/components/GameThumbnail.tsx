@@ -22,6 +22,7 @@ function pick(g: GameDef): JSX.Element {
     case 'racer': return <RacerThumb color={g.color} />
     case 'cardgame': return <CardGameThumb color={g.color} />
     case 'ascend': return <AscendThumb color={g.color} />
+    case 'laststanding': return <LastStandingThumb color={g.color} />
     case 'daily': return <DailyThumb color={g.color} />
     case 'pinpoint': return <PinPointThumb color={g.color} />
     case 'slider': return <SliderThumb color={g.color} />
@@ -176,6 +177,43 @@ function AscendThumb({ color }: { color: string }) {
         <circle cx="45.5" cy="40.5" r="2" fill="#1a1030" />
         <circle cx="36.5" cy="49.5" r="2" fill="#1a1030" />
       </g>
+    </>
+  )
+}
+
+/* ---- Last Standing: seats around a table — one crowned + glowing, one
+   eliminated seat crossed out, the shrinking clock ticking down ---- */
+function LastStandingThumb({ color }: { color: string }) {
+  const hi = bright(color)
+  const figure = (x: number, y: number, fill: string, opacity = 1) => (
+    <g opacity={opacity}>
+      <circle cx={x} cy={y - 10} r="5" fill={fill} />
+      <path d={`M${x - 7} ${y + 4} a7 7 0 0 1 14 0 z`} fill={fill} />
+    </g>
+  )
+  return (
+    <>
+      {/* the table */}
+      <ellipse cx="100" cy="66" rx="34" ry="15" fill="#1c1140" stroke={color} strokeOpacity="0.65" strokeWidth="2" />
+      {/* winner at the head, crowned + pulsing */}
+      <g className="tn-glowpulse">
+        {figure(100, 36, hi)}
+        <path d="M93 20.5 94.5 15l3.5 2.7 2-4 2 4 3.5-2.7 1.5 5.5z" fill="#ffb43d" />
+      </g>
+      <circle className="tn-ping" cx="100" cy="32" r="14" fill="none" stroke={hi} strokeWidth="2" />
+      {/* rivals around the table; the right seat is banished — faded + struck */}
+      {figure(56, 58, 'rgba(255,255,255,0.7)')}
+      {figure(70, 84, 'rgba(255,255,255,0.55)')}
+      {figure(130, 84, 'rgba(255,255,255,0.55)')}
+      {figure(144, 58, 'rgba(255,255,255,0.35)', 0.6)}
+      <g stroke={color} strokeWidth="2.5" strokeLinecap="round">
+        <line x1="136" y1="44" x2="152" y2="60" />
+        <line x1="152" y1="44" x2="136" y2="60" />
+      </g>
+      {/* the shrinking clock */}
+      <circle cx="36" cy="36" r="12" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" />
+      <path className="tn-glowpulse" d="M36 36 36 27 A9 9 0 0 1 44.2 39.5 z" fill={color} opacity="0.85" />
+      <line x1="36" y1="36" x2="36" y2="28" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
     </>
   )
 }
