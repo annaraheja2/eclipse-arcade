@@ -54,7 +54,7 @@ export const CURRICULUM: Record<string, readonly OutlineUnit[]> = {
     ]},
     { id: 'polynomials', name: 'Polynomials and Factoring', description: 'operations and factoring techniques', topics: [
       t('Polynomial Vocabulary', 'Degree, leading coefficient, monomial/binomial/trinomial.'),
-      t('Adding & Subtracting Polynomials', 'Combining like terms.'),
+      t('Adding/Subtracting Polynomials', 'Combining like terms.'),
       t('Multiplying Polynomials', 'Distributive property, FOIL, special products and perfect squares.'),
       t('Factoring Techniques', 'GCF, factoring trinomials, factoring by grouping, difference of squares.'),
       t('Solving Quadratics by Factoring (Intro)', 'Zero-product property.'),
@@ -63,7 +63,7 @@ export const CURRICULUM: Record<string, readonly OutlineUnit[]> = {
       t('Quadratic Vocabulary', 'Vertex, axis of symmetry, roots, y-intercept.'),
       t('Graphing Quadratics', 'Vertex form, intercept form, plotting key points.'),
       t('Solving Quadratics', 'Factoring, square roots (perfect square), completing the square (intro).'),
-      t('Quadratic Applications', 'Projectile motion, area problems.'),
+      t('Applications', 'Projectile motion, area problems.'),
     ]},
     { id: 'rational-expressions', name: 'Rational Expressions & Equations (Intro)', description: 'simplifying, operating, solving', topics: [
       t('Simplifying Rational Expressions', 'Factoring numerator/denominator, canceling factors.'),
@@ -117,7 +117,7 @@ export const CURRICULUM: Record<string, readonly OutlineUnit[]> = {
       t('Distance & Midpoint Formulas', 'Derived from the Pythagorean theorem.'),
       t('Slope & Equation of a Line', 'Point-slope, slope-intercept, standard form.'),
       t('Using Coordinates to Prove', 'Congruence, parallelism, perpendicularity, polygon classification.'),
-      t('Circles in the Coordinate Plane', 'Standard equation, center-radius form.'),
+      t('Circles in Coordinate Plane', 'Standard equation, center-radius form.'),
     ]},
     { id: 'circles', name: 'Circles', description: 'angles, chords, arcs and sectors', topics: [
       t('Circle Vocabulary', 'Radius, diameter, chord, tangent, secant, arc.'),
@@ -169,13 +169,13 @@ export const CURRICULUM: Record<string, readonly OutlineUnit[]> = {
     { id: 'rational-expressions-and-functions', name: 'Rational Functions', description: 'asymptotes, graphs, applications', topics: [
       t('Asymptotes', 'Vertical, horizontal, oblique.'),
       t('Graphing Rational Functions', 'Intercepts, holes, behaviour near asymptotes.'),
-      t('Rational Applications', 'Rates, inverse variation models.'),
+      t('Applications', 'Rates, inverse variation models.'),
     ]},
     { id: 'exponential-and-logarithmic-functions', name: 'Exponential & Logarithmic Functions', description: 'logs, equations, modeling', topics: [
       t('Exponential Functions', 'Growth/decay models, compound interest.'),
       t('Logarithms', 'Definition, properties, change of base.'),
       t('Solving Exponential/Log Equations', 'Using logs, domain considerations.'),
-      t('Exponential Applications', 'pH, Richter scale, half-life, doubling time.'),
+      t('Applications', 'pH, Richter scale, half-life, doubling time.'),
     ]},
     { id: 'sequences-and-series', name: 'Sequences & Series', description: 'arithmetic, geometric, sigma notation', topics: [
       t('Arithmetic Sequences & Sums', 'Common difference, partial sums.'),
@@ -185,13 +185,13 @@ export const CURRICULUM: Record<string, readonly OutlineUnit[]> = {
     ]},
     { id: 'conic-sections', name: 'Conic Sections', description: 'parabolas, circles, ellipses, hyperbolas', topics: [
       t('Parabolas', 'Focus/directrix, vertex form, reflective property.'),
-      t('Circles (Conic)', 'Standard equation review.'),
+      t('Circles', 'Standard equation review.'),
       t('Ellipses & Hyperbolas', 'Standard forms, foci, asymptotes for hyperbola.'),
-      t('Graphing Conics & Applications', 'Orbital paths, optics.'),
+      t('Graphing & Applications', 'Orbital paths, optics.'),
     ]},
     { id: 'trigonometric-functions', name: 'Trigonometry', description: 'unit circle through the laws', topics: [
       t('Unit Circle & Radian Measure', 'Coordinates, reference angles.'),
-      t('Graphs of Trigonometric Functions', 'Amplitude, period, phase shift.'),
+      t('Trigonometric Functions', 'Graphs, amplitude, period, phase shift.'),
       t('Trigonometric Identities', 'Pythagorean, reciprocal, quotient, cofunction.'),
       t('Solving Trig Equations', 'Algebraic and graphical methods.'),
       t('Law of Sines & Cosines', 'Non-right triangle solving, ambiguous case.'),
@@ -230,7 +230,6 @@ export const CURRICULUM: Record<string, readonly OutlineUnit[]> = {
       t('Unit Circle Mastery', 'Exact values, symmetry, reference angles.'),
       t('Trigonometric Identities & Proofs', 'Sum/difference, double-angle, half-angle.'),
       t('Trigonometric Equations & Solutions', 'General solutions, periodicity.'),
-      t('Graphs of Trigonometric Functions', 'Amplitude, period, phase shift.'),
     ]},
     { id: 'parametric-and-polar-equations', name: 'Parametric & Polar Equations', description: 'polar coordinates and parametric motion', topics: [
       t('Polar Coordinates & Graphs', 'Converting between polar and rectangular.'),
@@ -239,10 +238,10 @@ export const CURRICULUM: Record<string, readonly OutlineUnit[]> = {
     { id: 'conics', name: 'Analytic Geometry & Conics (Advanced)', description: 'derivations, rotation, applications', topics: [
       t('Conic Derivations', 'Deriving standard forms from definitions.'),
       t('Rotation of Axes (Intro)', 'Removing the xy term, classifying conics.'),
-      t('Conic Applications', 'Reflective properties, optimization.'),
+      t('Applications', 'Reflective properties, optimization.'),
     ]},
     { id: 'vectors', name: 'Vectors & Complex Numbers (Advanced)', description: 'vector algebra and polar complex numbers', topics: [
-      t('Vectors in the Plane', 'Magnitude, direction, components, dot product.'),
+      t('Vectors in Plane', 'Magnitude, direction, components, dot product.'),
       t('Vector Operations', 'Addition, scalar multiplication, projections.'),
       t('Complex Numbers in Polar Form', 'Multiplication/division via modulus and argument.'),
       t('De Moivre’s Theorem & Roots of Unity', 'Powers and roots.'),
@@ -364,12 +363,12 @@ export const PLACEMENT: Record<string, Record<string, string>> = {
     'log-laws': 'exponential-and-logarithmic-functions', // log laws are not log scales — own subtopic
     'growth-decay-half-life': 'exponential-and-logarithmic-functions#Continuous Growth & e',
     'unit-circle-angles': 'trigonometric-functions#Unit Circle Mastery',
-    'amplitude-and-period': 'trigonometric-functions#Graphs of Trigonometric Functions',
+    'amplitude-and-period': 'trigonometric-functions', // no graphs topic in the outline — own subtopic
     'pythagorean-identities': 'trigonometric-functions#Trigonometric Identities & Proofs',
     'solving-trig-equations': 'trigonometric-functions#Trigonometric Equations & Solutions',
     'polar-coordinates': 'parametric-and-polar-equations#Polar Coordinates & Graphs',
     'parametric-curves': 'parametric-and-polar-equations#Parametric Equations',
-    'components-and-magnitude': 'vectors#Vectors in the Plane',
+    'components-and-magnitude': 'vectors#Vectors in Plane',
     'dot-product': 'vectors#Vector Operations',
     'evaluating-limits': 'limits-and-intro-to-calculus#Concept of a Limit',
     'continuity-and-derivatives': 'limits-and-intro-to-calculus#Rate of Change & Slope of Tangent (Intro)',
