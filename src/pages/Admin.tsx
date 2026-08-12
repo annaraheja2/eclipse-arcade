@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { COURSES, type Course, type Unit, type Subunit, type Question, type Difficulty, type AnswerType } from '../data/subjects'
-import { fetchRemoteCourse, saveCourse, draftIssue, slugify, uniqueId } from '../lib/content'
+import { fetchRemoteCourse, saveCourse, draftIssue, mergeBundledContent, slugify, uniqueId } from '../lib/content'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useAuth } from '../lib/auth'
 import { ArrowLeft } from '../icons'
@@ -264,7 +264,20 @@ function Editor({ email }: { email: string }) {
       .then((remote) => {
         if (cancelled) return
         if (remote.status === 'ok') {
-          setState({ phase: 'ready', draft: remote.course, saved: JSON.stringify(remote.course), docExists: true, note: null })
+          // Show the same course the GAMES see: the cloud doc plus any bundled
+          // subtopics it is missing (mergeBundledContent — additive, nothing
+          // authored is touched). Without this the editor hides restored
+          // outline subtopics, so there is nowhere to author questions into
+          // them. `saved` stays the raw cloud copy, so the merged-in entries
+          // read as unsaved changes and one Save makes them permanent.
+          const merged = mergeBundledContent(remote.course, bundled)
+          const added = merged.units.reduce((n, u, i) => n + u.subunits.length - remote.course.units[i]?.subunits.length, 0)
+          setState({
+            phase: 'ready', draft: merged, saved: JSON.stringify(remote.course), docExists: true,
+            note: added > 0
+              ? `${added} subtopic${added === 1 ? '' : 's'} from the app aren't in the cloud copy yet — they're shown here and Save will store them.`
+              : null,
+          })
         } else {
           const draft = clone(bundled)
           setState({
