@@ -70,8 +70,10 @@ set and a PLACEMENT entry; `courses.test.ts` fails if any set is left unplaced.
 A saved `arcadeContent/{course}` doc **wins over the bundle**, so new bundled content does
 not reach players by itself. `mergeBundledContent` (`lib/content.ts`) softens that: it is
 **purely additive** — empty authored subtopics are topped up when ids match, and bundled
-subunits missing from a unit are appended, including empty outline placeholders. It does NOT
-add missing UNITS, so a curriculum restructure needs a republish.
+subunits missing from a unit are appended (including empty outline placeholders), and whole
+units missing from the cloud copy are appended too, so a curriculum restructure reaches the
+games AND shows up in /admin where it can be saved. The cost: a BUNDLED unit can't be deleted
+from /admin for good — remove it from `curriculum.ts`, where git protects the change.
 
 **Republishing a course** (`/admin` → Reset to bundled → Save) is the sanctioned way to adopt
 a curriculum change, now that the bundle carries the canonical outline. It replaces the WHOLE

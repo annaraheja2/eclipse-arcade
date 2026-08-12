@@ -105,8 +105,10 @@ export function validateCourse(data: unknown): Course | null {
  *     borrows the bundled questions, keeping its own name and difficulty;
  *   * bundled subunits with no remote counterpart are APPENDED, so new
  *     content is playable without displacing the outline;
- *   * a unit deleted remotely stays deleted — deleting is still the way to
- *     remove bundled content for good.
+ *   * a whole unit missing from the cloud copy is appended, so a curriculum
+ *     restructure reaches both the games and the editor. The cost: a BUNDLED
+ *     unit can no longer be deleted from /admin for good — remove it from
+ *     data/courses/curriculum.ts instead. Cloud-only units delete normally.
  */
 export function mergeBundledContent(remote: Course, bundled: Course | undefined): Course {
   if (!bundled) return remote
@@ -141,7 +143,14 @@ export function mergeBundledContent(remote: Course, bundled: Course | undefined)
       : unit
   })
 
-  return changed ? { ...remote, units } : remote
+  // 3. append whole units the cloud copy is missing — a curriculum restructure
+  //    adds new units (Conic Sections, Complex Numbers, Modeling…), and without
+  //    this they are invisible in the games AND unsaveable in /admin.
+  const present = new Set(remote.units.map((u) => u.id))
+  const newUnits = bundled.units.filter((u) => !present.has(u.id))
+  if (newUnits.length > 0) changed = true
+
+  return changed ? { ...remote, units: [...units, ...newUnits] } : remote
 }
 
 /**

@@ -261,8 +261,12 @@ describe('mergeBundledContent', () => {
     expect(mergeBundledContent(remote, bundled).units[0].subunits).toHaveLength(1)
   })
 
-  it('respects a deletion — a unit missing remotely is not resurrected', () => {
-    expect(mergeBundledContent(course([]), course([{ id: 'u1', subunits: [sub('s1')] }])).units).toHaveLength(0)
+  it('re-adds a bundled unit deleted in the cloud — the curriculum is canonical', () => {
+    // Consequence of appending missing units: /admin can no longer delete a
+    // BUNDLED unit for good. Removing one means editing data/courses/
+    // curriculum.ts, where git protects it. Units that exist only in the cloud
+    // are still fully deletable.
+    expect(mergeBundledContent(course([]), course([{ id: 'u1', subunits: [sub('s1')] }])).units).toHaveLength(1)
   })
 
   it('appends an empty bundled subunit — that is how a lost outline comes back', () => {
@@ -276,6 +280,19 @@ describe('mergeBundledContent', () => {
     const remote = course([{ id: 'u1', subunits: [sub('shared', [])] }])
     const bundled = course([{ id: 'u1', subunits: [sub('shared', [])] }])
     expect(mergeBundledContent(remote, bundled).units[0].subunits).toHaveLength(1)
+  })
+
+  it('appends a whole unit the cloud copy is missing', () => {
+    const remote = course([{ id: 'u1', subunits: [sub('a')] }])
+    const bundled = course([{ id: 'u1', subunits: [sub('a')] }, { id: 'u2', subunits: [sub('b')] }])
+    const out = mergeBundledContent(remote, bundled)
+    expect(out.units.map((u) => u.id)).toEqual(['u1', 'u2'])
+  })
+
+  it('keeps the cloud copy’s own units first and in order', () => {
+    const remote = course([{ id: 'z', subunits: [sub('a')] }])
+    const bundled = course([{ id: 'new', subunits: [sub('b')] }, { id: 'z', subunits: [sub('a')] }])
+    expect(mergeBundledContent(remote, bundled).units.map((u) => u.id)).toEqual(['z', 'new'])
   })
 
   it('returns the remote course untouched when there is no bundled twin', () => {
