@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { fillEmptyUnits, validateCourse, draftIssue, slugify, uniqueId } from './content'
+import { mergeBundledContent, validateCourse, draftIssue, slugify, uniqueId } from './content'
 import { COURSES, type Course, type AnswerType } from '../data/subjects'
 
 // A well-formed course as it would come back from Firestore (plain JSON plus
@@ -219,63 +219,60 @@ describe('loadCourse (unconfigured)', () => {
   })
 })
 
-describe('fillEmptyUnits', () => {
+describe('mergeBundledContent', () => {
   const q = { prompt: 'p', fill: 'a' }
   const sub = (id: string, questions = [q]) =>
     ({ id, name: id, difficulty: 'easy' as const, type: 'fill' as const, questions })
   const course = (units: { id: string; name?: string; description?: string; subunits: ReturnType<typeof sub>[] }[]) =>
     ({ id: 'c', name: 'C', units: units.map((u) => ({ name: u.id, ...u })) })
 
-  it('fills a remote unit that exists but holds no questions', () => {
+  it('keeps an authored outline of empty subtopics and appends the bundled content', () => {
+    const remote = course([{ id: 'u1', subunits: [sub('interval-notation', []), sub('point-slope', [])] }])
+    const bundled = course([{ id: 'u1', subunits: [sub('mine')] }])
+    const out = mergeBundledContent(remote, bundled).units[0].subunits
+    expect(out.map((s) => s.id)).toEqual(['interval-notation', 'point-slope', 'mine'])
+  })
+
+  it('never drops or reorders an authored subtopic', () => {
+    const remote = course([{ id: 'u1', subunits: [sub('a', []), sub('b'), sub('c', [])] }])
+    const bundled = course([{ id: 'u1', subunits: [sub('z')] }])
+    const ids = mergeBundledContent(remote, bundled).units[0].subunits.map((s) => s.id)
+    expect(ids.slice(0, 3)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('tops up an empty subtopic that shares an id with the bundle, keeping its name', () => {
+    const remote = course([{ id: 'u1', subunits: [{ ...sub('s1', []), name: 'My Title' }] }])
+    const bundled = course([{ id: 'u1', subunits: [sub('s1')] }])
+    const out = mergeBundledContent(remote, bundled).units[0].subunits[0]
+    expect(out.questions).toHaveLength(1)
+    expect(out.name).toBe('My Title')
+  })
+
+  it('leaves an authored subtopic that already has questions completely alone', () => {
+    const mine = { ...sub('s1'), name: 'Mine', questions: [{ prompt: 'mine', fill: 'x' }] }
+    const remote = course([{ id: 'u1', subunits: [mine] }])
+    const bundled = course([{ id: 'u1', subunits: [sub('s1')] }])
+    expect(mergeBundledContent(remote, bundled).units[0].subunits[0].questions[0].prompt).toBe('mine')
+  })
+
+  it('recovers a wholly empty unit by appending the bundled subunits', () => {
     const remote = course([{ id: 'u1', subunits: [] }])
     const bundled = course([{ id: 'u1', subunits: [sub('s1')] }])
-    expect(fillEmptyUnits(remote, bundled).units[0].subunits).toHaveLength(1)
-  })
-
-  it('fills a unit whose subunits exist but are all empty', () => {
-    const remote = course([{ id: 'u1', subunits: [sub('s1', [])] }])
-    const bundled = course([{ id: 'u1', subunits: [sub('s1')] }])
-    const out = fillEmptyUnits(remote, bundled)
-    expect(out.units[0].subunits[0].questions).toHaveLength(1)
-  })
-
-  it('never touches a unit the admin actually authored', () => {
-    const authored = sub('mine')
-    const remote = course([{ id: 'u1', subunits: [authored] }])
-    const bundled = course([{ id: 'u1', subunits: [sub('bundled')] }])
-    expect(fillEmptyUnits(remote, bundled).units[0].subunits[0].id).toBe('mine')
-  })
-
-  it('keeps a remote rename/description while borrowing the questions', () => {
-    const remote = { id: 'c', name: 'C', units: [{ id: 'u1', name: 'Renamed', description: 'mine', subunits: [] }] }
-    const bundled = course([{ id: 'u1', subunits: [sub('s1')] }])
-    const out = fillEmptyUnits(remote, bundled)
-    expect(out.units[0].name).toBe('Renamed')
-    expect(out.units[0].description).toBe('mine')
-    expect(out.units[0].subunits).toHaveLength(1)
+    expect(mergeBundledContent(remote, bundled).units[0].subunits).toHaveLength(1)
   })
 
   it('respects a deletion — a unit missing remotely is not resurrected', () => {
-    const remote = course([])
-    const bundled = course([{ id: 'u1', subunits: [sub('s1')] }])
-    expect(fillEmptyUnits(remote, bundled).units).toHaveLength(0)
+    expect(mergeBundledContent(course([]), course([{ id: 'u1', subunits: [sub('s1')] }])).units).toHaveLength(0)
   })
 
-  it('leaves an empty unit empty when the bundle has nothing either', () => {
-    const remote = course([{ id: 'u1', subunits: [] }])
-    const bundled = course([{ id: 'u1', subunits: [] }])
-    expect(fillEmptyUnits(remote, bundled).units[0].subunits).toHaveLength(0)
+  it('never appends an empty bundled subunit', () => {
+    const remote = course([{ id: 'u1', subunits: [sub('a', [])] }])
+    const bundled = course([{ id: 'u1', subunits: [sub('empty', [])] }])
+    expect(mergeBundledContent(remote, bundled).units[0].subunits.map((s) => s.id)).toEqual(['a'])
   })
 
   it('returns the remote course untouched when there is no bundled twin', () => {
     const remote = course([{ id: 'u1', subunits: [] }])
-    expect(fillEmptyUnits(remote, undefined)).toBe(remote)
-  })
-
-  it('recovers every unit of an all-empty seeded course', () => {
-    const remote = course([{ id: 'u1', subunits: [] }, { id: 'u2', subunits: [] }])
-    const bundled = course([{ id: 'u1', subunits: [sub('a')] }, { id: 'u2', subunits: [sub('b')] }])
-    const out = fillEmptyUnits(remote, bundled)
-    expect(out.units.every((u) => u.subunits.length > 0)).toBe(true)
+    expect(mergeBundledContent(remote, undefined)).toBe(remote)
   })
 })

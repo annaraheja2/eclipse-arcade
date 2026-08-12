@@ -63,10 +63,12 @@ including collaborators' own pushes.
 ### Bundled content vs. the Firestore copy
 A saved `arcadeContent/{course}` doc **wins over the bundle**, so shipping new bundled
 questions does NOT put them in front of players — an admin has to republish the course
-(`/admin` → Reset to bundled → Save). The one exception is `fillEmptyUnits` in
-`lib/content.ts`: a remote unit that exists with ZERO questions borrows the bundled unit's
-subunits, so a stale seed can't permanently hide new content. Authored units are never
-touched, and deleting a unit outright still removes it for good. Watch for a collaborator
+(`/admin` → Reset to bundled → Save). The one exception is `mergeBundledContent` in
+`lib/content.ts`, which is **purely additive**: empty authored subtopics are topped up if
+they share an id with a bundled one, and bundled subunits with no remote counterpart are
+APPENDED. Nothing authored is ever removed, renamed or reordered — the empty subtopics in a
+course are the team's curriculum outline, not junk. Deleting a unit outright still removes
+it for good. Watch for a collaborator
 on an older deploy republishing a course — that overwrites the cloud copy with their
 older bundle.
 

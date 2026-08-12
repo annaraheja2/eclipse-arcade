@@ -84,33 +84,56 @@ export function validateCourse(data: unknown): Course | null {
 }
 
 /**
- * Fills EMPTY remote units from the bundled course.
+ * Adds bundled content to a remote course WITHOUT taking anything away.
  *
- * A remote doc wins outright, which meant a course seeded before its content
- * was authored kept shadowing the bundle forever: the doc is perfectly valid,
- * it just holds empty unit scaffolds, so `loadCourse` served those and every
- * bundled question stayed invisible. This closes that hole.
+ * A remote doc wins outright, so a course whose units are still empty
+ * scaffolds would shadow the bundle forever and no bundled question would ever
+ * be reachable. But those scaffolds are not junk — they are the team's
+ * curriculum outline, authored subtopic by subtopic in /admin, and an earlier
+ * version of this function replaced a whole unit's subunit list with the
+ * bundled one, which made that outline disappear from the pickers.
  *
- * The rule is deliberately narrow, so it can never undo an admin's work:
- *   * a unit with ANY question remotely is left exactly as authored;
- *   * a unit that exists remotely with ZERO questions borrows the bundled
- *     unit's subunits (keeping the remote name/description, which the admin
- *     may have edited);
- *   * a unit DELETED remotely stays deleted — deleting the unit outright is
- *     the escape hatch for removing bundled content for good.
+ * So the merge is purely additive. Nothing authored is ever removed, renamed
+ * or reordered:
+ *   * every remote subunit is kept, in its original order, empty or not —
+ *     an empty subtopic is a deliberate placeholder and still shows (disabled)
+ *     in the pickers;
+ *   * a remote subunit that exists in the bundle but holds NO questions
+ *     borrows the bundled questions, keeping its own name and difficulty;
+ *   * bundled subunits with no remote counterpart are APPENDED, so new
+ *     content is playable without displacing the outline;
+ *   * a unit deleted remotely stays deleted — deleting is still the way to
+ *     remove bundled content for good.
  */
-export function fillEmptyUnits(remote: Course, bundled: Course | undefined): Course {
+export function mergeBundledContent(remote: Course, bundled: Course | undefined): Course {
   if (!bundled) return remote
-  const bundledById = new Map(bundled.units.map((u) => [u.id, u]))
-  const hasQuestions = (u: Unit) => u.subunits.some((s) => s.questions.length > 0)
+  const bundledUnits = new Map(bundled.units.map((u) => [u.id, u]))
   let changed = false
+
   const units = remote.units.map((unit) => {
-    if (hasQuestions(unit)) return unit
-    const source = bundledById.get(unit.id)
-    if (!source || !hasQuestions(source)) return unit
-    changed = true
-    return { ...unit, subunits: source.subunits }
+    const source = bundledUnits.get(unit.id)
+    if (!source) return unit
+    const bundledSubs = new Map(source.subunits.map((s) => [s.id, s]))
+
+    // 1. keep every authored subunit, topping up only the empty ones
+    const kept = unit.subunits.map((sub) => {
+      if (sub.questions.length > 0) return sub
+      const from = bundledSubs.get(sub.id)
+      if (!from || from.questions.length === 0) return sub
+      changed = true
+      return { ...sub, questions: from.questions }
+    })
+
+    // 2. append bundled subunits the outline doesn't have yet
+    const have = new Set(unit.subunits.map((s) => s.id))
+    const added = source.subunits.filter((s) => !have.has(s.id) && s.questions.length > 0)
+    if (added.length > 0) changed = true
+
+    return added.length > 0 || kept !== unit.subunits
+      ? { ...unit, subunits: [...kept, ...added] }
+      : unit
   })
+
   return changed ? { ...remote, units } : remote
 }
 
@@ -197,8 +220,9 @@ export async function loadCourse(courseId: string): Promise<Course> {
   if (!isFirebaseConfigured) return bundled
   try {
     const remote = await fetchRemoteCourse(courseId)
-    // Empty remote units fall back to the bundled ones — see fillEmptyUnits.
-    if (remote.status === 'ok') return fillEmptyUnits(remote.course, bundled)
+    // Bundled content is added to the remote course, never substituted for it
+    // — see mergeBundledContent.
+    if (remote.status === 'ok') return mergeBundledContent(remote.course, bundled)
     if (remote.status === 'invalid') {
       console.warn(`[eclipse-arcade] ${COLLECTION}/${courseId} is malformed — using the bundled course`)
     }
