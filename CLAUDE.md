@@ -60,6 +60,16 @@ workflow` (one command, browser approve), recreate that workflow (build with the
 `VITE_FIREBASE_*` env, `peaceiris/actions-gh-pages@v4` → `gh-pages`) and CI takes over Hop 2 —
 including collaborators' own pushes.
 
+### Bundled content vs. the Firestore copy
+A saved `arcadeContent/{course}` doc **wins over the bundle**, so shipping new bundled
+questions does NOT put them in front of players — an admin has to republish the course
+(`/admin` → Reset to bundled → Save). The one exception is `fillEmptyUnits` in
+`lib/content.ts`: a remote unit that exists with ZERO questions borrows the bundled unit's
+subunits, so a stale seed can't permanently hide new content. Authored units are never
+touched, and deleting a unit outright still removes it for good. Watch for a collaborator
+on an older deploy republishing a course — that overwrites the cloud copy with their
+older bundle.
+
 ### The one thing NOT automated — Firestore rules
 The workflow deploys app **code only**. **`firestore.rules` changes still need a manual
 publish** in the Firebase console (Firestore → Rules → paste → Publish) — hand Harish the

@@ -84,6 +84,37 @@ export function validateCourse(data: unknown): Course | null {
 }
 
 /**
+ * Fills EMPTY remote units from the bundled course.
+ *
+ * A remote doc wins outright, which meant a course seeded before its content
+ * was authored kept shadowing the bundle forever: the doc is perfectly valid,
+ * it just holds empty unit scaffolds, so `loadCourse` served those and every
+ * bundled question stayed invisible. This closes that hole.
+ *
+ * The rule is deliberately narrow, so it can never undo an admin's work:
+ *   * a unit with ANY question remotely is left exactly as authored;
+ *   * a unit that exists remotely with ZERO questions borrows the bundled
+ *     unit's subunits (keeping the remote name/description, which the admin
+ *     may have edited);
+ *   * a unit DELETED remotely stays deleted — deleting the unit outright is
+ *     the escape hatch for removing bundled content for good.
+ */
+export function fillEmptyUnits(remote: Course, bundled: Course | undefined): Course {
+  if (!bundled) return remote
+  const bundledById = new Map(bundled.units.map((u) => [u.id, u]))
+  const hasQuestions = (u: Unit) => u.subunits.some((s) => s.questions.length > 0)
+  let changed = false
+  const units = remote.units.map((unit) => {
+    if (hasQuestions(unit)) return unit
+    const source = bundledById.get(unit.id)
+    if (!source || !hasQuestions(source)) return unit
+    changed = true
+    return { ...unit, subunits: source.subunits }
+  })
+  return changed ? { ...remote, units } : remote
+}
+
+/**
  * Pre-save completeness check for the admin editor: the shape may be a valid
  * Course while cleared inputs leave holes gameplay can't run on. Returns the
  * first problem as a human-pointable message, or null when publishable.
@@ -166,7 +197,8 @@ export async function loadCourse(courseId: string): Promise<Course> {
   if (!isFirebaseConfigured) return bundled
   try {
     const remote = await fetchRemoteCourse(courseId)
-    if (remote.status === 'ok') return remote.course
+    // Empty remote units fall back to the bundled ones — see fillEmptyUnits.
+    if (remote.status === 'ok') return fillEmptyUnits(remote.course, bundled)
     if (remote.status === 'invalid') {
       console.warn(`[eclipse-arcade] ${COLLECTION}/${courseId} is malformed — using the bundled course`)
     }
