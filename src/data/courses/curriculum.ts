@@ -295,7 +295,7 @@ export const PLACEMENT: Record<string, Record<string, string>> = {
     'multi-step-inequalities': 'solving-linear-equations#Linear Inequalities',
     'function-notation': 'functions-and-relations#Function Notation & Evaluation',
     'domain-and-range': 'functions-and-relations#Function Notation & Evaluation',
-    plot: 'functions-and-relations#Linear Functions',
+    plot: 'functions-and-relations', // plotting points is not a linear function — own subtopic
     intercepts: 'functions-and-relations#Linear Functions',
     substitution: 'systems-of-equations#Solving Systems Algebraically',
     elimination: 'systems-of-equations#Solving Systems Algebraically',
@@ -303,8 +303,8 @@ export const PLACEMENT: Record<string, Record<string, string>> = {
     'exponential-growth': 'exponents-and-exponential-functions#Exponential Growth & Decay (Intro)',
     'degree-and-coefficients': 'polynomials#Polynomial Vocabulary',
     'evaluating-polynomials': 'polynomials', // evaluating, not adding/subtracting — own subtopic
-    'factoring-trinomials': 'polynomials#Factoring Techniques',
-    'special-products': 'polynomials#Factoring Techniques',
+    'factoring-trinomials': 'polynomials#Solving Quadratics by Factoring (Intro)',
+    'special-products': 'polynomials#Solving Quadratics by Factoring (Intro)',
     vertex: 'quadratic-functions#Graphing Quadratics',
     'quadratic-formula': 'quadratic-functions#Solving Quadratics',
     'completing-the-square': 'quadratic-functions#Solving Quadratics',
@@ -338,7 +338,7 @@ export const PLACEMENT: Record<string, Record<string, string>> = {
     'absolute-value-transformations': 'advanced-equations', // graph set — cannot merge into a slider topic
     'vertex-and-axis': 'advanced-equations', // graph set — cannot merge into a slider topic
     discriminant: 'advanced-equations#Quadratic Equations',
-    'simplifying-radicals': 'advanced-equations#Radical Equations',
+    'simplifying-radicals': 'advanced-equations', // simplifying, not solving — own subtopic
     'radical-equations': 'advanced-equations#Radical Equations',
     'remainder-theorem': 'polynomials#Factoring Higher-Degree Polynomials',
     'factor-theorem': 'polynomials#Factoring Higher-Degree Polynomials',
@@ -350,7 +350,7 @@ export const PLACEMENT: Record<string, Record<string, string>> = {
     'geometric-sequences': 'sequences-and-series#Geometric Sequences & Sums',
     'degrees-and-radians': 'trigonometric-functions#Unit Circle & Radian Measure',
     'unit-circle-values': 'trigonometric-functions#Unit Circle & Radian Measure',
-    'solving-systems': 'systems-and-matrices#Systems via Matrices',
+    'solving-systems': 'systems-and-matrices', // algebraic systems, not matrix method — own subtopic
     'matrix-operations': 'systems-and-matrices#Matrix Operations',
     'counting-and-probability': 'probability-and-statistics#Counting Principles',
     'statistics-and-distributions': 'probability-and-statistics', // mixed stats, not only the normal distribution
@@ -361,7 +361,7 @@ export const PLACEMENT: Record<string, Record<string, string>> = {
     'degree-and-end-behavior': 'polynomial-and-rational-functions#Advanced Polynomial Behavior',
     'asymptotes-and-holes': 'polynomial-and-rational-functions#Graphing Rational Functions',
     'log-laws': 'exponential-and-logarithmic-functions', // log laws are not log scales — own subtopic
-    'growth-decay-half-life': 'exponential-and-logarithmic-functions#Continuous Growth & e',
+    'growth-decay-half-life': 'exponential-and-logarithmic-functions', // half-life, not continuous growth
     'unit-circle-angles': 'trigonometric-functions#Unit Circle Mastery',
     'amplitude-and-period': 'trigonometric-functions', // no graphs topic in the outline — own subtopic
     'pythagorean-identities': 'trigonometric-functions#Trigonometric Identities & Proofs',
