@@ -15,6 +15,9 @@ import {
   aiRateFor, aiAnswerChance, aiSolves, aiBanishTarget, scoreForPlacement,
   type LsState,
 } from '../lib/laststanding'
+import { useAuth } from '../lib/auth'
+import { displayNameFor } from '../lib/username'
+import { createRoom, subscribeMyRooms, roomsAvailable, type LsRoom } from '../lib/lsroom'
 import LastStandingTable3D from '../components/LastStandingTable3D'
 import QuestionPanel from '../components/QuestionPanel'
 import { isReducedMotion } from '../lib/motion'
@@ -67,6 +70,14 @@ export default function LastStanding() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [muted, setMutedState] = useState(isMuted())
 
+  // Online tables live entirely in LastStandingOnline; this page only opens one
+  // and lists the ones already waiting for you.
+  const { user, emailVerified } = useAuth()
+  const [myRooms, setMyRooms] = useState<LsRoom[]>([])
+  const [roomBusy, setRoomBusy] = useState(false)
+  const [roomError, setRoomError] = useState('')
+  const canPlayOnline = roomsAvailable() && user !== null && emailVerified
+
   const [game, setGame] = useState<LsState | null>(null)
   const [question, setQuestion] = useState<Question | null>(null)
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
@@ -83,6 +94,33 @@ export default function LastStanding() {
     void loadCourse(courseId).then((c) => { if (!cancelled) setCourse(c) })
     return () => { cancelled = true }
   }, [courseId])
+
+  useEffect(() => {
+    if (!canPlayOnline || !user) { setMyRooms([]); return }
+    return subscribeMyRooms(user.uid, setMyRooms, () => setMyRooms([]))
+  }, [canPlayOnline, user])
+
+  /** Opens an online table on the single selected topic and jumps into it. */
+  async function hostTable() {
+    if (!user || selectedSubs.length !== 1) return
+    const sub = selectedSubs[0]
+    const unit = course?.units.find((u) => u.subunits.some((s) => s.id === sub.id))
+    if (!unit || !courseId) return
+    setRoomBusy(true)
+    setRoomError('')
+    try {
+      const id = await createRoom(
+        { uid: user.uid, name: displayNameFor(null, user.email) },
+        { courseId, unitId: unit.id, subunitId: sub.id, difficulty: sub.difficulty },
+        Math.floor(Math.random() * 0x7fffffff),
+      )
+      navigate(`/laststanding/room/${id}`)
+    } catch (err) {
+      setRoomError(err instanceof Error ? err.message : 'Could not open a table.')
+    } finally {
+      setRoomBusy(false)
+    }
+  }
 
   const selectedSubs: Subunit[] = useMemo(() => course
     ? course.units.flatMap((u) => u.subunits.filter((s) => selected.has(subKey(u.id, s.id))))
@@ -237,6 +275,36 @@ export default function LastStanding() {
           <button aria-label={muted ? 'Unmute sound' : 'Mute sound'} onClick={() => { const m = !muted; setMuted(m); setMutedState(m) }} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">{muted ? <VolumeMute width={18} height={18} /> : <Volume width={18} height={18} />}</button>
         </div>
 
+        {screen === 'course' && myRooms.length > 0 && (
+          <div className="mb-8">
+            <Section title="YOUR TABLES">
+              <ul className="grid gap-2">
+                {myRooms.map((r) => {
+                  const seated = r.members.includes(user?.uid ?? '')
+                  return (
+                    <li key={r.id} className="flex items-center justify-between rounded-lg border px-4 py-3"
+                      style={{ borderColor: seated ? 'rgba(255,255,255,0.1)' : `${ACCENT}66` }}>
+                      <span className="min-w-0">
+                        <span className="block font-semibold truncate">
+                          {seated ? 'Your table' : 'You’re invited'}
+                        </span>
+                        <span className="block text-xs text-white/55">
+                          {r.members.length} seated · {r.status === 'lobby' ? 'waiting to start' : r.status === 'active' ? 'in play' : 'finished'}
+                        </span>
+                      </span>
+                      <button onClick={() => navigate(`/laststanding/room/${r.id}`)}
+                        className="shrink-0 font-sans text-xs font-bold px-3 py-1.5 rounded text-white"
+                        style={{ background: ACCENT }}>
+                        {seated ? 'Open' : 'View invite'}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </Section>
+          </div>
+        )}
+
         {screen === 'course' && (
           <Section title="CHOOSE A COURSE">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -310,12 +378,24 @@ export default function LastStanding() {
               </div>
             )}
             <div className="mt-7 flex flex-col items-center gap-2">
-              <button onClick={start} disabled={!canStart}
-                className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
-                style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-                Take your seat
-              </button>
+              <div className="flex flex-wrap justify-center gap-3">
+                <button onClick={start} disabled={!canStart}
+                  className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
+                  style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+                  Take your seat
+                </button>
+                {canPlayOnline && (
+                  <button onClick={() => void hostTable()} disabled={selectedSubs.length !== 1 || roomBusy}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white/90 border border-white/20 bg-white/5 enabled:hover:bg-white/10 disabled:opacity-40 transition">
+                    {roomBusy ? 'Opening a table…' : 'Play with friends'}
+                  </button>
+                )}
+              </div>
               {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+              {canStart && canPlayOnline && selectedSubs.length !== 1 && (
+                <span className="text-xs text-white/60">Playing with friends uses a single shared topic — select exactly one.</span>
+              )}
+              {roomError && <span role="alert" className="text-xs" style={{ color: '#ff9dbd' }}>{roomError}</span>}
             </div>
           </Section>
         )}

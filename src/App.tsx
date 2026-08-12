@@ -7,6 +7,7 @@ import Racer from './pages/Racer'
 import CardGame from './pages/CardGame'
 import Ascend from './pages/Ascend'
 import LastStanding from './pages/LastStanding'
+import LastStandingOnline from './pages/LastStandingOnline'
 import Friends from './pages/Friends'
 import Admin from './pages/Admin'
 import Settings from './pages/Settings'
@@ -21,6 +22,7 @@ export default function App() {
       <Route path="/cardgame" element={<CardGame />} />
       <Route path="/ascend" element={<Ascend />} />
       <Route path="/laststanding" element={<LastStanding />} />
+      <Route path="/laststanding/room/:roomId" element={<LastStandingOnline />} />
       <Route path="/friends" element={<Friends />} />
       <Route path="/play/:gameKey" element={<Game />} />
       <Route path="/admin" element={<Admin />} />
