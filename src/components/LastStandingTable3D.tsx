@@ -1,24 +1,26 @@
-// The Last Standing 3D table — presentation only, no rules. A neon-on-dark
-// arena (this cabinet's own identity, unlike the card game's sunset): a dark
-// felt table ringed in the accent, the shared Character3D figures on five
-// FIXED seats (nobody shuffles when a player leaves), and a camera that turns
-// toward whoever is answering. Eliminated seats dim; a banished character
-// sinks below the floor and their seat light dies — snapped instantly under
-// reduced motion. Lives + the live countdown render on each seat's label
-// plane (and accessibly in the page DOM — the canvas is decorative).
+// The Last Standing 3D table — presentation only, no rules. The table stands
+// out on the same golden-hour meadow as the card game (shared SunsetWorld), so
+// the two cabinets read as one place at one time of day; this one keeps its own
+// dark accent-ringed felt, which the warm key light catches. The shared
+// Character3D figures sit on five FIXED seats (nobody shuffles when a player
+// leaves), and the camera turns toward whoever is answering. Eliminated seats
+// dim; a banished character sinks below the ground and their seat light dies —
+// snapped instantly under reduced motion. Lives + the live countdown render on
+// each seat's label plane (and accessibly in the page DOM — the canvas is
+// decorative).
 //
-// Mirrors CardTable3D's patterns (seat placement, canvas-texture labels,
-// eased camera rig) rather than extracting them — deliberate duplication
-// until a third table earns the abstraction.
+// Mirrors CardTable3D's remaining patterns (seat placement, canvas-texture
+// labels, eased camera rig) rather than extracting them — deliberate
+// duplication until a third table earns the abstraction.
 
 import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { ACESFilmicToneMapping, CanvasTexture, MeshBasicMaterial, SRGBColorSpace, Vector3 } from 'three'
 import type { Group } from 'three'
+import { SunsetWorld, SunsetLights, SUNSET_FOG } from './SunsetWorld'
 import Character3D, { SEAT_TINTS } from './Character3D'
 import { LIVES, isAlive, type LsState, type Seat } from '../lib/laststanding'
 
-const FLOOR = '#120a2c'
 const FELT = '#1c1140'
 const RIM = '#2b1a5e'
 const DIM = '#241b38' // what dimmed figures sink toward on the neon floor
@@ -195,11 +197,7 @@ function CameraRig({ state, reduced }: { state: LsState; reduced: boolean }) {
 function Arena({ accent }: { accent: string }) {
   return (
     <group>
-      {/* floor disc fading into the fog */}
-      <mesh position={[0, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[40, 48]} />
-        <meshStandardMaterial color={FLOOR} roughness={1} />
-      </mesh>
+      {/* no floor disc — SunsetWorld's meadow is the ground the table sits on */}
       {/* table: felt top, accent rim, pedestal */}
       <mesh position={[0, 0.95, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[TABLE_R, TABLE_R, 0.22, 48]} />
@@ -231,14 +229,14 @@ function Scene({ state, accent, reduced, secondsLeft }: {
   const activeSeat = state.phase.kind === 'turn' ? state.turn : -1
   return (
     <>
-      <fog attach="fog" args={[FLOOR, 16, 42]} />
-      <hemisphereLight args={['#6a5aa8', '#1a1030', 1.1]} />
-      <directionalLight position={[6, 10, 8]} intensity={1.4} color="#cfd6ff" castShadow
-        shadow-mapSize-width={1024} shadow-mapSize-height={1024}
-        shadow-camera-left={-10} shadow-camera-right={10}
-        shadow-camera-top={10} shadow-camera-bottom={-10}
-        shadow-camera-near={1} shadow-camera-far={40} shadow-bias={-0.0004} />
+      <fog attach="fog" args={SUNSET_FOG} />
+      <SunsetLights />
+      {/* the cabinet's own neon still pools over the table, so the accent reads
+          as the game's colour even against the warm key light */}
       <pointLight position={[0, 5.5, 0]} intensity={9} color={accent} distance={14} decay={2} />
+      {/* groundY 0.22 puts the meadow surface (drawn at groundY − 0.22) exactly
+          at y = 0, where the stools and the table pedestal stand */}
+      <SunsetWorld reduced={reduced} groundY={0.22} />
       <Arena accent={accent} />
       {state.seats.map((seat) => (
         <PlayerSeat key={seat.seat} seat={seat} total={state.seats.length}
@@ -259,13 +257,13 @@ export default function LastStandingTable3D({ state, accent, reduced, secondsLef
   secondsLeft: number | null // the active player's ticking countdown
 }) {
   return (
-    <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#0a0620]">
+    <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#2a1a3a]">
       <div className="h-[340px] sm:h-[420px]">
         <Canvas
           shadows
           dpr={[1, 2]}
           gl={{ antialias: true, toneMapping: ACESFilmicToneMapping, toneMappingExposure: 1.1 }}
-          camera={{ fov: 50, near: 0.1, far: 120, position: [0, 6.4, 10.6] }}
+          camera={{ fov: 50, near: 0.1, far: 500, position: [0, 6.4, 10.6] }}
           aria-label="3D elimination table"
           role="img"
         >
