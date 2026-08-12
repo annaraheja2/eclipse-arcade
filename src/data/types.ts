@@ -85,8 +85,7 @@ export function buildCourse(
       const target = (s: Subunit) => (placement[s.id] ?? '').split('#')[1]
       // Sets aimed at a named topic are poured into it, in curriculum order;
       // the rest keep their own name and sit at the front of the unit.
-      const loose = here.filter((s) => !target(s))
-      const subunits: Subunit[] = [...loose]
+      const subunits: Subunit[] = []
       for (const topic of unit.topics) {
         const into = here.filter((s) => target(s) === topic.name)
         if (into.length === 0) { subunits.push(o(topic.name, topic.description)); continue }
@@ -99,6 +98,8 @@ export function buildCourse(
           questions: into.flatMap((s) => s.questions),
         })
       }
+      // sets that don't belong to a named topic keep their own name, after the outline
+      subunits.push(...here.filter((s) => !target(s)))
       return { id: unit.id, name: unit.name, description: unit.description, subunits }
     }),
   }
