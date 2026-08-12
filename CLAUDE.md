@@ -66,9 +66,16 @@ questions does NOT put them in front of players — an admin has to republish th
 (`/admin` → Reset to bundled → Save). The one exception is `mergeBundledContent` in
 `lib/content.ts`, which is **purely additive**: empty authored subtopics are topped up if
 they share an id with a bundled one, and bundled subunits with no remote counterpart are
-APPENDED. Nothing authored is ever removed, renamed or reordered — the empty subtopics in a
-course are the team's curriculum outline, not junk. Deleting a unit outright still removes
-it for good. Watch for a collaborator
+APPENDED — including empty outline placeholders (`data/courses/outlines.ts`), which is how a
+lost curriculum outline is restored without an admin write. Nothing authored is ever removed,
+renamed or reordered — the empty subtopics in a course are the team's curriculum outline, not
+junk. Cost of that choice: a bundled subtopic deleted in /admin returns on the next load;
+deleting the whole unit is still the way to remove it for good.
+
+**Never advise "Reset to bundled" as a fix.** It replaces the WHOLE course document — it is
+what destroyed the Geometry / Algebra 2 / Precalculus outlines (Firestore keeps no recovery
+window here; PITR is off). Algebra 1's outline is the only original left. To surface new
+bundled content, rely on the additive merge instead. Watch for a collaborator
 on an older deploy republishing a course — that overwrites the cloud copy with their
 older bundle.
 

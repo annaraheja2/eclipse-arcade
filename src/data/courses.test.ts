@@ -25,12 +25,24 @@ describe('bundled curriculum — structure', () => {
     expect(COURSES.map((c) => c.name)).toEqual(COURSE_LIST.map((c) => c.name))
   })
 
-  it('has no empty unit and no empty subunit', () => {
+  it('gives every unit subunits, at least one of them playable', () => {
+    // Empty subunits are legitimate: they are curriculum-outline placeholders
+    // (see courses/outlines.ts) and render disabled in the pickers. What must
+    // never happen is a unit with nothing playable in it at all.
     for (const c of COURSES) {
       for (const u of c.units) {
         expect(u.subunits.length, `${c.id}/${u.id} has no subunits`).toBeGreaterThan(0)
-        for (const s of u.subunits) {
-          expect(s.questions.length, `${c.id}/${u.id}/${s.id} has no questions`).toBeGreaterThan(0)
+        const playable = u.subunits.filter((s) => s.questions.length > 0)
+        expect(playable.length, `${c.id}/${u.id} has no playable subunit`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('gives every outline placeholder a real name and a unique id', () => {
+    for (const c of COURSES) {
+      for (const u of c.units) {
+        for (const s of u.subunits.filter((x) => x.questions.length === 0)) {
+          expect(s.name.trim(), `${c.id}/${u.id}/${s.id} has no name`).not.toBe('')
         }
       }
     }

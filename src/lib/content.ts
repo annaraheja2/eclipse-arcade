@@ -124,9 +124,13 @@ export function mergeBundledContent(remote: Course, bundled: Course | undefined)
       return { ...sub, questions: from.questions }
     })
 
-    // 2. append bundled subunits the outline doesn't have yet
+    // 2. append bundled subunits this unit doesn't have yet — including EMPTY
+    //    outline placeholders, which is how a reconstructed curriculum outline
+    //    reaches a course whose cloud copy lost it. The cost of that choice: a
+    //    bundled subtopic deleted in /admin comes back on the next load;
+    //    deleting the whole unit is still the way to remove it for good.
     const have = new Set(unit.subunits.map((s) => s.id))
-    const added = source.subunits.filter((s) => !have.has(s.id) && s.questions.length > 0)
+    const added = source.subunits.filter((s) => !have.has(s.id))
     if (added.length > 0) changed = true
 
     return added.length > 0 || kept !== unit.subunits

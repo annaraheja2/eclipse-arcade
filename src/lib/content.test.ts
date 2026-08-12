@@ -265,10 +265,17 @@ describe('mergeBundledContent', () => {
     expect(mergeBundledContent(course([]), course([{ id: 'u1', subunits: [sub('s1')] }])).units).toHaveLength(0)
   })
 
-  it('never appends an empty bundled subunit', () => {
+  it('appends an empty bundled subunit — that is how a lost outline comes back', () => {
     const remote = course([{ id: 'u1', subunits: [sub('a', [])] }])
-    const bundled = course([{ id: 'u1', subunits: [sub('empty', [])] }])
-    expect(mergeBundledContent(remote, bundled).units[0].subunits.map((s) => s.id)).toEqual(['a'])
+    const bundled = course([{ id: 'u1', subunits: [sub('outline-topic', [])] }])
+    expect(mergeBundledContent(remote, bundled).units[0].subunits.map((s) => s.id))
+      .toEqual(['a', 'outline-topic'])
+  })
+
+  it('does not duplicate an outline entry the cloud copy already has', () => {
+    const remote = course([{ id: 'u1', subunits: [sub('shared', [])] }])
+    const bundled = course([{ id: 'u1', subunits: [sub('shared', [])] }])
+    expect(mergeBundledContent(remote, bundled).units[0].subunits).toHaveLength(1)
   })
 
   it('returns the remote course untouched when there is no bundled twin', () => {

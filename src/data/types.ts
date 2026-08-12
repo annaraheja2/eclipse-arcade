@@ -44,3 +44,32 @@ export interface Course { id: string; name: string; units: Unit[] }
 export const g = (prompt: string, x: number, y: number, range = 8, explain?: string): Question => ({ prompt, x, y, range, explain })
 export const s = (prompt: string, answer: number, min: number, max: number, step = 0.5, explain?: string): Question => ({ prompt, answer, min, max, step, explain })
 export const f = (prompt: string, fill: string, explain?: string): Question => ({ prompt, fill, explain })
+
+/** Lowercase hyphenated id from a display name. Mirrors lib/content's slugify,
+ *  kept here so the data layer doesn't reach into lib. */
+export const slug = (name: string): string =>
+  name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item'
+
+/** An outline placeholder: a named subtopic with no questions yet. It shows in
+ *  the pickers (disabled) so the curriculum plan is visible before the content
+ *  for it exists — the same way the team authors an outline in /admin. */
+export const o = (name: string, difficulty: Difficulty = 'medium'): Subunit =>
+  ({ id: slug(name), name, difficulty, type: 'fill', questions: [] })
+
+/**
+ * Appends outline placeholders to a course, unit by unit, skipping any name
+ * whose id a real subunit already uses — so an outline entry never shadows
+ * authored content.
+ */
+export function withOutline(course: Course, byUnit: Record<string, readonly string[]>): Course {
+  return {
+    ...course,
+    units: course.units.map((unit) => {
+      const names = byUnit[unit.id]
+      if (!names) return unit
+      const taken = new Set(unit.subunits.map((s) => s.id))
+      const extra = names.filter((n) => !taken.has(slug(n))).map((n) => o(n))
+      return extra.length > 0 ? { ...unit, subunits: [...unit.subunits, ...extra] } : unit
+    }),
+  }
+}

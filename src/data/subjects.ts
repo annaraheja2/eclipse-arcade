@@ -6,11 +6,12 @@
 
 export type { AnswerType, Difficulty, Question, Subunit, Unit, Course } from './types'
 
-import type { Course } from './types'
+import { withOutline, type Course } from './types'
 import { ALGEBRA_1 } from './courses/algebra1'
 import { GEOMETRY } from './courses/geometry'
 import { ALGEBRA_2 } from './courses/algebra2'
 import { PRECALCULUS } from './courses/precalculus'
+import { OUTLINES } from './courses/outlines'
 
 // Lightweight metadata for pickers that must list courses without loading each
 // one's content (which loadCourse fetches lazily).
@@ -22,6 +23,13 @@ export const COURSE_LIST: readonly CourseInfo[] = [
   { id: 'precalculus', name: 'Precalculus' },
 ]
 
-export const COURSES: Course[] = [ALGEBRA_1, GEOMETRY, ALGEBRA_2, PRECALCULUS]
+// Algebra 1 carries no bundled outline: its real one survived in Firestore and
+// bundled placeholders would only clutter it. See courses/outlines.ts.
+export const COURSES: Course[] = [
+  ALGEBRA_1,
+  withOutline(GEOMETRY, OUTLINES.geometry),
+  withOutline(ALGEBRA_2, OUTLINES['algebra-2']),
+  withOutline(PRECALCULUS, OUTLINES.precalculus),
+]
 
 export function getCourse(id: string) { return COURSES.find((c) => c.id === id) }
