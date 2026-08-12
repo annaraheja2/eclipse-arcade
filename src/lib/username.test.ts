@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeUsername, validateUsername, displayNameFor, planUsernameClaim } from './username'
+import { normalizeUsername, validateUsername, displayNameFor, seatNameFor, planUsernameClaim } from './username'
 
 describe('normalizeUsername', () => {
   it('trims and lowercases', () => {
@@ -113,5 +113,27 @@ describe('displayNameFor', () => {
   })
   it('falls back to a generic label when neither is present', () => {
     expect(displayNameFor(null, null)).toBe('a player')
+  })
+})
+
+describe('seatNameFor', () => {
+  it('prefers the handle, upper-cased for the table', () => {
+    expect(seatNameFor('alexl', 'alexleyvalp@gmail.com')).toBe('ALEXL')
+  })
+
+  it('never shows a whole email address — just the local part', () => {
+    expect(seatNameFor(null, 'alexleyvalp@gmail.com')).toBe('ALEXLEYVALP')
+    expect(seatNameFor(undefined, 'harish@bluestaralloys.com')).toBe('HARISH')
+  })
+
+  it('caps a long name so it cannot overrun the seat label', () => {
+    expect(seatNameFor('averyverylonghandleindeed', null).length).toBe(12)
+    expect(seatNameFor(null, 'anextremelylongaddress@example.com').length).toBe(12)
+  })
+
+  it('ignores blank input and falls back in order', () => {
+    expect(seatNameFor('   ', 'a@b.com')).toBe('A')
+    expect(seatNameFor(null, '   ')).toBe('PLAYER')
+    expect(seatNameFor(null, null)).toBe('PLAYER')
   })
 })

@@ -20,7 +20,7 @@ import { loadCourse } from '../lib/content'
 import { usePlayer, levelFromXp } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { useUsernames } from '../lib/useUsernames'
-import { displayNameFor } from '../lib/username'
+import { displayNameFor, seatNameFor } from '../lib/username'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { subscribeFriendships, wasRewarded, markRewarded, type Friendship } from '../lib/social'
 import {
@@ -61,7 +61,6 @@ export default function LastStandingOnline() {
   const { user, emailVerified } = useAuth()
   const { player, finishGame } = usePlayer()
   const uid = user?.uid ?? ''
-  const myName = displayNameFor(null, user?.email)
 
   const [room, setRoom] = useState<LsRoom | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -118,6 +117,20 @@ export default function LastStandingOnline() {
   const question: Question = pool.length > 0
     ? pool[questionIndexFor(room?.seed ?? 0, room?.tick ?? 0, pool.length)]
     : FALLBACK_QUESTION
+
+  // Handles for everyone at the table. Seat names are baked into the room doc
+  // when a player joins, so rooms opened before handles were stored still carry
+  // an email — remapping here fixes those live rather than migrating the doc.
+  const handles = useUsernames(room ? [...room.members, ...room.invited] : [])
+  const myName = seatNameFor(handles[uid], user?.email)
+  const displayState = useMemo(() => {
+    if (!room) return null
+    const seats = room.state.seats.map((s, i) => {
+      const owner = room.seatUids[i]
+      return owner ? { ...s, name: seatNameFor(handles[owner], room.names[owner]) } : s
+    })
+    return { ...room.state, seats }
+  }, [room, handles])
 
   const mySeat = room ? seatOfUid(room, uid) : -1
   const secondsLeft = room && room.status === 'active' && room.state.phase.kind === 'turn'
@@ -208,6 +221,7 @@ export default function LastStandingOnline() {
       {room.status !== 'lobby' && (
         <Table
           room={room} uid={uid} mySeat={mySeat} question={question} secondsLeft={secondsLeft}
+          state={displayState ?? room.state}
           onAnswer={answer}
           onBanish={(target) => void commit(banish(room.state, target), room.tick)}
         />
@@ -215,7 +229,7 @@ export default function LastStandingOnline() {
 
       {room.state.phase.kind === 'champion' && (
         <Champion
-          room={room} mySeat={mySeat} result={result} level={levelFromXp(player.xp).level}
+          room={room} state={displayState ?? room.state} mySeat={mySeat} result={result} level={levelFromXp(player.xp).level}
           iAmHost={iAmHost}
           onClose={async () => { if (iAmHost) await deleteRoom(room.id); navigate('/laststanding') }}
         />
@@ -243,7 +257,10 @@ function Lobby({ room, uid, myName, iAmHost, iAmSeated, invitedMe, busy, setBusy
     return f ? f.emails[f.uids.indexOf(fid)] : ''
   }
   const names = useUsernames([...room.members, ...room.invited, ...friendUids])
-  const nameOf = (u: string) => displayNameFor(names[u], room.names[u] ?? friendEmail(u))
+  // Handle if they have one, else just the local part — never the whole address
+  // on a screen other players are looking at.
+  const nameOf = (u: string) =>
+    displayNameFor(names[u], (room.names[u] ?? friendEmail(u)).split('@')[0])
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setError('')
@@ -349,14 +366,14 @@ function Lobby({ room, uid, myName, iAmHost, iAmSeated, invitedMe, busy, setBusy
 
 // ---- the live table ---------------------------------------------------------
 
-function Table({ room, uid, mySeat, question, secondsLeft, onAnswer, onBanish }: {
+function Table({ room, uid, mySeat, question, secondsLeft, state, onAnswer, onBanish }: {
   room: LsRoom; uid: string; mySeat: number; question: Question; secondsLeft: number | null
+  state: LsRoom['state'] // room.state with seat names remapped to handles
   onAnswer: (correct: boolean) => void
   onBanish: (target: number) => void
 }) {
   const myTurn = isMyTurn(room, uid)
   const myBanish = isMyBanish(room, uid)
-  const state = room.state
   const onTurnName = state.seats[state.turn]?.name ?? ''
   const alive = mySeat >= 0 && isAlive(state.seats[mySeat])
 
@@ -420,13 +437,13 @@ function Table({ room, uid, mySeat, question, secondsLeft, onAnswer, onBanish }:
 
 // ---- game over --------------------------------------------------------------
 
-function Champion({ room, mySeat, result, level, iAmHost, onClose }: {
-  room: LsRoom; mySeat: number
+function Champion({ room, state, mySeat, result, level, iAmHost, onClose }: {
+  room: LsRoom; state: LsRoom['state']; mySeat: number
   result: { placement: number; score: number; rewards: { coins: number; xp: number; best?: boolean } } | null
   level: number; iAmHost: boolean; onClose: () => void
 }) {
-  const phase = room.state.phase
-  const champion = phase.kind === 'champion' ? room.state.seats[phase.champion] : null
+  const phase = state.phase
+  const champion = phase.kind === 'champion' ? state.seats[phase.champion] : null
   const iWon = phase.kind === 'champion' && phase.champion === mySeat
 
   return (

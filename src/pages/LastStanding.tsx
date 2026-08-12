@@ -16,7 +16,8 @@ import {
   type LsState,
 } from '../lib/laststanding'
 import { useAuth } from '../lib/auth'
-import { displayNameFor } from '../lib/username'
+import { seatNameFor } from '../lib/username'
+import { useUsernames } from '../lib/useUsernames'
 import { createRoom, subscribeMyRooms, roomsAvailable, type LsRoom } from '../lib/lsroom'
 import LastStandingTable3D from '../components/LastStandingTable3D'
 import QuestionPanel from '../components/QuestionPanel'
@@ -77,6 +78,8 @@ export default function LastStanding() {
   const [roomBusy, setRoomBusy] = useState(false)
   const [roomError, setRoomError] = useState('')
   const canPlayOnline = roomsAvailable() && user !== null && emailVerified
+  // My own handle, so the seat carries it instead of my email address.
+  const myHandles = useUsernames(user ? [user.uid] : [])
 
   const [game, setGame] = useState<LsState | null>(null)
   const [question, setQuestion] = useState<Question | null>(null)
@@ -110,7 +113,7 @@ export default function LastStanding() {
     setRoomError('')
     try {
       const id = await createRoom(
-        { uid: user.uid, name: displayNameFor(null, user.email) },
+        { uid: user.uid, name: seatNameFor(myHandles[user.uid], user.email) },
         { courseId, unitId: unit.id, subunitId: sub.id, difficulty: sub.difficulty },
         Math.floor(Math.random() * 0x7fffffff),
       )

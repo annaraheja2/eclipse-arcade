@@ -67,6 +67,21 @@ export function displayNameFor(username: string | null | undefined, email: strin
   return 'a player'
 }
 
+/**
+ * The name to paint on a seat at the table: the player's handle, else the local
+ * part of their email — never the whole address, which neither fits the label
+ * plane nor belongs on a screen other players are looking at. Upper-cased to sit
+ * with the house AI names, and capped so a long handle can't overrun the label.
+ */
+export function seatNameFor(username: string | null | undefined, email: string | null | undefined): string {
+  const handle = username?.trim()
+  if (handle) return handle.toUpperCase().slice(0, SEAT_NAME_MAX)
+  const local = email?.trim().split('@')[0]?.trim()
+  if (local) return local.toUpperCase().slice(0, SEAT_NAME_MAX)
+  return 'PLAYER'
+}
+const SEAT_NAME_MAX = 12
+
 /** The write decisions for a claim, once the relevant docs have been read. */
 export type ClaimPlan =
   | { kind: 'taken' }
