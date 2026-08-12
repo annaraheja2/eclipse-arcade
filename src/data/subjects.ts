@@ -6,12 +6,12 @@
 
 export type { AnswerType, Difficulty, Question, Subunit, Unit, Course } from './types'
 
-import { withOutline, type Course } from './types'
+import { buildCourse, type Course } from './types'
 import { ALGEBRA_1 } from './courses/algebra1'
 import { GEOMETRY } from './courses/geometry'
 import { ALGEBRA_2 } from './courses/algebra2'
 import { PRECALCULUS } from './courses/precalculus'
-import { OUTLINES } from './courses/outlines'
+import { CURRICULUM, PLACEMENT } from './courses/curriculum'
 
 // Lightweight metadata for pickers that must list courses without loading each
 // one's content (which loadCourse fetches lazily).
@@ -23,13 +23,12 @@ export const COURSE_LIST: readonly CourseInfo[] = [
   { id: 'precalculus', name: 'Precalculus' },
 ]
 
-// Algebra 1 carries no bundled outline: its real one survived in Firestore and
-// bundled placeholders would only clutter it. See courses/outlines.ts.
-export const COURSES: Course[] = [
-  ALGEBRA_1,
-  withOutline(GEOMETRY, OUTLINES.geometry),
-  withOutline(ALGEBRA_2, OUTLINES['algebra-2']),
-  withOutline(PRECALCULUS, OUTLINES.precalculus),
-]
+// Every course is the team's curriculum outline (courses/curriculum.ts) with
+// the authored question sets poured into it — the curriculum owns the
+// structure, content follows.
+const build = (c: Course) =>
+  buildCourse(c.id, c.name, c.units, CURRICULUM[c.id], PLACEMENT[c.id])
+
+export const COURSES: Course[] = [ALGEBRA_1, GEOMETRY, ALGEBRA_2, PRECALCULUS].map(build)
 
 export function getCourse(id: string) { return COURSES.find((c) => c.id === id) }

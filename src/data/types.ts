@@ -23,6 +23,7 @@ export interface Question {
 export interface Subunit {
   id: string
   name: string
+  description?: string // the curriculum one-liner for this subtopic
   difficulty: Difficulty
   type: AnswerType
   questions: Question[]
@@ -52,24 +53,53 @@ export const slug = (name: string): string =>
 
 /** An outline placeholder: a named subtopic with no questions yet. It shows in
  *  the pickers (disabled) so the curriculum plan is visible before the content
- *  for it exists — the same way the team authors an outline in /admin. */
-export const o = (name: string, difficulty: Difficulty = 'medium'): Subunit =>
-  ({ id: slug(name), name, difficulty, type: 'fill', questions: [] })
+ *  for it exists. */
+export const o = (name: string, description: string, difficulty: Difficulty = 'medium'): Subunit =>
+  ({ id: slug(name), name, description, difficulty, type: 'fill', questions: [] })
+
+interface OutlineTopicLike { name: string; description: string }
+interface OutlineUnitLike { id: string; name: string; description: string; topics: readonly OutlineTopicLike[] }
 
 /**
- * Appends outline placeholders to a course, unit by unit, skipping any name
- * whose id a real subunit already uses — so an outline entry never shadows
- * authored content.
+ * Builds a course from the curriculum outline, pouring the authored question
+ * sets into it: each unit gets the subunits `placement` assigns to it (in their
+ * original order), then a placeholder for every planned topic not already
+ * covered. The curriculum decides the structure; content follows it.
+ *
+ * A subunit whose id is missing from `placement` would be silently dropped, so
+ * callers must map every one — courses.test.ts proves none is lost.
  */
-export function withOutline(course: Course, byUnit: Record<string, readonly string[]>): Course {
+export function buildCourse(
+  id: string,
+  name: string,
+  content: readonly Unit[],
+  outline: readonly OutlineUnitLike[],
+  placement: Record<string, string>,
+): Course {
+  const authored = content.flatMap((u) => u.subunits)
   return {
-    ...course,
-    units: course.units.map((unit) => {
-      const names = byUnit[unit.id]
-      if (!names) return unit
-      const taken = new Set(unit.subunits.map((s) => s.id))
-      const extra = names.filter((n) => !taken.has(slug(n))).map((n) => o(n))
-      return extra.length > 0 ? { ...unit, subunits: [...unit.subunits, ...extra] } : unit
+    id,
+    name,
+    units: outline.map((unit) => {
+      const here = authored.filter((s) => (placement[s.id] ?? '').split('#')[0] === unit.id)
+      const target = (s: Subunit) => (placement[s.id] ?? '').split('#')[1]
+      // Sets aimed at a named topic are poured into it, in curriculum order;
+      // the rest keep their own name and sit at the front of the unit.
+      const loose = here.filter((s) => !target(s))
+      const subunits: Subunit[] = [...loose]
+      for (const topic of unit.topics) {
+        const into = here.filter((s) => target(s) === topic.name)
+        if (into.length === 0) { subunits.push(o(topic.name, topic.description)); continue }
+        subunits.push({
+          id: slug(topic.name),
+          name: topic.name,
+          description: topic.description,
+          difficulty: into[0].difficulty,
+          type: into[0].type,
+          questions: into.flatMap((s) => s.questions),
+        })
+      }
+      return { id: unit.id, name: unit.name, description: unit.description, subunits }
     }),
   }
 }

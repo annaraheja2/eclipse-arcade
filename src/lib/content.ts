@@ -40,6 +40,7 @@ function validateQuestion(v: unknown): Question | null {
 
 function validateSubunit(v: unknown): Subunit | null {
   if (!isRecord(v) || typeof v.id !== 'string' || typeof v.name !== 'string') return null
+  if (v.description !== undefined && typeof v.description !== 'string') return null
   const { difficulty, type } = v
   if (typeof difficulty !== 'string' || !(DIFFICULTIES as readonly string[]).includes(difficulty)) return null
   if (typeof type !== 'string' || !(ANSWER_TYPES as readonly string[]).includes(type)) return null
@@ -50,7 +51,9 @@ function validateSubunit(v: unknown): Subunit | null {
     if (!q) return null
     questions.push(q)
   }
-  return { id: v.id, name: v.name, difficulty: difficulty as Difficulty, type: type as AnswerType, questions }
+  const sub: Subunit = { id: v.id, name: v.name, difficulty: difficulty as Difficulty, type: type as AnswerType, questions }
+  if (typeof v.description === 'string') sub.description = v.description
+  return sub
 }
 
 function validateUnit(v: unknown): Unit | null {

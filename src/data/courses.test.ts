@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { COURSES, COURSE_LIST, type Question } from './subjects'
+import { ALGEBRA_1 } from './courses/algebra1'
+import { GEOMETRY } from './courses/geometry'
+import { ALGEBRA_2 } from './courses/algebra2'
+import { PRECALCULUS } from './courses/precalculus'
+import { CURRICULUM, PLACEMENT } from './courses/curriculum'
 import { draftIssue } from '../lib/content'
 import { checkAnswer } from '../components/QuestionPanel'
 
@@ -25,15 +30,71 @@ describe('bundled curriculum — structure', () => {
     expect(COURSES.map((c) => c.name)).toEqual(COURSE_LIST.map((c) => c.name))
   })
 
-  it('gives every unit subunits, at least one of them playable', () => {
-    // Empty subunits are legitimate: they are curriculum-outline placeholders
-    // (see courses/outlines.ts) and render disabled in the pickers. What must
-    // never happen is a unit with nothing playable in it at all.
+  it('gives every unit at least one subtopic', () => {
+    // A unit with no PLAYABLE subtopic is fine — the curriculum plans ahead of
+    // the content (Conic Sections, Complex Numbers, Modeling…). A unit with no
+    // subtopics at all would be a hole in the outline.
     for (const c of COURSES) {
       for (const u of c.units) {
         expect(u.subunits.length, `${c.id}/${u.id} has no subunits`).toBeGreaterThan(0)
-        const playable = u.subunits.filter((s) => s.questions.length > 0)
-        expect(playable.length, `${c.id}/${u.id} has no playable subunit`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('follows the curriculum outline exactly, unit for unit', () => {
+    for (const c of COURSES) {
+      expect(c.units.map((u) => u.id), `${c.id} units`).toEqual(CURRICULUM[c.id].map((u) => u.id))
+      expect(c.units.map((u) => u.name), `${c.id} unit names`).toEqual(CURRICULUM[c.id].map((u) => u.name))
+    }
+  })
+
+  it('loses no authored question set in the restructure', () => {
+    const raw: Record<string, typeof ALGEBRA_1> = {
+      'algebra-1': ALGEBRA_1, geometry: GEOMETRY, 'algebra-2': ALGEBRA_2, precalculus: PRECALCULUS,
+    }
+    for (const c of COURSES) {
+      const before = raw[c.id].units.flatMap((u) => u.subunits.filter((s) => s.questions.length > 0))
+      const after = new Set(c.units.flatMap((u) => u.subunits.map((s) => s.id)))
+      const unitIds = new Set(c.units.map((u) => u.id))
+      for (const s of before) {
+        const target = PLACEMENT[c.id][s.id]
+        expect(target, `${c.id}/${s.id} has no PLACEMENT entry`).toBeTypeOf('string')
+        const [unitId, topic] = target.split('#')
+        expect(unitIds.has(unitId), `${c.id}/${s.id} points at unknown unit ${unitId}`).toBe(true)
+        // it survives either under its own id, or poured into a named topic
+        const landed = topic
+          ? c.units.some((u) => u.subunits.some((x) => x.name === topic && x.questions.length > 0))
+          : after.has(s.id)
+        expect(landed, `${c.id}/${s.id} was dropped by the restructure`).toBe(true)
+      }
+      const qBefore = before.reduce((n, s) => n + s.questions.length, 0)
+      const qAfter = c.units.reduce((n, u) => n + u.subunits.reduce((m, s) => m + s.questions.length, 0), 0)
+      expect(qAfter, `${c.id} lost questions`).toBe(qBefore)
+    }
+  })
+
+  it('never merges two answer types into one subtopic', () => {
+    // checkAnswer dispatches on a question's FIELDS, but draftIssue and the
+    // pickers trust subunit.type — so a graph set poured into a slider topic
+    // would grade and validate wrong.
+    for (const c of COURSES) {
+      for (const u of c.units) {
+        for (const s of u.subunits) {
+          for (const q of s.questions) {
+            const shape = q.x !== undefined ? 'graph' : q.answer !== undefined ? 'slider' : 'fill'
+            expect(shape, `${c.id}/${u.id}/${s.id} declares ${s.type} but holds a ${shape} question`).toBe(s.type)
+          }
+        }
+      }
+    }
+  })
+
+  it('describes every planned subtopic', () => {
+    for (const c of COURSES) {
+      for (const u of c.units) {
+        for (const s of u.subunits.filter((x) => x.questions.length === 0)) {
+          expect((s.description ?? '').trim(), `${c.id}/${u.id}/${s.id} has no description`).not.toBe('')
+        }
       }
     }
   })
@@ -139,7 +200,7 @@ describe('bundled curriculum — questions are answerable', () => {
 })
 
 describe('bundled curriculum — depth', () => {
-  it('gives every authored unit at least 20 questions', () => {
+  it('gives every content-carrying unit real depth', () => {
     // The four Algebra 1 units that predate the content pass are the original
     // 4-question samples; everything authored since ships 20 per unit.
     const legacy = new Set([
@@ -152,6 +213,7 @@ describe('bundled curriculum — depth', () => {
       for (const u of c.units) {
         if (legacy.has(`${c.id}/${u.id}`)) continue
         const count = u.subunits.reduce((n, s) => n + s.questions.length, 0)
+        if (count === 0) continue // planned ahead of its content — allowed
         expect(count, `${c.id}/${u.id} has only ${count} questions`).toBeGreaterThanOrEqual(20)
       }
     }
