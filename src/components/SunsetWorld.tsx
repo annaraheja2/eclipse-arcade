@@ -28,7 +28,8 @@ export const SUN_POS: readonly [number, number, number] = [-11, 5.6, -95]
  *  Not `readonly`: r3f's fog args expect a mutable tuple. */
 export const SUNSET_FOG: [string, number, number] = [HAZE, 28, 215]
 
-function gradientTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): CanvasTexture {
+/** Draw a one-off canvas and hand back an sRGB texture. Shared with BeachWorld. */
+export function gradientTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h

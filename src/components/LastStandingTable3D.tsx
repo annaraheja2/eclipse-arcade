@@ -1,7 +1,7 @@
 // The Last Standing 3D table — presentation only, no rules. The table stands
-// out on the same golden-hour meadow as the card game (shared SunsetWorld), so
-// the two cabinets read as one place at one time of day; this one keeps its own
-// dark accent-ringed felt, which the warm key light catches. The shared
+// on a beach at sunset (BeachWorld): the sun drowning on the waterline, surf
+// running up wet sand, palms leaning in and paper lanterns drifting over the
+// water. The dark accent-ringed felt catches the rose-gold key light. The shared
 // Character3D figures sit on five FIXED seats (nobody shuffles when a player
 // leaves), and the camera turns toward whoever is answering. Eliminated seats
 // dim; a banished character sinks below the ground and their seat light dies —
@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { ACESFilmicToneMapping, CanvasTexture, MeshBasicMaterial, SRGBColorSpace, Vector3 } from 'three'
 import type { Group } from 'three'
-import { SunsetWorld, SunsetLights, SUNSET_FOG } from './SunsetWorld'
+import { BeachWorld, BeachLights, BEACH_FOG } from './BeachWorld'
 import Character3D, { SEAT_TINTS } from './Character3D'
 import { LIVES, isAlive, type LsState, type Seat } from '../lib/laststanding'
 
@@ -197,7 +197,7 @@ function CameraRig({ state, reduced }: { state: LsState; reduced: boolean }) {
 function Arena({ accent }: { accent: string }) {
   return (
     <group>
-      {/* no floor disc — SunsetWorld's meadow is the ground the table sits on */}
+      {/* no floor disc — BeachWorld's sand is the ground the table sits on */}
       {/* table: felt top, accent rim, pedestal */}
       <mesh position={[0, 0.95, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[TABLE_R, TABLE_R, 0.22, 48]} />
@@ -229,14 +229,14 @@ function Scene({ state, accent, reduced, secondsLeft }: {
   const activeSeat = state.phase.kind === 'turn' ? state.turn : -1
   return (
     <>
-      <fog attach="fog" args={SUNSET_FOG} />
-      <SunsetLights />
+      <fog attach="fog" args={BEACH_FOG} />
+      <BeachLights />
       {/* the cabinet's own neon still pools over the table, so the accent reads
           as the game's colour even against the warm key light */}
       <pointLight position={[0, 5.5, 0]} intensity={9} color={accent} distance={14} decay={2} />
-      {/* groundY 0.22 puts the meadow surface (drawn at groundY − 0.22) exactly
-          at y = 0, where the stools and the table pedestal stand */}
-      <SunsetWorld reduced={reduced} groundY={0.22} />
+      {/* groundY 0.22 puts the sand (drawn at groundY − 0.22) exactly at y = 0,
+          where the stools and the table pedestal stand */}
+      <BeachWorld reduced={reduced} groundY={0.22} />
       <Arena accent={accent} />
       {state.seats.map((seat) => (
         <PlayerSeat key={seat.seat} seat={seat} total={state.seats.length}
@@ -257,7 +257,7 @@ export default function LastStandingTable3D({ state, accent, reduced, secondsLef
   secondsLeft: number | null // the active player's ticking countdown
 }) {
   return (
-    <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#2a1a3a]">
+    <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#3a2450]">
       <div className="h-[340px] sm:h-[420px]">
         <Canvas
           shadows
