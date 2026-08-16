@@ -208,30 +208,25 @@ const CAB_BEVEL = [
 function Cabinet({ g }: { g: GameDef }) {
   const navigate = useNavigate()
   const { player } = usePlayer()
-  const soon = g.type === 'soon'
   const best = player.bests[g.key]
   const dailyDone = g.key === 'daily' && localStorage.getItem(`eclipse-arcade:daily:${todayStr()}`) === '1'
-  const shadow = soon
-    ? `${CAB_BEVEL}, 0 12px 24px -12px rgba(0,0,0,0.8)`
-    : `${CAB_BEVEL}, 0 0 0 1px ${g.color}40, 0 16px 36px -14px ${g.color}70, 0 14px 28px -12px rgba(0,0,0,0.8)`
   const cabStyle: CabVars = {
     background: 'linear-gradient(180deg, #241543, #120a2c 60%, #0c0722)',
-    boxShadow: shadow,
+    boxShadow: `${CAB_BEVEL}, 0 0 0 1px ${g.color}40, 0 16px 36px -14px ${g.color}70, 0 14px 28px -12px rgba(0,0,0,0.8)`,
+    '--cab': g.color,
   }
-  if (!soon) cabStyle['--cab'] = g.color
   return (
     <button
-      disabled={soon}
-      onClick={() => { if (soon) return; navigate(g.type === 'battleship' ? '/battleship' : g.type === 'racer' ? '/racer' : g.type === 'cardgame' ? '/cardgame' : g.type === 'ascend' ? '/ascend' : g.type === 'laststanding' ? '/laststanding' : `/play/${g.key}`) }}
-      className={`cab group relative text-left rounded-[14px] border border-white/10 transition-transform duration-200 ${soon ? 'opacity-60 cursor-default' : 'cab-live hover:-translate-y-1 active:translate-y-0.5'}`}
+      onClick={() => { navigate(g.type === 'battleship' ? '/battleship' : g.type === 'racer' ? '/racer' : g.type === 'cardgame' ? '/cardgame' : g.type === 'ascend' ? '/ascend' : g.type === 'laststanding' ? '/laststanding' : `/play/${g.key}`) }}
+      className="cab cab-live group relative text-left rounded-[14px] border border-white/10 transition-transform duration-200 hover:-translate-y-1 active:translate-y-0.5"
       style={cabStyle}
     >
       <div className="cab-marquee rounded-t-[13px]">
         <span
           className="block text-center font-pixel text-[9px] tracking-wider truncate"
           style={{
-            color: soon ? 'rgba(255,255,255,0.75)' : `color-mix(in srgb, ${g.color} 70%, #fff)`,
-            textShadow: soon ? 'none' : `0 0 10px ${g.color}`,
+            color: `color-mix(in srgb, ${g.color} 70%, #fff)`,
+            textShadow: `0 0 10px ${g.color}`,
           }}
         >
           {g.name.toUpperCase()}
@@ -243,29 +238,24 @@ function Cabinet({ g }: { g: GameDef }) {
       >
         <GameThumbnail g={g} />
         <span aria-hidden className="cab-shine" />
-        {g.key === 'daily' && !soon && (
+        {g.key === 'daily' && (
           dailyDone
             ? <span className="absolute top-3 left-3 text-[9px] font-pixel px-2 py-1 rounded bg-neon-green text-[#04180f]">PLAYED</span>
             : <span className="absolute top-3 left-3 text-[9px] font-pixel px-2 py-1 rounded bg-neon-amber text-[#2a1a00]">DAILY</span>
         )}
-        {soon && <span className="absolute top-3 right-3 text-[9px] font-pixel px-2 py-1 rounded bg-white/10 text-white/70">SOON</span>}
       </div>
       <div className="cab-panel flex items-center justify-between px-4 py-3.5">
         <div className="min-w-0">
           <span aria-hidden className="flex items-center gap-2">
             <span className="joy" />
-            <span className="mini-btn" style={{ background: soon ? '#4a4460' : g.color }} />
+            <span className="mini-btn" style={{ background: g.color }} />
             <span className="mini-btn bg-white/25" />
           </span>
-          {!soon && (
-            <div className="text-xs text-white/60 mt-2">
-              Best <span className="font-bold tabular-nums" style={{ color: `color-mix(in srgb, ${g.color} 70%, #fff)` }}>{(best ?? 0).toLocaleString()}</span>
-            </div>
-          )}
+          <div className="text-xs text-white/60 mt-2">
+            Best <span className="font-bold tabular-nums" style={{ color: `color-mix(in srgb, ${g.color} 70%, #fff)` }}>{(best ?? 0).toLocaleString()}</span>
+          </div>
         </div>
-        {soon
-          ? <span className="text-[9px] font-pixel text-white/60 shrink-0">COMING SOON</span>
-          : <span className="arcade-btn text-[10px] font-pixel px-4 py-2.5 rounded-lg text-[#0a0620] shrink-0" style={arcadeBtnStyle(g.color)}>PLAY</span>}
+        <span className="arcade-btn text-[10px] font-pixel px-4 py-2.5 rounded-lg text-[#0a0620] shrink-0" style={arcadeBtnStyle(g.color)}>PLAY</span>
       </div>
     </button>
   )

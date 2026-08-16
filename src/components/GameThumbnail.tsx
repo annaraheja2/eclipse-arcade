@@ -24,11 +24,6 @@ function pick(g: GameDef): JSX.Element {
     case 'ascend': return <AscendThumb color={g.color} />
     case 'laststanding': return <LastStandingThumb color={g.color} />
     case 'daily': return <DailyThumb color={g.color} />
-    case 'pinpoint': return <PinPointThumb color={g.color} />
-    case 'slider': return <SliderThumb color={g.color} />
-    case 'gridfill': return <GridFillThumb color={g.color} />
-    case 'matchup': return <MatchUpThumb color={g.color} />
-    case 'fitline': return <FitLineThumb color={g.color} />
     default: return <DefaultThumb color={g.color} />
   }
 }
@@ -241,109 +236,6 @@ function DailyThumb({ color }: { color: string }) {
       {/* star on today's cell */}
       <path d="m116.6 66.6 1.3 2.7 2.9.3-2.2 2 .7 2.9-2.7-1.5-2.7 1.5.7-2.9-2.2-2 2.9-.3z" fill="#2a1a00" />
       <rect className="tn-shine" x="-42" y="0" width="20" height="120" fill="rgba(255,255,255,0.16)" />
-    </>
-  )
-}
-
-/* ---- PinPoint: coordinate plane, roaming crosshair, landed pin ---- */
-function PinPointThumb({ color }: { color: string }) {
-  const hi = bright(color)
-  return (
-    <>
-      {[20, 40, 60, 80, 120, 140, 160, 180].map((x) => <line key={`v${x}`} x1={x} y1="0" x2={x} y2="120" stroke={GRID} />)}
-      {[20, 40, 80, 100].map((y) => <line key={`h${y}`} x1="0" y1={y} x2="200" y2={y} stroke={GRID} />)}
-      <line x1="100" y1="0" x2="100" y2="120" stroke={color} strokeOpacity="0.55" strokeWidth="1.5" />
-      <line x1="0" y1="60" x2="200" y2="60" stroke={color} strokeOpacity="0.55" strokeWidth="1.5" />
-      {/* landed pin at (140, 40) */}
-      <circle className="tn-ping" cx="140" cy="40" r="13" fill="none" stroke={color} strokeWidth="2" />
-      <circle cx="140" cy="40" r="9" fill={color} opacity="0.28" className="tn-glowpulse" />
-      <circle cx="140" cy="40" r="4.5" fill={hi} />
-      {/* crosshair drifting near (66, 82) */}
-      <g className="tn-drift" stroke={hi} strokeWidth="1.8" fill="none">
-        <circle cx="66" cy="82" r="10" />
-        <line x1="66" y1="66" x2="66" y2="76" />
-        <line x1="66" y1="88" x2="66" y2="98" />
-        <line x1="50" y1="82" x2="60" y2="82" />
-        <line x1="72" y1="82" x2="82" y2="82" />
-      </g>
-    </>
-  )
-}
-
-/* ---- Slider: number line, target tick, glowing handle easing in ---- */
-function SliderThumb({ color }: { color: string }) {
-  const hi = bright(color)
-  return (
-    <>
-      <line x1="16" y1="66" x2="184" y2="66" stroke="rgba(255,255,255,0.55)" strokeWidth="2.5" strokeLinecap="round" />
-      {[16, 44, 72, 100, 128, 156, 184].map((x) => (
-        <line key={x} x1={x} y1="60" x2={x} y2="72" stroke="rgba(255,255,255,0.4)" strokeWidth="2" />
-      ))}
-      {/* target tick */}
-      <line className="tn-glowpulse" x1="142" y1="52" x2="142" y2="80" stroke={hi} strokeWidth="3" strokeLinecap="round" />
-      <path d="m142 44 5 6 h-10 z" fill={hi} className="tn-glowpulse" />
-      {/* handle sliding toward the target */}
-      <g className="tn-slide">
-        <circle cx="112" cy="66" r="13" fill={color} opacity="0.25" />
-        <circle cx="112" cy="66" r="8" fill={color} />
-        <circle cx="109.5" cy="63.5" r="2.5" fill="rgba(255,255,255,0.75)" />
-      </g>
-      <text x="16" y="94" fontFamily='"Press Start 2P", monospace' fontSize="7" fill="rgba(255,255,255,0.6)">0</text>
-      <text x="176" y="94" fontFamily='"Press Start 2P", monospace' fontSize="7" fill="rgba(255,255,255,0.6)">12</text>
-    </>
-  )
-}
-
-/* ---- Grid-Fill (soon): cells lighting up in sequence ---- */
-function GridFillThumb({ color }: { color: string }) {
-  const filled = new Set([1, 2, 5, 6, 9, 10, 11])
-  const blinkDelay: Record<number, string> = { 6: '0s', 10: '-0.8s', 11: '-1.6s' }
-  const cells: JSX.Element[] = []
-  for (let i = 0; i < 16; i++) {
-    const c = i % 4, r = Math.floor(i / 4)
-    const x = 58 + c * 22, y = 18 + r * 22
-    const on = filled.has(i)
-    cells.push(
-      <rect key={i} x={x} y={y} width="18" height="18" rx="3.5"
-        fill={on ? color : 'transparent'} fillOpacity={on ? 0.8 : 0}
-        stroke={on ? bright(color) : 'rgba(255,255,255,0.22)'} strokeWidth="1.5"
-        className={i in blinkDelay ? 'tn-cellblink' : undefined}
-        style={i in blinkDelay ? { animationDelay: blinkDelay[i] } : undefined} />,
-    )
-  }
-  return <>{cells}</>
-}
-
-/* ---- Match-Up (soon): two columns, a pair-line drawing itself ---- */
-function MatchUpThumb({ color }: { color: string }) {
-  const hi = bright(color)
-  const node = (x: number, y: number, key: string) => (
-    <circle key={key} cx={x} cy={y} r="7.5" fill="rgba(255,255,255,0.12)" stroke={hi} strokeWidth="2" />
-  )
-  return (
-    <>
-      <line x1="68" y1="30" x2="132" y2="60" stroke={color} strokeOpacity="0.55" strokeWidth="2.5" strokeLinecap="round" />
-      <line x1="68" y1="90" x2="132" y2="90" stroke={color} strokeOpacity="0.55" strokeWidth="2.5" strokeLinecap="round" />
-      <line className="tn-draw" x1="68" y1="60" x2="132" y2="30" stroke={hi} strokeWidth="3" strokeLinecap="round" />
-      {node(60, 30, 'l1')}{node(60, 60, 'l2')}{node(60, 90, 'l3')}
-      {node(140, 30, 'r1')}{node(140, 60, 'r2')}{node(140, 90, 'r3')}
-    </>
-  )
-}
-
-/* ---- Fit-the-Line (soon): scatter plot, best-fit line settling in ---- */
-function FitLineThumb({ color }: { color: string }) {
-  const hi = bright(color)
-  const pts: Array<[number, number]> = [[42, 90], [68, 72], [92, 80], [118, 54], [146, 44], [166, 30]]
-  return (
-    <>
-      {[40, 80, 120, 160].map((x) => <line key={`v${x}`} x1={x} y1="0" x2={x} y2="120" stroke={GRID} />)}
-      {[30, 60, 90].map((y) => <line key={`h${y}`} x1="0" y1={y} x2="200" y2={y} stroke={GRID} />)}
-      <g className="tn-fit">
-        <line x1="26" y1="102" x2="180" y2="24" stroke={color} strokeWidth="8" strokeOpacity="0.2" strokeLinecap="round" />
-        <line x1="26" y1="102" x2="180" y2="24" stroke={hi} strokeWidth="2.5" strokeLinecap="round" />
-      </g>
-      {pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="4" fill={hi} />)}
     </>
   )
 }

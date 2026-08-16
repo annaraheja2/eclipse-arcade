@@ -115,7 +115,8 @@ This is the biggest thing to understand before adding content or a game:
 1. **Flat model** — `lib/games.ts`. A `GameDef` has a `type` and a flat list of `Round`s
    (`PinRound | SliderRound`, discriminated by `kind`). Drives the generic `/play/:gameKey`
    loop (`Game.tsx`): 5 random rounds, aim with D-pad/arrows, FIRE to lock in, exponential
-   scoring. PinPoint and Slider run on this.
+   scoring. **Only the Daily Challenge runs on this now** — the PinPoint and Slider cabinets
+   were removed, but their round pools survive as Daily's question source.
 
 2. **Curriculum model** — `data/subjects.ts`. `Course → Unit → Subunit → Question`, with
    difficulty and a third answer type (`fill`, via `FillInput`/`QuestionPanel`). Currently
@@ -232,7 +233,10 @@ stays focused.
 
 ## In-flight / gotchas
 
-- **Prototype (`0.1.0`).** Several cabinets are still `type: 'soon'`. All four courses now
+- **Prototype (`0.1.0`).** Every cabinet in the lobby is a real, playable game — the
+  `'soon'` placeholder type is gone, along with PinPoint, Grid-Fill, Match-Up and
+  Fit-the-Line. Daily Challenge still runs on the flat round model, so `lib/games.ts` keeps
+  its round pools and `pages/Game.tsx` even though the aim-and-fire cabinets are gone. All four courses now
   carry authored content (788 bundled questions; every unit has ≥20 except the four original
   Algebra 1 sample units, which still ship 4 each and are worth topping up).
 - **Two content models** (above) are the main structural debt.

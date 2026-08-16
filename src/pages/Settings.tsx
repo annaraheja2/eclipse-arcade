@@ -190,7 +190,7 @@ function ProgressCard({ player }: { player: PlayerLike }) {
   const { level, into, pct } = levelFromXp(player.xp)
   const atRisk = isStreakAtRisk(player.lastPlayed, todayStr())
   const acc = accuracy(player.questionsAnswered, player.questionsCorrect)
-  const bestGames = GAMES.filter((g) => g.type !== 'soon' && (player.bests[g.key] ?? 0) > 0)
+  const bestGames = GAMES.filter((g) => (player.bests[g.key] ?? 0) > 0)
 
   return (
     <Card title="PROGRESS">

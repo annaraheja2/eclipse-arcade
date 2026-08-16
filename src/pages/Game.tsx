@@ -98,7 +98,7 @@ export default function Game() {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  if (!game || game.type === 'soon') return <Navigate to="/" replace />
+  if (!game) return <Navigate to="/" replace />
 
   // Daily is once per calendar day — if it's already been played, don't re-open a puzzle.
   if (isDaily && alreadyPlayedToday && !done) {
