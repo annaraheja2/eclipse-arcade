@@ -87,70 +87,66 @@ export function validateCourse(data: unknown): Course | null {
 }
 
 /**
- * Adds bundled content to a remote course WITHOUT taking anything away.
+ * Reconciles a cloud course against the canonical curriculum.
  *
- * A remote doc wins outright, so a course whose units are still empty
- * scaffolds would shadow the bundle forever and no bundled question would ever
- * be reachable. But those scaffolds are not junk — they are the team's
- * curriculum outline, authored subtopic by subtopic in /admin, and an earlier
- * version of this function replaced a whole unit's subunit list with the
- * bundled one, which made that outline disappear from the pickers.
+ * `data/courses/curriculum.ts` is the team's outline and it OWNS the structure:
+ * the units, their order, and the subtopics inside them are exactly what was
+ * authored there. A cloud document contributes the thing the repo can't hold —
+ * questions someone wrote in /admin.
  *
- * So the merge is purely additive. Nothing authored is ever removed, renamed
- * or reordered:
- *   * every remote subunit is kept, in its original order, empty or not —
- *     an empty subtopic is a deliberate placeholder and still shows (disabled)
- *     in the pickers;
- *   * a remote subunit that exists in the bundle but holds NO questions
- *     borrows the bundled questions, keeping its own name and difficulty;
- *   * bundled subunits with no remote counterpart are APPENDED, so new
- *     content is playable without displacing the outline;
- *   * a whole unit missing from the cloud copy is appended, so a curriculum
- *     restructure reaches both the games and the editor. The cost: a BUNDLED
- *     unit can no longer be deleted from /admin for good — remove it from
- *     data/courses/curriculum.ts instead. Cloud-only units delete normally.
+ * So:
+ *   * the curriculum's units and subtopics are the shape of the result;
+ *   * a cloud subtopic that shares an id with a curriculum one keeps ITS
+ *     questions (an admin's edits beat the bundle) and is topped up from the
+ *     bundle when empty;
+ *   * a cloud subtopic the curriculum doesn't have is kept ONLY if it holds
+ *     questions the bundle doesn't — genuine authoring is never dropped;
+ *   * anything else in the cloud is a leftover from an older structure and is
+ *     dropped, which is what stops a superseded unit lingering with two stale
+ *     subtopics beside its replacement.
+ *
+ * Removing a unit therefore means editing curriculum.ts, where git protects it.
  */
 export function mergeBundledContent(remote: Course, bundled: Course | undefined): Course {
   if (!bundled) return remote
-  const bundledUnits = new Map(bundled.units.map((u) => [u.id, u]))
-  let changed = false
 
-  const units = remote.units.map((unit) => {
-    const source = bundledUnits.get(unit.id)
-    if (!source) return unit
-    const bundledSubs = new Map(source.subunits.map((s) => [s.id, s]))
+  const bundledPrompts = new Set(
+    bundled.units.flatMap((u) => u.subunits.flatMap((s) => s.questions.map((q) => q.prompt)))
+  )
+  // A cloud subtopic is a leftover when every question in it already ships in
+  // the bundle — i.e. it is this same content under an older name.
+  const isLeftover = (s: Subunit) =>
+    s.questions.length === 0 || s.questions.every((q) => bundledPrompts.has(q.prompt))
 
-    // 1. keep every authored subunit, topping up only the empty ones
-    const kept = unit.subunits.map((sub) => {
-      if (sub.questions.length > 0) return sub
-      const from = bundledSubs.get(sub.id)
-      if (!from || from.questions.length === 0) return sub
-      changed = true
-      return { ...sub, questions: from.questions }
+  const remoteUnits = new Map(remote.units.map((u) => [u.id, u]))
+
+  const units: Unit[] = bundled.units.map((bu) => {
+    const ru = remoteUnits.get(bu.id)
+    if (!ru) return bu
+    const cloudById = new Map(ru.subunits.map((s) => [s.id, s]))
+    const subunits: Subunit[] = bu.subunits.map((bs) => {
+      const cs = cloudById.get(bs.id)
+      if (!cs) return bs
+      // The curriculum owns the NAME and description of a planned subtopic —
+      // otherwise a cloud copy differing only in case ("Evaluating expressions")
+      // shadows the outline's wording. Questions still come from the cloud
+      // whenever someone has authored them.
+      return { ...bs, questions: cs.questions.length > 0 ? cs.questions : bs.questions }
     })
-
-    // 2. append bundled subunits this unit doesn't have yet — including EMPTY
-    //    outline placeholders, which is how a reconstructed curriculum outline
-    //    reaches a course whose cloud copy lost it. The cost of that choice: a
-    //    bundled subtopic deleted in /admin comes back on the next load;
-    //    deleting the whole unit is still the way to remove it for good.
-    const have = new Set(unit.subunits.map((s) => s.id))
-    const added = source.subunits.filter((s) => !have.has(s.id))
-    if (added.length > 0) changed = true
-
-    return added.length > 0 || kept !== unit.subunits
-      ? { ...unit, subunits: [...kept, ...added] }
-      : unit
+    // cloud-only subtopics survive only when they carry real authored content
+    const planned = new Set(bu.subunits.map((s) => s.id))
+    subunits.push(...ru.subunits.filter((s) => !planned.has(s.id) && !isLeftover(s)))
+    return { ...bu, subunits }
   })
 
-  // 3. append whole units the cloud copy is missing — a curriculum restructure
-  //    adds new units (Conic Sections, Complex Numbers, Modeling…), and without
-  //    this they are invisible in the games AND unsaveable in /admin.
-  const present = new Set(remote.units.map((u) => u.id))
-  const newUnits = bundled.units.filter((u) => !present.has(u.id))
-  if (newUnits.length > 0) changed = true
+  // Units the curriculum dropped: keep only what genuinely was authored there.
+  for (const ru of remote.units) {
+    if (bundled.units.some((bu) => bu.id === ru.id)) continue
+    const authored = ru.subunits.filter((s) => !isLeftover(s))
+    if (authored.length > 0) units.push({ ...ru, subunits: authored })
+  }
 
-  return changed ? { ...remote, units: [...units, ...newUnits] } : remote
+  return { id: remote.id, name: remote.name, units }
 }
 
 /**
