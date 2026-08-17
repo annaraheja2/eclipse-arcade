@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { summarize, MIN_FOR_VERDICT, STRUGGLING_PCT, STRONG_PCT, type AnsweredItem } from './summary'
+import {
+  summarize, summarizeRounds, MIN_FOR_VERDICT, STRUGGLING_PCT, STRONG_PCT, ON_TARGET,
+  type AnsweredItem, type ScoredRound,
+} from './summary'
 
 const a = (subunitId: string, correct: boolean, subunitName = subunitId): AnsweredItem =>
   ({ subunitId, subunitName, correct })
@@ -86,5 +89,59 @@ describe('summarize', () => {
     ])
     const overlap = s.struggling.filter((t) => s.strong.some((o) => o.subunitId === t.subunitId))
     expect(overlap).toEqual([])
+  })
+})
+
+// The Daily Challenge path: scores, not right/wrong, and no subtopics.
+describe('summarizeRounds', () => {
+  const MAX = 1000
+  const r = (kind: ScoredRound['kind'], score: number): ScoredRound => ({ kind, score })
+
+  it('is empty and safe with no rounds', () => {
+    const s = summarizeRounds([], MAX)
+    expect(s).toMatchObject({ answered: 0, correct: 0, pct: 0 })
+    expect(s.bySubtopic).toEqual([])
+  })
+
+  it('is empty and safe when the maximum is meaningless', () => {
+    expect(summarizeRounds([r('pin', 500)], 0).answered).toBe(0)
+  })
+
+  it('reads accuracy as the share of available points, not a hit rate', () => {
+    // 800 + 400 out of 2000 = 60%, even though only one shot was on target
+    const s = summarizeRounds([r('pin', 800), r('pin', 400)], MAX)
+    expect(s.pct).toBe(60)
+    expect(s.correct).toBe(1)
+    expect(s.answered).toBe(2)
+  })
+
+  it('counts a shot on target at exactly the hit line', () => {
+    const s = summarizeRounds([r('pin', MAX * ON_TARGET)], MAX)
+    expect(s.correct).toBe(1)
+  })
+
+  it('groups by round type, since the flat model has no subtopics', () => {
+    const s = summarizeRounds([r('pin', 900), r('pin', 900), r('slider', 300), r('slider', 100)], MAX)
+    expect(s.bySubtopic.map((t) => t.name)).toEqual(['Solving for a value', 'Plotting points'])
+    expect(s.bySubtopic[0].pct).toBe(20)
+    expect(s.bySubtopic[1].pct).toBe(90)
+  })
+
+  it('flags a weak round type and praises a strong one', () => {
+    const s = summarizeRounds([r('pin', 950), r('pin', 950), r('slider', 200), r('slider', 200)], MAX)
+    expect(s.struggling.map((t) => t.name)).toEqual(['Solving for a value'])
+    expect(s.strong.map((t) => t.name)).toEqual(['Plotting points'])
+  })
+
+  it('refuses a verdict on a round type played too few times', () => {
+    const s = summarizeRounds([r('pin', 950), r('slider', 100)], MAX)
+    expect(s.struggling).toEqual([])
+    expect(s.strong).toEqual([])
+    expect(s.bySubtopic).toHaveLength(2)
+  })
+
+  it('handles a perfect and a scoreless run', () => {
+    expect(summarizeRounds([r('pin', MAX), r('slider', MAX)], MAX).pct).toBe(100)
+    expect(summarizeRounds([r('pin', 0), r('slider', 0)], MAX)).toMatchObject({ pct: 0, correct: 0 })
   })
 })

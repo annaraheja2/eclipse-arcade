@@ -4,8 +4,10 @@ import { getGame, pickRounds, pickDailyRounds, scorePin, scoreSlider, ROUND_MAX,
 import { usePlayer, levelFromXp, todayStr } from '../lib/player'
 import { buildShareCard } from '../lib/share'
 import { sfxFire, sfxHit, sfxMiss, sfxWin } from '../lib/sound'
+import { summarizeRounds, type ScoredRound } from '../lib/summary'
 import PinBoard from '../components/PinBoard'
 import SliderBoard from '../components/SliderBoard'
+import SessionSummary from '../components/SessionSummary'
 import Controller from '../components/Controller'
 import Avatar, { type Mood } from '../components/Avatar'
 import { ArrowLeft, Replay, Coin, Bolt } from '../icons'
@@ -141,7 +143,8 @@ export default function Game() {
         </div>
 
         {done ? (
-          <Results total={total} pts={pts} rewards={rewards} color={game.color} gameName={game.name} level={level} canReplay={!isDaily} onReplay={restart} onHome={() => navigate('/')} />
+          <Results total={total} pts={pts} scored={rounds.map((r, i) => ({ kind: r.kind, score: pts[i] ?? 0 }))}
+            rewards={rewards} color={game.color} gameName={game.name} level={level} canReplay={!isDaily} onReplay={restart} onHome={() => navigate('/')} />
         ) : round ? (
           <>
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 mb-4 text-center min-h-[72px] grid place-items-center">
@@ -183,10 +186,12 @@ export default function Game() {
   )
 }
 
-function Results({ total, pts, rewards, color, gameName, level, canReplay, onReplay, onHome }: {
-  total: number; pts: number[]; rewards: { xp: number; coins: number; best: boolean } | null; color: string
+function Results({ total, pts, scored, rewards, color, gameName, level, canReplay, onReplay, onHome }: {
+  total: number; pts: number[]; scored: readonly ScoredRound[]
+  rewards: { xp: number; coins: number; best: boolean } | null; color: string
   gameName: string; level: number; canReplay: boolean; onReplay: () => void; onHome: () => void
 }) {
+  const summary = summarizeRounds(scored.slice(0, pts.length), ROUND_MAX)
   const good = total >= pts.length * 500
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const flashShare = (s: 'copied' | 'failed') => {
@@ -228,13 +233,18 @@ function Results({ total, pts, rewards, color, gameName, level, canReplay, onRep
         <span className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-neon-cyan font-semibold"><Bolt width={18} height={18} /> +{rewards?.xp ?? 0} XP</span>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 mb-6 max-w-xs mx-auto">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 mb-4 max-w-xs mx-auto">
         {pts.map((p, i) => (
           <div key={i} className="flex items-center justify-between py-1.5 text-sm">
             <span className="text-white/50">Round {i + 1}</span>
             <span className="font-bold tabular-nums" style={{ color: p >= 780 ? '#3dffa2' : p >= 400 ? color : '#ff6b3d' }}>{p}</span>
           </div>
         ))}
+      </div>
+
+      <div className="text-left max-w-xs mx-auto mb-6">
+        <SessionSummary summary={summary} color={color}
+          caption={`${summary.correct} of ${summary.answered} shot${summary.answered === 1 ? '' : 's'} on target`} />
       </div>
 
       <div className="flex flex-wrap justify-center gap-3">

@@ -16,8 +16,11 @@ function toneFor(pct: number): string {
   return MISS
 }
 
-export default function SessionSummary({ summary, color, title = 'SESSION SUMMARY' }: {
-  summary: Summary; color: string; title?: string
+// `caption` overrides the line under the percentage. The aim-and-fire loop
+// (Daily) has no right/wrong, so "3 of 5 correct" would be the wrong words for
+// it — it passes its own.
+export default function SessionSummary({ summary, color, title = 'SESSION SUMMARY', caption }: {
+  summary: Summary; color: string; title?: string; caption?: string
 }) {
   const { answered, correct, pct, bySubtopic, struggling, strong } = summary
   if (answered === 0) return null
@@ -36,7 +39,7 @@ export default function SessionSummary({ summary, color, title = 'SESSION SUMMAR
         <span className="font-pixel text-2xl tabular-nums" style={{ color: toneFor(pct) }}>{pct}%</span>
       </p>
       <p className="text-center text-sm text-white/70 mb-5">
-        {correct} of {answered} correct
+        {caption ?? `${correct} of ${answered} correct`}
       </p>
 
       {bySubtopic.length > 0 && (

@@ -100,3 +100,63 @@ export function summarize(items: readonly AnsweredItem[]): SessionSummary {
     strong: rated.filter((t) => t.pct >= STRONG_PCT),
   }
 }
+
+// ---------------------------------------------------------------------------
+// The flat aim-and-fire loop (Daily Challenge)
+// ---------------------------------------------------------------------------
+//
+// Daily runs on lib/games.ts, not the curriculum: its rounds carry no subtopic,
+// and there is no right or wrong — a shot scores 0..max by how close it landed.
+// So it can't use summarize() above. It gets the same readout built from what it
+// DOES measure: the score as a percentage, grouped by the only division the flat
+// model has — whether you were plotting a point or solving for a value.
+
+/** One finished round of the flat loop. `score` runs 0..max. */
+export interface ScoredRound { kind: 'pin' | 'slider'; score: number }
+
+/** Half marks is the flat loop's own hit line — `Game.tsx` already plays the
+ *  hit sound and the happy face above it, so the summary agrees with the game. */
+export const ON_TARGET = 0.5
+
+const KIND_LABEL: Record<ScoredRound['kind'], string> = {
+  pin: 'Plotting points',
+  slider: 'Solving for a value',
+}
+
+/** Scored rounds as a summary: accuracy is the share of the available points. */
+export function summarizeRounds(rounds: readonly ScoredRound[], max: number): SessionSummary {
+  if (rounds.length === 0 || max <= 0) return summarize([])
+
+  const groups = new Map<ScoredRound['kind'], { rounds: number; onTarget: number; points: number }>()
+  let onTarget = 0
+  let points = 0
+  for (const r of rounds) {
+    const hit = r.score >= max * ON_TARGET
+    if (hit) onTarget += 1
+    points += r.score
+    const g = groups.get(r.kind) ?? { rounds: 0, onTarget: 0, points: 0 }
+    g.rounds += 1
+    g.points += r.score
+    if (hit) g.onTarget += 1
+    groups.set(r.kind, g)
+  }
+
+  const bySubtopic: SubtopicTally[] = [...groups.entries()].map(([kind, g]) => ({
+    subunitId: kind,
+    name: KIND_LABEL[kind],
+    answered: g.rounds,
+    correct: g.onTarget,
+    pct: Math.round((g.points / (g.rounds * max)) * 100),
+  }))
+  bySubtopic.sort((a, b) => a.pct - b.pct || b.answered - a.answered)
+
+  const rated = bySubtopic.filter((t) => t.answered >= MIN_FOR_VERDICT)
+  return {
+    answered: rounds.length,
+    correct: onTarget,
+    pct: Math.round((points / (rounds.length * max)) * 100),
+    bySubtopic,
+    struggling: rated.filter((t) => t.pct < STRUGGLING_PCT),
+    strong: rated.filter((t) => t.pct >= STRONG_PCT),
+  }
+}
