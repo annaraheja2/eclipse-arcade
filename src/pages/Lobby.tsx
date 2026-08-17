@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Moon, Search, Coin, Flame, Bolt, Users, Bell, User, Gear } from '../icons'
+import { Moon, Search, Coin, Flame, Bolt, Users, Bell, User, Gear, Book } from '../icons'
 import { GAMES, type GameDef } from '../lib/games'
 import GameThumbnail from '../components/GameThumbnail'
 import AccountControl from '../components/AccountControl'
@@ -62,9 +62,11 @@ function Hud() {
           </span>
           <span className="hidden sm:block font-display text-lg tracking-wide text-white/95">ECLIPSE</span>
         </div>
-        <div className="flex-1 max-w-sm">
+        {/* min-w-0 + truncate let the search pill give way to the action row on
+            narrow screens instead of overflowing the header. */}
+        <div className="flex-1 min-w-0 max-w-sm">
           <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 text-white/50 text-sm">
-            <Search width={16} height={16} /> <span>Search games</span>
+            <Search width={16} height={16} className="shrink-0" /> <span className="truncate">Search games</span>
           </div>
         </div>
         <div className="hidden md:flex items-center gap-3.5 shrink-0">
@@ -81,6 +83,7 @@ function Hud() {
           </div>
         </div>
         <div className="flex items-center gap-2.5 shrink-0">
+          <IconBtn label="Practice" onClick={() => navigate('/practice')}><Book width={18} height={18} /></IconBtn>
           <IconBtn label="Friends" onClick={() => navigate('/friends')}><Users width={18} height={18} /></IconBtn>
           <IconBtn label="Settings" onClick={() => navigate('/settings')}><Gear width={18} height={18} /></IconBtn>
           <IconBtn dot label="Notifications"><Bell width={18} height={18} /></IconBtn>

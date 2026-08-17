@@ -9,6 +9,7 @@ import Ascend from './pages/Ascend'
 import LastStanding from './pages/LastStanding'
 import LastStandingOnline from './pages/LastStandingOnline'
 import Friends from './pages/Friends'
+import Practice from './pages/Practice'
 import Admin from './pages/Admin'
 import Settings from './pages/Settings'
 
@@ -24,6 +25,7 @@ export default function App() {
       <Route path="/laststanding" element={<LastStanding />} />
       <Route path="/laststanding/room/:roomId" element={<LastStandingOnline />} />
       <Route path="/friends" element={<Friends />} />
+      <Route path="/practice" element={<Practice />} />
       <Route path="/play/:gameKey" element={<Game />} />
       <Route path="/admin" element={<Admin />} />
       <Route path="/settings" element={<Settings />} />
