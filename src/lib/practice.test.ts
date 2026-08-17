@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { poolFor, unitQuestionCount, shuffle, startQueue, advance, current, answerText } from './practice'
+import { poolFor, unitQuestionCount, shuffle, startQueue, advance, current, answerText, type PracticeItem } from './practice'
 import { g, s, f } from '../data/types'
 import type { Course, Question, Subunit, Unit } from '../data/subjects'
 
-const sub = (id: string, questions: Question[]): Subunit =>
-  ({ id, name: id, difficulty: 'easy', type: 'fill', questions })
+const sub = (id: string, questions: Question[], name = id): Subunit =>
+  ({ id, name, difficulty: 'easy', type: 'fill', questions })
 const unit = (id: string, subunits: Subunit[]): Unit => ({ id, name: id, subunits })
 
 const COURSE: Course = {
   id: 'c', name: 'C',
   units: [
     unit('u1', [
-      sub('a', [f('a1', 'x'), f('a2', 'y')]),
+      sub('a', [f('a1', 'x'), f('a2', 'y')], 'Alpha'),
       sub('b', [f('b1', 'z')]),
       sub('empty', []),
     ]),
@@ -28,7 +28,13 @@ function seq(): () => number {
 describe('poolFor', () => {
   it('collects the selected subtopics in curriculum order', () => {
     const pool = poolFor(COURSE, 'u1', new Set(['b', 'a']))
-    expect(pool.map((q) => q.prompt)).toEqual(['a1', 'a2', 'b1'])
+    expect(pool.map((p) => p.q.prompt)).toEqual(['a1', 'a2', 'b1'])
+  })
+  it('tags every question with the subtopic it came from', () => {
+    const pool = poolFor(COURSE, 'u1', new Set(['a']))
+    expect(pool[0]).toMatchObject({ subunitId: 'a', subunitName: 'Alpha' })
+    // the tag is what the end-of-session summary groups by
+    expect(new Set(pool.map((p) => p.subunitId))).toEqual(new Set(['a']))
   })
   it('ignores subtopics from other units', () => {
     expect(poolFor(COURSE, 'u1', new Set(['c']))).toEqual([])
@@ -74,7 +80,7 @@ describe('the practice queue', () => {
 
   it('shows every question once before repeating any', () => {
     let q = startQueue(pool, seq())
-    const seen: Question[] = []
+    const seen: PracticeItem[] = []
     for (let i = 0; i < pool.length; i++) { seen.push(current(q)!); q = advance(q, seq()) }
     expect(new Set(seen).size).toBe(pool.length)
   })
@@ -83,7 +89,7 @@ describe('the practice queue', () => {
     let q = startQueue(pool, seq())
     for (let i = 0; i < pool.length; i++) q = advance(q, seq())
     expect(q.index).toBe(0)
-    expect(q.questions.length).toBe(pool.length)
+    expect(q.items.length).toBe(pool.length)
   })
 
   it('never opens a new pass on the question just answered', () => {
@@ -93,10 +99,10 @@ describe('the practice queue', () => {
     const script = [0, 0.99]
     let k = 0
     const rng = () => script[k++] ?? 0.99
-    const wrapped = advance({ questions: qs, index: 2 }, rng)
+    const wrapped = advance({ items: qs, index: 2 }, rng)
     expect(wrapped.index).toBe(0)
     expect(current(wrapped)).not.toBe(qs[2])
-    expect(new Set(wrapped.questions).size).toBe(3)
+    expect(new Set(wrapped.items).size).toBe(3)
   })
 
   it('survives a single-question pool', () => {

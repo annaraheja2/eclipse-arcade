@@ -12,6 +12,8 @@ import { StaticCard } from '../components/CardFace'
 import CardTable3D from '../components/CardTable3D'
 import { isReducedMotion } from '../lib/motion'
 import QuestionPanel from '../components/QuestionPanel'
+import SessionSummary from '../components/SessionSummary'
+import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
 import { ArrowLeft, Volume, VolumeMute, Coin, Bolt, Replay, Star, Cards } from '../icons'
 import { sfxPick, sfxDeny, sfxWin, setMuted, isMuted } from '../lib/sound'
 
@@ -51,10 +53,10 @@ function aggregateDifficulty(subs: Subunit[]): Difficulty {
 // Split the selected questions into the two tiers the engine asks for. A card's
 // requiredDifficulty is 'easy' (numbers) or 'hard' (actions/wilds); medium topics
 // back the easy tier. Either tier falls back to the whole set so it's never empty.
-function buildPools(subs: Subunit[]): { easy: Question[]; hard: Question[] } {
-  const all = subs.flatMap((s) => s.questions)
-  const easy = subs.filter((s) => s.difficulty !== 'hard').flatMap((s) => s.questions)
-  const hard = subs.filter((s) => s.difficulty === 'hard').flatMap((s) => s.questions)
+function buildPools(subs: Subunit[]): { easy: TaggedQuestion[]; hard: TaggedQuestion[] } {
+  const all = taggedPool(subs)
+  const easy = taggedPool(subs.filter((s) => s.difficulty !== 'hard'))
+  const hard = taggedPool(subs.filter((s) => s.difficulty === 'hard'))
   return { easy: easy.length ? easy : all, hard: hard.length ? hard : all }
 }
 
@@ -70,10 +72,14 @@ export default function CardGame() {
   const [course, setCourse] = useState<Course | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [muted, setMutedState] = useState(isMuted())
+  // Session-scoped answers, tagged by subtopic — feeds the end-of-game summary.
+  const [answers, setAnswers] = useState<AnsweredItem[]>([])
 
   const view = useCardGame({
     finishGame,
     recordAnswer,
+    onAnswered: (item: TaggedQuestion, correct: boolean) =>
+      setAnswers((a) => [...a, { subunitId: item.subunitId, subunitName: item.subunitName, correct }]),
     onCorrect: sfxPick,
     onWrong: sfxDeny,
     onWin: sfxWin,
@@ -232,6 +238,7 @@ export default function CardGame() {
         {showResults && view.result && (
           <Results
             view={view}
+            answers={answers}
             level={levelFromXp(player.xp).level}
             onAgain={() => view.actions.replay()}
             onPick={() => setScreen('build')}
@@ -249,7 +256,7 @@ export default function CardGame() {
 function ActionPanel({ view }: { view: Game }) {
   const { phase, actions } = view
   if (phase === 'question' && view.question) {
-    return <QuestionPanel q={view.question} color={ACCENT} onSubmit={actions.answer} label={view.questionLabel} surface="plain" />
+    return <QuestionPanel q={view.question.q} color={ACCENT} onSubmit={actions.answer} label={view.questionLabel} surface="plain" />
   }
   if (phase === 'color' && view.activeCard) {
     return (
@@ -341,8 +348,9 @@ function ColorPicker({ onPick }: { onPick: (c: Color) => void }) {
   )
 }
 
-function Results({ view, level, onAgain, onPick, onHome }: {
-  view: Game; level: number; onAgain: () => void; onPick: () => void; onHome: () => void
+function Results({ view, answers, level, onAgain, onPick, onHome }: {
+  view: Game; answers: readonly AnsweredItem[]; level: number
+  onAgain: () => void; onPick: () => void; onHome: () => void
 }) {
   const r = view.result!
   const won = r.placement === 1
@@ -370,6 +378,10 @@ function Results({ view, level, onAgain, onPick, onHome }: {
         {ranked.map((p) => (
           <Row key={p.name} place={p.place} you={p.you} label={p.you ? 'YOU' : p.name} count={p.count} />
         ))}
+      </div>
+
+      <div className="text-left max-w-sm mx-auto mb-6">
+        <SessionSummary summary={summarize(answers)} color={ACCENT} />
       </div>
 
       <div className="flex justify-center gap-3 mb-2">

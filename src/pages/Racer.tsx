@@ -15,6 +15,8 @@ import { type CircuitHandle } from '../components/Circuit'
 // Racer mount (below), so it's warm long before the lights go out.
 const CircuitGL = lazy(() => import('../components/CircuitGL'))
 import QuestionPanel from '../components/QuestionPanel'
+import SessionSummary from '../components/SessionSummary'
+import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
 import { isReducedMotion } from '../lib/motion'
 import { ArrowLeft, Volume, VolumeMute, Coin, Bolt, Replay } from '../icons'
@@ -97,7 +99,7 @@ export default function Racer() {
   const [stage, setStage] = useState<Stage>('countdown')
   const [lights, setLights] = useState<StartLights>({ kind: 'arming', lit: 0 })
   const [goFlash, setGoFlash] = useState(false)
-  const [q, setQ] = useState<Question | null>(null)
+  const [q, setQ] = useState<TaggedQuestion | null>(null)
   const [flash, setFlash] = useState<Flash | null>(null)
   const [result, setResult] = useState<RaceResult | null>(null)
   const [muted, setMutedState] = useState(isMuted())
@@ -105,8 +107,12 @@ export default function Racer() {
   // ----- simulation refs (authoritative; the rAF loop reads/writes these) -----
   const circuitRef = useRef<CircuitHandle>(null)
   const carsRef = useRef<Car[]>([])
-  const poolRef = useRef<Question[]>([])
+  const poolRef = useRef<TaggedQuestion[]>([])
   const poolIdxRef = useRef(0)
+  // The question on screen and the answers given, held in refs because the
+  // memoized answer handler would otherwise close over a stale question.
+  const qRef = useRef<TaggedQuestion | null>(null)
+  const answersRef = useRef<AnsweredItem[]>([])
   const rafRef = useRef(0)
   const startRef = useRef(0)
   const lastRef = useRef(0)
@@ -223,10 +229,11 @@ export default function Racer() {
 
   function startRace() {
     const subs = selectedSubs.filter((s) => s.questions.length > 0)
-    const pool = shuffle(subs.flatMap((s) => s.questions))
+    const pool = shuffle(taggedPool(subs))
     if (pool.length === 0) return
     poolRef.current = pool
     poolIdxRef.current = 1
+    answersRef.current = []
     const cars0 = buildCars(aggregateDifficulty(subs))
     carsRef.current = cars0
     setField(cars0)
@@ -242,11 +249,19 @@ export default function Racer() {
     setGoFlash(false)
     setTimeLeft(RACE_SECONDS)
     setFlash(null)
-    setQ({ ...pool[0] })
+    showQuestion(pool[0])
     setPh('race')
     startRef.current = performance.now()
     lastRef.current = startRef.current
     rafRef.current = requestAnimationFrame(frame)
+  }
+
+  // A fresh inner Question identity is what makes QuestionPanel clear its
+  // inputs, so the clone has to reach the question itself, not just the tag.
+  function showQuestion(picked: TaggedQuestion) {
+    const fresh: TaggedQuestion = { ...picked, q: { ...picked.q } }
+    qRef.current = fresh
+    setQ(fresh)
   }
 
   function nextQuestion() {
@@ -254,13 +269,15 @@ export default function Racer() {
     if (pool.length === 0) return
     const picked = pool[poolIdxRef.current % pool.length]
     poolIdxRef.current += 1
-    setQ({ ...picked }) // fresh identity → QuestionPanel resets its inputs
+    showQuestion(picked)
   }
 
   // Stable across renders so the memoized question card doesn't churn.
   const onAnswer = useCallback((correct: boolean) => {
     if (!runningRef.current) return
     recordAnswer(correct)
+    const asked = qRef.current
+    if (asked) answersRef.current.push({ subunitId: asked.subunitId, subunitName: asked.subunitName, correct })
     carsRef.current = carsRef.current.map((c) => (c.kind === 'player' ? { ...c, speed: applyAnswer(c.speed, correct) } : c))
     setCars(carsRef.current)
     if (correct) sfxPick(); else sfxDeny()
@@ -376,7 +393,7 @@ export default function Racer() {
                 </div>
               )}
               {stage === 'running' && q
-                ? <RaceQuestion q={q} color={ACCENT} onSubmit={onAnswer} surface="light" label="ANSWER TO ACCELERATE" />
+                ? <RaceQuestion q={q.q} color={ACCENT} onSubmit={onAnswer} surface="light" label="ANSWER TO ACCELERATE" />
                 : <div className="rounded-2xl bg-white p-6 text-center shadow-[0_10px_40px_-8px_rgba(0,0,0,0.65)] ring-1 ring-black/10">
                     <div className="font-black text-[13px] tracking-[0.2em]" style={{ color: '#b81d13' }}>
                       {stage === 'finish' ? 'CHEQUERED FLAG' : 'FORMATION LAP'}
@@ -393,6 +410,7 @@ export default function Racer() {
         {ph === 'results' && result && (
           <Results
             result={result}
+            answers={answersRef.current}
             level={levelFromXp(player.xp).level}
             onAgain={startRace}
             onPick={() => setPh('build')}
@@ -634,8 +652,9 @@ function StartGantry({ lights }: { lights: StartLights }) {
 }
 
 // ---- results ----
-function Results({ result, level, onAgain, onPick, onHome }: {
-  result: RaceResult; level: number; onAgain: () => void; onPick: () => void; onHome: () => void
+function Results({ result, answers, level, onAgain, onPick, onHome }: {
+  result: RaceResult; answers: readonly AnsweredItem[]; level: number
+  onAgain: () => void; onPick: () => void; onHome: () => void
 }) {
   const { place, ranked, rewards } = result
   const won = place === 1
@@ -669,6 +688,10 @@ function Results({ result, level, onAgain, onPick, onHome }: {
       </div>
       {rewards.best && <div className="inline-block font-bold text-[10px] tracking-[0.16em] px-2.5 py-1 rounded bg-neon-amber text-[#2a1a00] mb-2">NEW BEST</div>}
       <div className="text-xs text-white/50 mb-6">Level {level}</div>
+
+      <div className="text-left max-w-sm mx-auto mb-6">
+        <SessionSummary summary={summarize(answers)} color={ACCENT} />
+      </div>
 
       <div className="flex flex-wrap justify-center gap-3">
         <button onClick={onAgain} className="flex items-center gap-2 font-black text-[12px] tracking-[0.16em] px-5 py-3 rounded-lg"

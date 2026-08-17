@@ -13,7 +13,8 @@
 // with no playable card is FREE — it never routes through a question.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Difficulty, Question } from '../data/subjects'
+import type { Difficulty } from '../data/subjects'
+import type { TaggedQuestion } from '../lib/summary'
 import {
   createGame, legalPlays, requiredDifficulty, playCard, stackOrTake, drawToPlay, passTurn,
   aiChoose, aiSolves, aiCorrectRate, topCard, handCounts,
@@ -32,7 +33,7 @@ export interface CardGameConfig {
   playerCount: number
   difficulty: Difficulty // tunes the AI field's accuracy
   aiNames: string[] // length playerCount - 1
-  pools: { easy: Question[]; hard: Question[] } // both guaranteed non-empty
+  pools: { easy: TaggedQuestion[]; hard: TaggedQuestion[] } // both guaranteed non-empty
 }
 
 // What the human is CURRENTLY resolving. Wilds gain a `color` on the color-pick
@@ -66,7 +67,7 @@ export interface CardGameView {
   stackable: Card[] // cards that could answer a pending penalty ('penalty' phase)
   top: Card | null // the discard's top
   currentColor: Color | null // the active color (a wild may diverge from `top`)
-  question: Question | null // shown in 'question' phase
+  question: TaggedQuestion | null // shown in 'question' phase
   questionLabel: string // pixel heading for the question panel
   activeCard: Card | null // card being color-picked / drawn (for the overlay)
   pendingDraw: number // size of the penalty facing the human ('penalty' phase)
@@ -92,6 +93,10 @@ export interface CardGameActions {
 interface Hooks {
   finishGame: (gameKey: string, score: number) => { xp: number; coins: number; best: boolean }
   recordAnswer: (correct: boolean) => void
+  /** Every graded answer, with the subtopic it came from — feeds the
+   *  end-of-game summary. Separate from recordAnswer, which is the profile's
+   *  lifetime accuracy counter and takes no topic. */
+  onAnswered?: (item: TaggedQuestion, correct: boolean) => void
   onCorrect?: () => void
   onWrong?: () => void
   onWin?: () => void
@@ -99,7 +104,7 @@ interface Hooks {
 
 // A refillable, shuffled question queue per difficulty tier. Fresh objects on
 // each pull so QuestionPanel (keyed on identity) resets its inputs.
-interface Pool { list: Question[]; idx: number }
+interface Pool { list: TaggedQuestion[]; idx: number }
 function shuffled<T>(items: readonly T[]): T[] {
   const a = [...items]
   for (let i = a.length - 1; i > 0; i--) {
@@ -108,16 +113,20 @@ function shuffled<T>(items: readonly T[]): T[] {
   }
   return a
 }
-function pull(pool: Pool): Question {
-  if (pool.list.length === 0) return { prompt: '—' } // guarded: configs always ship non-empty pools
+function pull(pool: Pool): TaggedQuestion {
+  // guarded: configs always ship non-empty pools
+  if (pool.list.length === 0) return { q: { prompt: '—' }, subunitId: '', subunitName: '' }
   if (pool.idx >= pool.list.length) { pool.list = shuffled(pool.list); pool.idx = 0 }
-  return { ...pool.list[pool.idx++] }
+  const item = pool.list[pool.idx++]
+  // The fresh identity has to reach the question itself — QuestionPanel keys
+  // its input reset on that object, not on the tag around it.
+  return { ...item, q: { ...item.q } }
 }
 
 export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameActions } {
   const [phase, setPhase] = useState<CardPhase>('idle')
   const [state, setStateRaw] = useState<GameState | null>(null)
-  const [question, setQuestion] = useState<Question | null>(null)
+  const [question, setQuestion] = useState<TaggedQuestion | null>(null)
   const [questionLabel, setQuestionLabel] = useState('SOLVE TO PLAY')
   const [act, setAct] = useState<HumanAct | null>(null)
   const [drawnCard, setDrawnCard] = useState<Card | null>(null)
@@ -136,7 +145,7 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
 
   const setGame = useCallback((s: GameState) => { stateRef.current = s; setStateRaw(s) }, [])
 
-  const pullFor = useCallback((tier: 'easy' | 'hard'): Question => {
+  const pullFor = useCallback((tier: 'easy' | 'hard'): TaggedQuestion => {
     return pull(tier === 'hard' ? hardRef.current : easyRef.current)
   }, [])
 
@@ -303,6 +312,7 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
     const s = stateRef.current
     if (!s) return
     hooksRef.current.recordAnswer(correct)
+    if (question) hooksRef.current.onAnswered?.(question, correct)
     if (correct) hooksRef.current.onCorrect?.(); else hooksRef.current.onWrong?.()
 
     if (act.kind === 'play') {
@@ -318,7 +328,8 @@ export function useCardGame(hooks: Hooks): CardGameView & { actions: CardGameAct
     settle(res.state, correct
       ? `You stack ${describeCard(act.card, act.color)}`
       : `Wrong — you take +${owed}`)
-  }, [phase, act, settle])
+    // `question` is read above to tag the answer, so it belongs in the deps.
+  }, [phase, act, question, settle])
 
   // The drawn card was free; PLAYING it is a normal gated play — route to a
   // question (the 'drawn' overlay supplies a wild's color before calling this).

@@ -8,6 +8,8 @@ import {
 } from '../lib/ascend'
 import AscendBoard3D, { type BoardMove } from '../components/AscendBoard3D'
 import QuestionPanel from '../components/QuestionPanel'
+import SessionSummary from '../components/SessionSummary'
+import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
 import { usePlayer, resolveCourseId } from '../lib/player'
 import { isReducedMotion } from '../lib/motion'
 import { SEAT_TINTS } from '../components/Character3D'
@@ -23,10 +25,10 @@ const subKey = (unitId: string, subId: string) => `${unitId}/${subId}`
 
 // Safety net only: if a selection somehow yields zero questions, the race draws
 // from the bundled first course rather than crashing mid-climb.
-const FALLBACK_POOL: readonly Question[] =
-  COURSES[0].units.flatMap((u) => u.subunits.flatMap((s) => s.questions))
+const FALLBACK_POOL: readonly TaggedQuestion[] =
+  COURSES[0].units.flatMap((u) => taggedPool(u.subunits))
 
-const draw = (pool: readonly Question[]): Question => pool[Math.floor(Math.random() * pool.length)]
+const draw = (pool: readonly TaggedQuestion[]): TaggedQuestion => pool[Math.floor(Math.random() * pool.length)]
 
 /** Combined reduced-motion preference: OS setting OR the in-app toggle. */
 function prefersReducedMotion(): boolean {
@@ -52,12 +54,14 @@ export default function Ascend() {
   const [courseId, setCourseId] = useState<string | null>(null)
   const [course, setCourse] = useState<Course | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [pool, setPool] = useState<readonly Question[]>(FALLBACK_POOL)
+  const [pool, setPool] = useState<readonly TaggedQuestion[]>(FALLBACK_POOL)
+  // Session-scoped, tagged by subtopic — feeds the end-of-race summary.
+  const [answers, setAnswers] = useState<AnsweredItem[]>([])
 
   const [positions, setPositions] = useState<number[]>(() => RACERS.map(() => START_SQUARE))
   const [turn, setTurn] = useState(0)
   const [phase, setPhase] = useState<Phase>('question')
-  const [q, setQ] = useState<Question>(() => draw(FALLBACK_POOL))
+  const [q, setQ] = useState<TaggedQuestion>(() => draw(FALLBACK_POOL))
   const [move, setMove] = useState<BoardMove | null>(null)
   const [lastRoll, setLastRoll] = useState<{ racer: number; value: number } | null>(null)
   const [correct, setCorrect] = useState(0)
@@ -91,8 +95,9 @@ export default function Ascend() {
   }
 
   // Reset every piece of race state and open on your first question.
-  function startRace(nextPool: readonly Question[]) {
+  function startRace(nextPool: readonly TaggedQuestion[]) {
     setPool(nextPool)
+    setAnswers([])
     setPositions(RACERS.map(() => START_SQUARE))
     setTurn(0)
     setQ(draw(nextPool))
@@ -107,7 +112,7 @@ export default function Ascend() {
 
   function start() {
     if (!canStart) return
-    const qs = selectedSubs.flatMap((s) => s.questions)
+    const qs = taggedPool(selectedSubs)
     startRace(qs.length > 0 ? qs : FALLBACK_POOL)
     setScreen('play')
   }
@@ -130,6 +135,7 @@ export default function Ascend() {
   function onAnswer(ok: boolean) {
     if (phase !== 'question') return
     recordAnswer(ok)
+    setAnswers((a) => [...a, { subunitId: q.subunitId, subunitName: q.subunitName, correct: ok }])
     if (ok) {
       setCorrect((c) => c + 1)
       correctRef.current += 1
@@ -303,7 +309,7 @@ export default function Ascend() {
         </div>
 
         {phase === 'question' && (
-          <QuestionPanel q={q} color={ACCENT} onSubmit={onAnswer} label="SOLVE TO EARN YOUR ROLL" />
+          <QuestionPanel q={q.q} color={ACCENT} onSubmit={onAnswer} label="SOLVE TO EARN YOUR ROLL" />
         )}
         {(phase === 'moving' || phase === 'ai-think') && (
           <p className="text-center text-sm text-white/65">
@@ -324,6 +330,9 @@ export default function Ascend() {
               {' '}({correct} × {POINTS_PER_CORRECT} + {PLACEMENT_BONUS[reward.place - 1] ?? 0} place bonus)
               {' '}· +{reward.xp} XP · +{reward.coins} coins{reward.best ? ' · NEW BEST' : ''}
             </p>
+            <div className="text-left mb-6">
+              <SessionSummary summary={summarize(answers)} color={ACCENT} />
+            </div>
             <div className="flex flex-wrap justify-center gap-3">
               <button onClick={() => startRace(pool)}
                 className="arcade-btn font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={ACCENT_BTN}>

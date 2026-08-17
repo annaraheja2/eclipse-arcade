@@ -10,6 +10,8 @@ import BattleGrid, { type Shots } from '../components/BattleGrid'
 import FleetPlacement from '../components/FleetPlacement'
 import FleetPips from '../components/FleetPips'
 import QuestionPanel from '../components/QuestionPanel'
+import SessionSummary from '../components/SessionSummary'
+import { summarize, type AnsweredItem } from '../lib/summary'
 import VerifyEmailNotice from '../components/VerifyEmailNotice'
 import { usePlayer, resolveCourseId } from '../lib/player'
 import { useAuth } from '../lib/auth'
@@ -61,6 +63,9 @@ export default function Battleship() {
   const [course, setCourse] = useState<Course | null>(null)
   const [unit, setUnit] = useState<Unit | null>(null)
   const [sub, setSub] = useState<Subunit | null>(null)
+  // Session-scoped answers for the end-of-battle summary. A vs-AI battle draws
+  // from ONE subtopic, so the tag is just the picked subunit.
+  const [answers, setAnswers] = useState<AnsweredItem[]>([])
 
   useEffect(() => {
     if (!aiCourseId) return
@@ -199,12 +204,14 @@ export default function Battleship() {
 
   function startBattle() {
     if (!sub) return
+    setAnswers([])
     setBattle({ enemy: randomFleet(), placed, pShots: {}, eShots: {}, phase: 'q', q: randomQ(sub), msg: '', busy: false })
     setPh('battle')
   }
 
   function onAnswer(correct: boolean) {
     recordAnswer(correct) // feeds the profile's Question accuracy stat
+    if (sub) setAnswers((a) => [...a, { subunitId: sub.id, subunitName: sub.name, correct }])
     setBattle((b) => b && { ...b, phase: correct ? 'aim' : b.phase, busy: !correct, msg: correct ? 'Correct! Take your shot.' : 'Wrong! Enemy returns fire…' })
     if (!correct) aiTurn()
   }
@@ -478,6 +485,9 @@ export default function Battleship() {
               {winner === 'you' ? 'VICTORY!' : 'DEFEATED'}
             </div>
             <p className="text-white/50 mb-6">{winner === 'you' ? 'You sank the enemy fleet.' : 'Your fleet was sunk.'}</p>
+            <div className="text-left max-w-sm mx-auto mb-6">
+              <SessionSummary summary={summarize(answers)} color={CY} />
+            </div>
             <div className="flex justify-center gap-3">
               <button onClick={() => { setPlaced(randomFleet()); setBattle(null); setWinner(null); setRewarded(false); setPh('place') }}
                 className="arcade-btn font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={CY_BTN}>PLAY AGAIN</button>

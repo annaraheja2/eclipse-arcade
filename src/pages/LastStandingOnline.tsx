@@ -35,6 +35,8 @@ import {
 } from '../lib/laststanding'
 import LastStandingTable3D from '../components/LastStandingTable3D'
 import QuestionPanel from '../components/QuestionPanel'
+import SessionSummary from '../components/SessionSummary'
+import { summarize, type AnsweredItem } from '../lib/summary'
 import { isReducedMotion } from '../lib/motion'
 import { ArrowLeft, Crown, Coin, Bolt, Star, Users } from '../icons'
 import { sfxPick, sfxDeny, sfxWin } from '../lib/sound'
@@ -113,6 +115,10 @@ export default function LastStandingOnline() {
     return unit?.subunits.find((s) => s.id === room.sel.subunitId) ?? null
   }, [course, room])
 
+  // Session-scoped answers for the end-of-table summary. A ref, because the
+  // answer callback is memoized and must not churn on every answer.
+  const answersRef = useRef<AnsweredItem[]>([])
+
   const pool = subunit?.questions ?? []
   const question: Question = pool.length > 0
     ? pool[questionIndexFor(room?.seed ?? 0, room?.tick ?? 0, pool.length)]
@@ -152,6 +158,8 @@ export default function LastStandingOnline() {
   // ---- my own turn: answering, and running my own clock out ----------------
   const answer = useCallback((correct: boolean) => {
     if (!room || !isMyTurn(room, uid)) return
+    // An online table runs on ONE subtopic, so the tag is just that subunit.
+    if (subunit) answersRef.current.push({ subunitId: subunit.id, subunitName: subunit.name, correct })
     if (correct) sfxPick(); else sfxDeny()
     void commit(applyAnswer(room.state, correct), room.tick)
   }, [room, uid, commit])
@@ -229,7 +237,7 @@ export default function LastStandingOnline() {
 
       {room.state.phase.kind === 'champion' && (
         <Champion
-          room={room} state={displayState ?? room.state} mySeat={mySeat} result={result} level={levelFromXp(player.xp).level}
+          room={room} state={displayState ?? room.state} mySeat={mySeat} result={result} answers={answersRef.current} level={levelFromXp(player.xp).level}
           iAmHost={iAmHost}
           onClose={async () => { if (iAmHost) await deleteRoom(room.id); navigate('/laststanding') }}
         />
@@ -437,9 +445,10 @@ function Table({ room, uid, mySeat, question, secondsLeft, state, onAnswer, onBa
 
 // ---- game over --------------------------------------------------------------
 
-function Champion({ room, state, mySeat, result, level, iAmHost, onClose }: {
+function Champion({ room, state, mySeat, result, answers, level, iAmHost, onClose }: {
   room: LsRoom; state: LsRoom['state']; mySeat: number
   result: { placement: number; score: number; rewards: { coins: number; xp: number; best?: boolean } } | null
+  answers: readonly AnsweredItem[]
   level: number; iAmHost: boolean; onClose: () => void
 }) {
   const phase = state.phase
@@ -461,6 +470,9 @@ function Champion({ room, state, mySeat, result, level, iAmHost, onClose }: {
           <div className="text-xs text-white/50 mb-6">Level {level}</div>
         </>
       )}
+      <div className="text-left max-w-sm mx-auto mb-6">
+        <SessionSummary summary={summarize(answers)} color={ACCENT} />
+      </div>
       <button onClick={onClose} className="font-sans font-bold text-sm px-6 py-3 rounded-lg text-white" style={{ background: ACCENT }}>
         {iAmHost ? 'Close the table' : 'Back to Last Standing'}
       </button>

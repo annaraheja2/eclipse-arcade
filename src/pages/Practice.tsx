@@ -9,8 +9,10 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import { useNavigate } from 'react-router-dom'
 import { COURSE_LIST, type Course, type Difficulty, type Subunit, type Unit } from '../data/subjects'
 import { loadCourse } from '../lib/content'
-import { poolFor, unitQuestionCount, startQueue, advance, current, answerText, type Queue } from '../lib/practice'
+import { poolFor, unitQuestionCount, startQueue, advance, current, answerText, type Queue, type PracticeItem } from '../lib/practice'
+import { summarize, type AnsweredItem } from '../lib/summary'
 import QuestionPanel from '../components/QuestionPanel'
+import SessionSummary from '../components/SessionSummary'
 import { usePlayer, resolveCourseId, accuracy } from '../lib/player'
 import { ArrowLeft, Book } from '../icons'
 
@@ -24,8 +26,8 @@ const MISS = '#ff9dbd'
 type BtnVars = CSSProperties & { '--btn': string; '--edge': string; '--glow': string }
 const BTN: BtnVars = { '--btn': ACCENT, '--edge': `color-mix(in srgb, ${ACCENT} 50%, #000)`, '--glow': `${ACCENT}88` }
 
-// course -> unit -> subtopics -> the questions themselves.
-type Screen = 'course' | 'unit' | 'topics' | 'practice'
+// course -> unit -> subtopics -> the questions themselves -> how it went.
+type Screen = 'course' | 'unit' | 'topics' | 'practice' | 'summary'
 
 export default function Practice() {
   const navigate = useNavigate()
@@ -38,12 +40,15 @@ export default function Practice() {
   const [unitId, setUnitId] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  const [queue, setQueue] = useState<Queue | null>(null)
+  const [queue, setQueue] = useState<Queue<PracticeItem> | null>(null)
   const [result, setResult] = useState<boolean | null>(null)
   const [graded, setGraded] = useState(false) // only the first try at a question counts
   const [attempt, setAttempt] = useState(0)   // bumped to remount QuestionPanel (clears its inputs)
   const [asked, setAsked] = useState(0)
   const [right, setRight] = useState(0)
+  // First-try answers, tagged with their subtopic — the end-of-session summary
+  // groups by these. Session-scoped: never persisted.
+  const [answers, setAnswers] = useState<AnsweredItem[]>([])
 
   // loadCourse always resolves — it falls back to the bundled course.
   useEffect(() => {
@@ -62,7 +67,8 @@ export default function Practice() {
     () => (course && unitId ? poolFor(course, unitId, selected) : []),
     [course, unitId, selected],
   )
-  const q = queue ? current(queue) : undefined
+  const item = queue ? current(queue) : undefined
+  const q = item?.q
 
   function toggle(subId: string) {
     setSelected((prev) => {
@@ -81,6 +87,7 @@ export default function Practice() {
     setAttempt((a) => a + 1)
     setAsked(0)
     setRight(0)
+    setAnswers([])
     setScreen('practice')
   }
 
@@ -90,6 +97,7 @@ export default function Practice() {
       setGraded(true)
       setAsked((n) => n + 1)
       if (ok) setRight((n) => n + 1)
+      if (item) setAnswers((a) => [...a, { subunitId: item.subunitId, subunitName: item.subunitName, correct: ok }])
     }
     setResult(ok)
   }
@@ -111,6 +119,9 @@ export default function Practice() {
     if (screen === 'course') { navigate('/'); return }
     if (screen === 'unit') { setScreen('course'); return }
     if (screen === 'topics') { setUnitId(null); setScreen('unit'); return }
+    // Leaving a session mid-way still earns the summary — it's the point of
+    // having practised, not a reward for reaching some end.
+    if (screen === 'practice') { setScreen(answers.length > 0 ? 'summary' : 'topics'); return }
     setScreen('topics')
   }
 
@@ -264,7 +275,11 @@ export default function Practice() {
               </div>
             )}
 
-            <div className="mt-6 flex justify-center gap-3">
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button onClick={() => setScreen('summary')} disabled={answers.length === 0}
+                className="font-sans text-xs font-semibold px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 enabled:hover:bg-white/10 disabled:opacity-40">
+                Finish &amp; see how you did
+              </button>
               <button onClick={() => setScreen('topics')}
                 className="font-sans text-xs font-semibold px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">
                 Change subtopics
@@ -272,6 +287,29 @@ export default function Practice() {
               <button onClick={() => navigate('/')}
                 className="font-sans text-xs font-semibold px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">
                 Back to arcade
+              </button>
+            </div>
+          </div>
+        )}
+
+        {screen === 'summary' && course && unit && (
+          <div>
+            <div className="text-center mb-4">
+              <p className="font-sans text-xs text-white/55">{course.name} · {unit.name}</p>
+            </div>
+            <SessionSummary summary={summarize(answers)} color={ACCENT} />
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button onClick={start}
+                className="arcade-btn font-pixel text-[11px] px-5 py-3 rounded-lg text-[#0a0620]" style={BTN}>
+                PRACTICE AGAIN
+              </button>
+              <button onClick={() => setScreen('topics')}
+                className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">
+                NEW TOPICS
+              </button>
+              <button onClick={() => navigate('/')}
+                className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">
+                ARCADE
               </button>
             </div>
           </div>

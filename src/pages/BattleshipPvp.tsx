@@ -13,6 +13,8 @@ import BattleGrid from '../components/BattleGrid'
 import FleetPlacement from '../components/FleetPlacement'
 import FleetPips from '../components/FleetPips'
 import QuestionPanel from '../components/QuestionPanel'
+import SessionSummary from '../components/SessionSummary'
+import { summarize, type AnsweredItem } from '../lib/summary'
 import { usePlayer } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
@@ -79,6 +81,9 @@ export default function BattleshipPvp() {
   const [placed, setPlaced] = useState<Ship[]>([])
   const [qPhase, setQPhase] = useState<'q' | 'aim'>('q')
   const [question, setQuestion] = useState<Question | null>(null)
+  // Session-scoped answers for the end-of-match summary. A PvP match is agreed
+  // on ONE subtopic, so the tag is just the match's subunit.
+  const [answers, setAnswers] = useState<AnsweredItem[]>([])
 
   // ----- subscriptions (all detached on unmount) -----
   useEffect(() => {
@@ -266,6 +271,7 @@ export default function BattleshipPvp() {
   function onAnswer(correct: boolean) {
     if (!match || !oppUid || !myTurn) return
     recordAnswer(correct) // feeds the profile's Question accuracy stat
+    if (sub) setAnswers((a) => [...a, { subunitId: sub.id, subunitName: sub.name, correct }])
     if (correct) { setQPhase('aim'); setMsg('Correct! Take your shot.'); return }
     setMsg('Wrong — the turn passes to the enemy.')
     void run(() => passTurn(match.id, oppUid), 'Could not pass the turn — check your connection.')
@@ -466,6 +472,9 @@ export default function BattleshipPvp() {
           {won ? 'VICTORY!' : 'DEFEATED'}
         </div>
         <p className="text-white/50 mb-6">{detail}</p>
+        <div className="text-left max-w-sm mx-auto mb-6">
+          <SessionSummary summary={summarize(answers)} color={CY} />
+        </div>
         <div className="flex justify-center gap-3">
           <BackToBattleship />
           <button onClick={() => navigate('/')} className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">ARCADE</button>

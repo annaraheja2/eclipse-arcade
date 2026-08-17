@@ -21,6 +21,8 @@ import { useUsernames } from '../lib/useUsernames'
 import { createRoom, subscribeMyRooms, roomsAvailable, type LsRoom } from '../lib/lsroom'
 import LastStandingTable3D from '../components/LastStandingTable3D'
 import QuestionPanel from '../components/QuestionPanel'
+import SessionSummary from '../components/SessionSummary'
+import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
 import { isReducedMotion } from '../lib/motion'
 import { ArrowLeft, Volume, VolumeMute, Coin, Bolt, Replay, Star, Crown } from '../icons'
 import { sfxPick, sfxDeny, sfxWin, setMuted, isMuted } from '../lib/sound'
@@ -82,11 +84,13 @@ export default function LastStanding() {
   const myHandles = useUsernames(user ? [user.uid] : [])
 
   const [game, setGame] = useState<LsState | null>(null)
-  const [question, setQuestion] = useState<Question | null>(null)
+  const [question, setQuestion] = useState<TaggedQuestion | null>(null)
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
   const [log, setLog] = useState('')
   const [result, setResult] = useState<GameResult | null>(null)
-  const poolRef = useRef<Question[]>([])
+  const poolRef = useRef<TaggedQuestion[]>([])
+  // Session-scoped answers, tagged by subtopic — feeds the end-of-game summary.
+  const answersRef = useRef<AnsweredItem[]>([])
   const difficultyRef = useRef<Difficulty>('medium')
   const finishedRef = useRef(false)
 
@@ -141,7 +145,8 @@ export default function LastStanding() {
   }
 
   function begin() {
-    poolRef.current = selectedSubs.flatMap((s) => s.questions)
+    poolRef.current = taggedPool(selectedSubs)
+    answersRef.current = []
     difficultyRef.current = aggregateDifficulty(selectedSubs)
     finishedRef.current = false
     setResult(null)
@@ -245,6 +250,7 @@ export default function LastStanding() {
   function answer(correct: boolean) {
     if (!game || !humanTurn) return
     recordAnswer(correct) // the sanctioned answer path — timeouts never count
+    if (question) answersRef.current.push({ subunitId: question.subunitId, subunitName: question.subunitName, correct })
     if (correct) sfxPick(); else sfxDeny()
     const next = applyAnswer(game, correct)
     setLog(describeOutcome(game, next, correct, correct ? 'Correct' : 'Wrong'))
@@ -420,7 +426,7 @@ export default function LastStanding() {
 
             <div className="mt-4">
               {humanTurn && question && (
-                <QuestionPanel q={question} color={ACCENT} onSubmit={answer} label="ANSWER BEFORE THE CLOCK RUNS OUT" surface="plain" />
+                <QuestionPanel q={question.q} color={ACCENT} onSubmit={answer} label="ANSWER BEFORE THE CLOCK RUNS OUT" surface="plain" />
               )}
               {humanTurn && !question && (
                 <Panel><p className="text-center text-sm text-white/70">No questions in your topics — pick different topics.</p></Panel>
@@ -459,7 +465,7 @@ export default function LastStanding() {
         )}
 
         {screen === 'play' && game && gameOver && result && (
-          <Results game={game} result={result} level={levelFromXp(player.xp).level}
+          <Results game={game} result={result} answers={answersRef.current} level={levelFromXp(player.xp).level}
             onAgain={begin} onPick={() => { setGame(null); setScreen('build') }} onHome={() => navigate('/')} />
         )}
       </div>
@@ -485,8 +491,8 @@ function describeOutcome(before: LsState, after: LsState, correct: boolean, lead
   return line
 }
 
-function Results({ game, result, level, onAgain, onPick, onHome }: {
-  game: LsState; result: GameResult; level: number
+function Results({ game, result, answers, level, onAgain, onPick, onHome }: {
+  game: LsState; result: GameResult; answers: readonly AnsweredItem[]; level: number
   onAgain: () => void; onPick: () => void; onHome: () => void
 }) {
   const won = result.placement === 1
@@ -508,6 +514,10 @@ function Results({ game, result, level, onAgain, onPick, onHome }: {
       </div>
       {result.rewards.best && <div className="inline-flex items-center gap-1 font-sans font-bold text-[11px] tracking-wide px-2.5 py-1 rounded bg-neon-amber text-[#2a1a00] mb-2"><Star width={12} height={12} /> NEW BEST</div>}
       <div className="text-xs text-white/50 mb-6">Level {level}</div>
+
+      <div className="text-left max-w-sm mx-auto mb-6">
+        <SessionSummary summary={summarize(answers)} color={ACCENT} />
+      </div>
 
       <div className="flex flex-wrap justify-center gap-3">
         <button onClick={onAgain} className="flex items-center gap-2 font-sans font-bold text-sm px-5 py-3 rounded-lg text-white" style={{ background: ACCENT }}>

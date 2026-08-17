@@ -8,12 +8,17 @@
 //
 // Pure helpers only — pages/Practice.tsx owns the React state and the fetch.
 import type { Course, Question, Unit } from '../data/subjects'
+import { taggedPool, type TaggedQuestion } from './summary'
+
+/** What the practice queue holds: a question plus the subtopic it came from,
+ *  so the end-of-session summary can say WHICH topic went badly. */
+export type PracticeItem = TaggedQuestion
 
 /** Questions authored under `unitId` for the selected subtopics, in curriculum order. */
-export function poolFor(course: Course, unitId: string, subunitIds: ReadonlySet<string>): Question[] {
+export function poolFor(course: Course, unitId: string, subunitIds: ReadonlySet<string>): PracticeItem[] {
   const unit = course.units.find((u) => u.id === unitId)
   if (!unit) return []
-  return unit.subunits.filter((s) => subunitIds.has(s.id)).flatMap((s) => s.questions)
+  return taggedPool(unit.subunits.filter((s) => subunitIds.has(s.id)))
 }
 
 /** Total authored questions in a unit. 0 means it's still an outline placeholder. */
@@ -36,14 +41,14 @@ export function shuffle<T>(items: readonly T[], rng: () => number): T[] {
  * wrap rather than drawing at random each time, so a player sees every question
  * once before any of them comes back.
  */
-export interface Queue { questions: readonly Question[]; index: number }
+export interface Queue<T> { items: readonly T[]; index: number }
 
-export function startQueue(pool: readonly Question[], rng: () => number): Queue {
-  return { questions: shuffle(pool, rng), index: 0 }
+export function startQueue<T>(pool: readonly T[], rng: () => number): Queue<T> {
+  return { items: shuffle(pool, rng), index: 0 }
 }
 
-export function current(q: Queue): Question | undefined {
-  return q.questions[q.index]
+export function current<T>(q: Queue<T>): T | undefined {
+  return q.items[q.index]
 }
 
 /**
@@ -51,14 +56,14 @@ export function current(q: Queue): Question | undefined {
  * pass never opens on the question just answered (it would read as a bug), so
  * the head is swapped away when the shuffle lands there.
  */
-export function advance(q: Queue, rng: () => number): Queue {
-  if (q.index + 1 < q.questions.length) return { ...q, index: q.index + 1 }
-  const last = q.questions[q.index]
-  const questions = shuffle(q.questions, rng)
-  if (questions.length > 1 && questions[0] === last) {
-    ;[questions[0], questions[1]] = [questions[1], questions[0]]
+export function advance<T>(q: Queue<T>, rng: () => number): Queue<T> {
+  if (q.index + 1 < q.items.length) return { ...q, index: q.index + 1 }
+  const last = q.items[q.index]
+  const items = shuffle(q.items, rng)
+  if (items.length > 1 && items[0] === last) {
+    ;[items[0], items[1]] = [items[1], items[0]]
   }
-  return { questions, index: 0 }
+  return { items, index: 0 }
 }
 
 /**
