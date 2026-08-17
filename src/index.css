@@ -768,3 +768,57 @@ body::after {
   75% { transform: translate(2px, -1px); }
 }
 .board-shake { animation: boardThud 0.32s cubic-bezier(0.36,0.07,0.19,0.97) 0.3s; }
+
+/* ---------------------------------------------------------------------------
+   Invite pop-up — a friend's invitation, wherever you are in the arcade.
+   Fixed to the top so it finds you mid-game; sized to roughly a tenth of the
+   viewport, which is enough to read at a glance and small enough to ignore.
+   --------------------------------------------------------------------------- */
+.invite-toast {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 60; /* over the lobby HUD (z-20) and any board chrome */
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 0.75rem 0;
+  pointer-events: none; /* only the card itself is clickable */
+}
+.invite-card {
+  pointer-events: auto;
+  width: min(30rem, 100%);
+  min-height: 4.5rem; /* ~1/10 of a laptop viewport, and it grows with content */
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: 14px;
+  border: 1px solid rgba(61, 245, 255, 0.35);
+  background: linear-gradient(180deg, rgba(28, 16, 62, 0.98), rgba(14, 8, 34, 0.98));
+  box-shadow: 0 12px 34px -10px rgba(0, 0, 0, 0.85), 0 0 22px -6px rgba(61, 245, 255, 0.45);
+  backdrop-filter: blur(8px);
+  animation: inviteIn 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@keyframes inviteIn {
+  from { transform: translateY(-120%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.invite-btn {
+  display: grid;
+  place-items: center;
+  width: 2.75rem; height: 2.75rem; /* comfortable tap target */
+  border-radius: 11px;
+  border: 1px solid transparent;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.invite-btn:active { transform: scale(0.93); }
+.invite-btn:disabled { opacity: 0.5; }
+.invite-btn:focus-visible { outline: 2px solid #3df5ff; outline-offset: 2px; }
+/* Dark ink on a bright fill: both marks clear AA on their own button. */
+.invite-yes { background: #3dffa2; color: #04331d; }
+.invite-yes:hover:not(:disabled) { background: #6bffbb; }
+.invite-no { background: rgba(255, 255, 255, 0.08); color: #ff9dbd; border-color: rgba(255, 255, 255, 0.16); }
+.invite-no:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-card { animation: none; }
+}

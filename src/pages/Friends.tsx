@@ -13,6 +13,7 @@ import {
   acceptInvite, deleteInviteMatch,
   type FriendRequest, type Friendship, type Match,
 } from '../lib/social'
+import { fromMatch, isExpired, msLeft, formatLeft } from '../lib/invites'
 import { displayNameFor } from '../lib/username'
 import { useUsernames } from '../lib/useUsernames'
 import { ArrowLeft } from '../icons'
@@ -88,7 +89,19 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
     return () => { u1(); u2(); u3() }
   }, [uid, email])
 
-  const incomingInvites = (matches ?? []).filter((m) => m.status === 'invite' && m.players[0] !== uid)
+  // Ticks so an invite's countdown runs down and it drops off on its own.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  // An invite keeps its place here for the full three minutes — that's the
+  // point of the list, for someone who was mid-game when the pop-up appeared.
+  const incomingInvites = (matches ?? []).filter((m) => {
+    const invite = fromMatch(m, uid)
+    return invite !== null && !isExpired(invite, now)
+  })
   const liveMatches = (matches ?? []).filter((m) => m.status === 'placing' || m.status === 'active')
 
   // Reverse-lookup handles for everyone shown, so people appear by username
@@ -103,7 +116,7 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
     <div className="space-y-10">
       {feedError && <p role="alert" className="text-center text-sm text-[#ff9dbd]">{feedError}</p>}
       {(incomingInvites.length > 0 || liveMatches.length > 0) && (
-        <MatchesSection uid={uid} invites={incomingInvites} live={liveMatches} usernames={usernames} navigate={navigate} />
+        <MatchesSection uid={uid} invites={incomingInvites} live={liveMatches} usernames={usernames} navigate={navigate} now={now} />
       )}
       <AddFriend uid={uid} email={email} friends={friends ?? []} />
       <RequestsSection uid={uid} requests={requests} usernames={usernames} />
@@ -114,8 +127,9 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
 
 // ----- battleship invites + in-progress matches -----
 
-function MatchesSection({ uid, invites, live, usernames, navigate }: {
-  uid: string; invites: Match[]; live: Match[]; usernames: Record<string, string>; navigate: (to: string) => void
+function MatchesSection({ uid, invites, live, usernames, navigate, now }: {
+  uid: string; invites: Match[]; live: Match[]; usernames: Record<string, string>
+  navigate: (to: string) => void; now: number
 }) {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -138,8 +152,13 @@ function MatchesSection({ uid, invites, live, usernames, navigate }: {
       <ul className="grid gap-3">
         {invites.map((m) => (
           <li key={m.id} className="flex items-center justify-between gap-3 rounded-xl border border-neon-magenta/40 bg-neon-magenta/10 p-4">
-            <span className="text-sm text-white/90 truncate">
-              <span className="font-semibold">{displayNameFor(usernames[m.players[0]], m.emails[m.players[0]])}</span> challenges you to Battleship
+            <span className="min-w-0 text-sm text-white/90">
+              <span className="block truncate">
+                <span className="font-semibold">{displayNameFor(usernames[m.players[0]], m.emails[m.players[0]])}</span> challenges you to Battleship
+              </span>
+              <span className="block text-xs text-white/50 tabular-nums mt-0.5">
+                Expires in {formatLeft(msLeft(fromMatch(m, uid)!, now))}
+              </span>
             </span>
             <span className="flex gap-2 shrink-0">
               <button

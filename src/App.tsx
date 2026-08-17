@@ -12,10 +12,15 @@ import Friends from './pages/Friends'
 import Practice from './pages/Practice'
 import Admin from './pages/Admin'
 import Settings from './pages/Settings'
+import InviteToast from './components/InviteToast'
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      {/* Mounted outside the routes so an invite reaches you mid-game, not only
+          on the Friends page. */}
+      <InviteToast />
+      <Routes>
       <Route path="/" element={<Lobby />} />
       <Route path="/battleship" element={<Battleship />} />
       <Route path="/battleship/pvp/:matchId" element={<BattleshipPvp />} />
@@ -28,7 +33,8 @@ export default function App() {
       <Route path="/practice" element={<Practice />} />
       <Route path="/play/:gameKey" element={<Game />} />
       <Route path="/admin" element={<Admin />} />
-      <Route path="/settings" element={<Settings />} />
-    </Routes>
+        <Route path="/settings" element={<Settings />} />
+      </Routes>
+    </>
   )
 }
