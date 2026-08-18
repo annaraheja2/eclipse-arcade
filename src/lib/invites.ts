@@ -11,9 +11,10 @@
 // components/InviteToast.tsx owns the React side.
 import type { Match } from './social'
 import type { LsRoom } from './lsroom'
+import type { GameRoom, GameKind } from './gameroom'
 
 /** Which game the invite is for. Adding a game means adding a case here. */
-export type InviteKind = 'battleship' | 'laststanding'
+export type InviteKind = 'battleship' | 'laststanding' | GameKind
 
 export interface GameInvite {
   /** The match or room id — unique per invite, so it doubles as the React key. */
@@ -101,13 +102,43 @@ export function fromRoom(room: LsRoom, myUid: string): GameInvite | null {
   }
 }
 
-/** Both sources, normalised and filtered to what's still joinable. */
+/** How each shared table presents itself in the pop-up. */
+const GAME_LABEL: Record<GameKind, string> = {
+  ascend: 'Ascend',
+  cardgame: 'Card Game',
+}
+
+/**
+ * A shared table invite (Ascend, the Card Game), or null when I'm not on its
+ * invite list. Dated the same way as a Last Standing room, and for the same
+ * reason: `invited` is a bare array with no per-invite stamp, so a filling
+ * lobby's `updatedAt` is the closest read on when the invite went out.
+ */
+export function fromGameRoom(room: GameRoom, myUid: string): GameInvite | null {
+  if (room.status !== 'lobby') return null
+  if (!room.invited.includes(myUid)) return null
+  return {
+    id: room.id,
+    kind: room.game,
+    gameName: GAME_LABEL[room.game],
+    fromUid: room.host,
+    invitedAtMs: room.updatedAtMs || room.createdAtMs,
+    route: `/${room.game}/room/${room.id}`,
+  }
+}
+
+/** Every source, normalised and filtered to what's still joinable. */
 export function collectInvites(
-  matches: readonly Match[], rooms: readonly LsRoom[], myUid: string, nowMs: number,
+  matches: readonly Match[],
+  rooms: readonly LsRoom[],
+  gameRooms: readonly GameRoom[],
+  myUid: string,
+  nowMs: number,
 ): GameInvite[] {
   const all = [
     ...matches.map((m) => fromMatch(m, myUid)),
     ...rooms.map((r) => fromRoom(r, myUid)),
+    ...gameRooms.map((r) => fromGameRoom(r, myUid)),
   ].filter((i): i is GameInvite => i !== null)
   return liveInvites(all, nowMs)
 }

@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
-  msLeft, isExpired, formatLeft, liveInvites, fromMatch, fromRoom, collectInvites,
+  msLeft, isExpired, formatLeft, liveInvites, fromMatch, fromRoom, fromGameRoom, collectInvites,
   INVITE_TTL_MS, TOAST_MS, type GameInvite,
 } from './invites'
 import type { Match } from './social'
 import type { LsRoom } from './lsroom'
+import type { GameRoom } from './gameroom'
 
 const ME = 'me-uid'
 const FRIEND = 'friend-uid'
@@ -41,6 +42,25 @@ const room = (over: Partial<LsRoom> = {}): LsRoom => ({
   seed: 1,
   seatUids: [],
   state: {} as LsRoom['state'],
+  tick: 0,
+  turnStartedAtMs: 0,
+  createdAtMs: T0,
+  updatedAtMs: T0,
+  ...over,
+})
+
+const gameRoom = (over: Partial<GameRoom> = {}): GameRoom => ({
+  id: 'g1',
+  game: 'ascend',
+  host: FRIEND,
+  members: [FRIEND],
+  invited: [ME],
+  names: {},
+  status: 'lobby',
+  sel: { courseId: 'c', unitId: 'u', subunitId: 's', difficulty: 'easy' },
+  seed: 1,
+  seatUids: [FRIEND],
+  state: null,
   tick: 0,
   turnStartedAtMs: 0,
   createdAtMs: T0,
@@ -132,24 +152,52 @@ describe('fromRoom', () => {
   })
 })
 
+describe('fromGameRoom', () => {
+  it('reads a shared-table invite aimed at me', () => {
+    const i = fromGameRoom(gameRoom(), ME)
+    expect(i).toMatchObject({ kind: 'ascend', gameName: 'Ascend', fromUid: FRIEND })
+    expect(i?.route).toBe('/ascend/room/g1')
+  })
+  it('names the Card Game properly', () => {
+    expect(fromGameRoom(gameRoom({ game: 'cardgame' }), ME)?.gameName).toBe('Card Game')
+    expect(fromGameRoom(gameRoom({ game: 'cardgame' }), ME)?.route).toBe('/cardgame/room/g1')
+  })
+  it('ignores a table I already joined', () => {
+    expect(fromGameRoom(gameRoom({ invited: [], members: [FRIEND, ME] }), ME)).toBeNull()
+  })
+  it('ignores a table that already started', () => {
+    expect(fromGameRoom(gameRoom({ status: 'active' }), ME)).toBeNull()
+  })
+})
+
 describe('collectInvites', () => {
-  it('merges both games into one list, newest first', () => {
+  it('merges every game into one list, newest first', () => {
     const list = collectInvites(
       [match({ id: 'm1', createdAtMs: T0 })],
       [room({ id: 'r1', updatedAtMs: T0 + 1000 })],
-      ME, T0 + 2000,
+      [gameRoom({ id: 'g1', updatedAtMs: T0 + 2000 })],
+      ME, T0 + 3000,
     )
-    expect(list.map((i) => i.kind)).toEqual(['laststanding', 'battleship'])
+    expect(list.map((i) => i.kind)).toEqual(['ascend', 'laststanding', 'battleship'])
   })
-  it('drops expired invites from either game', () => {
+  it('drops expired invites from any game', () => {
     const list = collectInvites(
       [match({ createdAtMs: T0 - INVITE_TTL_MS })],
       [room({ updatedAtMs: T0 - INVITE_TTL_MS })],
+      [gameRoom({ updatedAtMs: T0 - INVITE_TTL_MS })],
       ME, T0,
     )
     expect(list).toEqual([])
   })
   it('is empty when nothing is aimed at me', () => {
-    expect(collectInvites([match({ players: [ME, FRIEND] })], [room({ invited: [] })], ME, T0)).toEqual([])
+    expect(collectInvites(
+      [match({ players: [ME, FRIEND] })], [room({ invited: [] })], [gameRoom({ invited: [] })], ME, T0,
+    )).toEqual([])
+  })
+  it('copes with the shared tables being unavailable', () => {
+    // The gameRooms rules may not be published yet, in which case that feed
+    // stays empty — the other invites must still come through.
+    const list = collectInvites([match()], [], [], ME, T0)
+    expect(list.map((i) => i.kind)).toEqual(['battleship'])
   })
 })

@@ -15,6 +15,10 @@ import {
   subscribeMyMatches, acceptInvite, deleteInviteMatch, type Match,
 } from '../lib/social'
 import { subscribeMyRooms, joinRoom, leaveRoom, type LsRoom } from '../lib/lsroom'
+import {
+  subscribeMyGameRooms, joinGameRoom, leaveGameRoom, gameRoomsAvailable, type GameRoom,
+} from '../lib/gameroom'
+import { MAX_SEATS as ASCEND_SEATS, createAscendState, ascendStateData } from '../lib/ascendRoom'
 import { useUsernames } from '../lib/useUsernames'
 import { displayNameFor } from '../lib/username'
 import {
@@ -30,6 +34,7 @@ export default function InviteToast() {
 
   const [matches, setMatches] = useState<Match[]>([])
   const [rooms, setRooms] = useState<LsRoom[]>([])
+  const [gameRooms, setGameRooms] = useState<GameRoom[]>([])
   // Re-render on a timer so the countdown ticks and an expired invite leaves on
   // its own, without waiting for a Firestore change.
   const [now, setNow] = useState(() => Date.now())
@@ -41,11 +46,19 @@ export default function InviteToast() {
   const shownAtRef = useRef<{ id: string; at: number } | null>(null)
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !uid) { setMatches([]); setRooms([]); return }
+    if (!isFirebaseConfigured || !uid) { setMatches([]); setRooms([]); setGameRooms([]); return }
     const onError = (err: unknown) => console.error('[eclipse-arcade] invite feed failed:', err)
     const u1 = subscribeMyMatches(uid, setMatches, onError)
     const u2 = subscribeMyRooms(uid, setRooms, onError)
-    return () => { u1(); u2() }
+    // Denied until the gameRooms rules are published — a permission error here
+    // must not take the other two feeds down with it.
+    const u3 = gameRoomsAvailable()
+      ? subscribeMyGameRooms(uid, setGameRooms, (err) => {
+        console.warn('[eclipse-arcade] shared tables unavailable (rules not published?):', err)
+        setGameRooms([])
+      })
+      : () => {}
+    return () => { u1(); u2(); u3() }
   }, [uid])
 
   useEffect(() => {
@@ -54,8 +67,8 @@ export default function InviteToast() {
   }, [])
 
   const invites = useMemo(
-    () => (uid ? collectInvites(matches, rooms, uid, now) : []),
-    [matches, rooms, uid, now],
+    () => (uid ? collectInvites(matches, rooms, gameRooms, uid, now) : []),
+    [matches, rooms, gameRooms, uid, now],
   )
   // Newest first; show one at a time so the banner can't tile down the screen.
   const invite = invites.find((i) => !dismissed.has(i.id)) ?? null
@@ -86,10 +99,14 @@ export default function InviteToast() {
     setBusy(true)
     setError('')
     try {
+      const name = displayNameFor(usernames[uid], user?.email ?? null)
       if (i.kind === 'battleship') {
         await acceptInvite(i.id)
+      } else if (i.kind === 'laststanding') {
+        await joinRoom(i.id, { uid, name })
       } else {
-        await joinRoom(i.id, { uid, name: displayNameFor(usernames[uid], user?.email ?? null) })
+        await joinGameRoom(i.id, { uid, name }, ASCEND_SEATS,
+          (seats) => ascendStateData(createAscendState(seats)))
       }
       dismiss(i.id)
       navigate(i.route)
@@ -109,7 +126,11 @@ export default function InviteToast() {
     dismiss(i.id)
     try {
       if (i.kind === 'battleship') await deleteInviteMatch(i.id)
-      else await leaveRoom(i.id, uid)
+      else if (i.kind === 'laststanding') await leaveRoom(i.id, uid)
+      else {
+        await leaveGameRoom(i.id, uid, ASCEND_SEATS,
+          (seats) => ascendStateData(createAscendState(seats)))
+      }
     } catch (err) {
       // Nothing to surface — the invite is gone from this player's view either
       // way, and it expires on its own within three minutes.
