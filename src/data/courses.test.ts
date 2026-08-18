@@ -165,9 +165,12 @@ describe('bundled curriculum — questions are answerable', () => {
       expect(min, `${where} has min >= max`).toBeLessThan(max)
       expect(answer, `${where} answer is below min`).toBeGreaterThanOrEqual(min)
       expect(answer, `${where} answer is above max`).toBeLessThanOrEqual(max)
-      // SliderBoard snaps to Math.round(v / step) * step, so an answer off the
-      // grid is unreachable however carefully the player aims.
-      const steps = (answer - min) / step
+      // SliderBoard snaps with Math.round(v / step) * step — multiples of `step`
+      // from ZERO, then clamped to the track. So reachability depends on the
+      // answer being a multiple of step, NOT on its offset from min: with
+      // min 0.25 and step 0.5, an answer of 5.25 is a whole number of steps
+      // above min and still unreachable.
+      const steps = answer / step
       expect(Math.abs(steps - Math.round(steps)), `${where} answer is off the step grid`).toBeLessThan(1e-9)
       // …and a track with too many steps is unclickable: the board is ~560px
       // wide, so 100 steps is already only ~5.6px per step.

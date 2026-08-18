@@ -1,5 +1,12 @@
 # Publishing the multiplayer rules
 
+> **Republish needed (2026-08-18).** Both room blocks were tightened: the
+> "leaving" clause allowed anyone merely INVITED to submit `members: []` and
+> empty a whole lobby, because an empty list is a subset that trivially
+> excludes them. Leaving now requires the member list to shrink by exactly one,
+> and declining an invite is its own clause that cannot touch the seated
+> players. Until this is republished the hole is live.
+
 Firestore denies anything its rules don't explicitly name. Ascend and the Card
 Game will use a `gameRooms` collection, and until the rule block for it is live
 in the Firebase console **every read and write to it fails** — the games stay

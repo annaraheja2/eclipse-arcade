@@ -422,10 +422,21 @@ service cloud.firestore {
         && !(request.auth.uid in request.resource.data.invited)
         && touched().hasOnly(['members', 'names', 'invited', 'seatUids', 'state', 'updatedAt']);
 
-      // Leaving: a member may remove THEMSELF and nobody else.
-      allow update: if verified() && (isMember() || isInvited())
+      // A seated player leaves: EXACTLY one seat disappears, and it is theirs.
+      // The size check is load-bearing — a subset alone would let someone who is
+      // merely INVITED submit members: [] and empty the whole lobby, because an
+      // empty list is a subset that trivially excludes them.
+      allow update: if verified() && isMember()
         && !(request.auth.uid in request.resource.data.members)
         && resource.data.members.hasAll(request.resource.data.members)
+        && request.resource.data.members.size() == resource.data.members.size() - 1
+        && touched().hasOnly(['members', 'names', 'invited', 'seatUids', 'state', 'updatedAt']);
+
+      // An invitee declines: they come off the invite list and the seated
+      // players are left exactly as they were.
+      allow update: if verified() && isInvited()
+        && request.resource.data.members == resource.data.members
+        && !(request.auth.uid in request.resource.data.invited)
         && touched().hasOnly(['members', 'names', 'invited', 'seatUids', 'state', 'updatedAt']);
 
       // The host deals the first turn.
@@ -504,10 +515,21 @@ service cloud.firestore {
         && !(request.auth.uid in request.resource.data.invited)
         && touched().hasOnly(['members', 'names', 'invited', 'seatUids', 'state', 'updatedAt']);
 
-      // Leaving, or declining an invite: a member may remove THEMSELF, nobody else.
-      allow update: if verified() && (isMember() || isInvited())
+      // A seated player leaves: EXACTLY one seat disappears, and it is theirs.
+      // The size check is load-bearing — a subset alone would let someone who is
+      // merely INVITED submit members: [] and empty the whole lobby, because an
+      // empty list is a subset that trivially excludes them.
+      allow update: if verified() && isMember()
         && !(request.auth.uid in request.resource.data.members)
         && resource.data.members.hasAll(request.resource.data.members)
+        && request.resource.data.members.size() == resource.data.members.size() - 1
+        && touched().hasOnly(['members', 'names', 'invited', 'seatUids', 'state', 'updatedAt']);
+
+      // An invitee declines: they come off the invite list and the seated
+      // players are left exactly as they were.
+      allow update: if verified() && isInvited()
+        && request.resource.data.members == resource.data.members
+        && !(request.auth.uid in request.resource.data.invited)
         && touched().hasOnly(['members', 'names', 'invited', 'seatUids', 'state', 'updatedAt']);
 
       // The host deals the first turn.
