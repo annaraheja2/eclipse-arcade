@@ -525,6 +525,45 @@ service cloud.firestore {
 
       // Closing the table is the host's alone.
       allow delete: if verified() && isRoomHost();
+
+      // ---- private hands: the Card Game's secret information --------------
+      //
+      // The room document is readable by everyone at the table, which is fine
+      // for a board everyone can see — but a card game's hand must not be. Each
+      // player's cards live in their own document here, and the read rule is the
+      // whole point: ONLY the owner may read it, host included.
+      //
+      // The host is the dealer and may write any seat's hand, because dealing
+      // has to happen somewhere and there is no server to do it. So the host
+      // sees the deal as they make it, in their own browser, even though the
+      // rules stop them reading it back afterwards. Every OTHER player is fully
+      // shut out of every hand but their own. Closing the dealer's view too
+      // would mean dealing on a server.
+      //
+      // Each get() below is a billed document read; the client should hold the
+      // hand it fetches rather than re-reading it per card.
+      match /hands/{uid} {
+        function roomData() {
+          return get(/databases/$(database)/documents/gameRooms/$(roomId)).data;
+        }
+        function isDealer() { return roomData().host == request.auth.uid; }
+
+        // Your hand is yours alone.
+        allow read: if verified() && request.auth.uid == uid;
+
+        // The dealer deals, to a seat that is actually at the table.
+        allow create: if verified() && isDealer()
+          && uid in roomData().members
+          && request.resource.data.keys().hasOnly(['cards', 'updatedAt']);
+
+        // You play from your own hand; the dealer may also deal into it.
+        allow update: if verified()
+          && (request.auth.uid == uid || isDealer())
+          && request.resource.data.keys().hasOnly(['cards', 'updatedAt']);
+
+        // Tidying up after the game, by the owner or the host.
+        allow delete: if verified() && (request.auth.uid == uid || isDealer());
+      }
     }
 
     // Anything not matched above is denied (Firestore's implicit default;
