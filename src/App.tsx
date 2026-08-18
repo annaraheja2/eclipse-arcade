@@ -6,6 +6,7 @@ import BattleshipPvp from './pages/BattleshipPvp'
 import Racer from './pages/Racer'
 import CardGame from './pages/CardGame'
 import Ascend from './pages/Ascend'
+import AscendOnline from './pages/AscendOnline'
 import LastStanding from './pages/LastStanding'
 import LastStandingOnline from './pages/LastStandingOnline'
 import Friends from './pages/Friends'
@@ -21,18 +22,19 @@ export default function App() {
           on the Friends page. */}
       <InviteToast />
       <Routes>
-      <Route path="/" element={<Lobby />} />
-      <Route path="/battleship" element={<Battleship />} />
-      <Route path="/battleship/pvp/:matchId" element={<BattleshipPvp />} />
-      <Route path="/racer" element={<Racer />} />
-      <Route path="/cardgame" element={<CardGame />} />
-      <Route path="/ascend" element={<Ascend />} />
-      <Route path="/laststanding" element={<LastStanding />} />
-      <Route path="/laststanding/room/:roomId" element={<LastStandingOnline />} />
-      <Route path="/friends" element={<Friends />} />
-      <Route path="/practice" element={<Practice />} />
-      <Route path="/play/:gameKey" element={<Game />} />
-      <Route path="/admin" element={<Admin />} />
+        <Route path="/" element={<Lobby />} />
+        <Route path="/battleship" element={<Battleship />} />
+        <Route path="/battleship/pvp/:matchId" element={<BattleshipPvp />} />
+        <Route path="/racer" element={<Racer />} />
+        <Route path="/cardgame" element={<CardGame />} />
+        <Route path="/ascend" element={<Ascend />} />
+        <Route path="/ascend/room/:roomId" element={<AscendOnline />} />
+        <Route path="/laststanding" element={<LastStanding />} />
+        <Route path="/laststanding/room/:roomId" element={<LastStandingOnline />} />
+        <Route path="/friends" element={<Friends />} />
+        <Route path="/practice" element={<Practice />} />
+        <Route path="/play/:gameKey" element={<Game />} />
+        <Route path="/admin" element={<Admin />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </>

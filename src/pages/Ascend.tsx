@@ -10,6 +10,11 @@ import AscendBoard3D, { type BoardMove } from '../components/AscendBoard3D'
 import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
 import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
+import { useAuth } from '../lib/auth'
+import { createGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { createAscendState, ascendStateData } from '../lib/ascendRoom'
+import { useUsernames } from '../lib/useUsernames'
+import { displayNameFor } from '../lib/username'
 import { usePlayer, resolveCourseId } from '../lib/player'
 import { isReducedMotion } from '../lib/motion'
 import { SEAT_TINTS } from '../components/Character3D'
@@ -47,6 +52,7 @@ type Screen = 'course' | 'build' | 'play'
 export default function Ascend() {
   const navigate = useNavigate()
   const { player, finishGame, recordAnswer } = usePlayer()
+  const { user, emailVerified } = useAuth()
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
   const reduced = prefersReducedMotion()
 
@@ -84,6 +90,12 @@ export default function Ascend() {
     : [], [course, selected])
   const questionCount = selectedSubs.reduce((n, s) => n + s.questions.length, 0)
   const canStart = selectedSubs.length > 0 && questionCount > 0
+  // A table runs on one topic, so hosting needs exactly one pick and a signed-in
+  // player to be the host.
+  const canHost = !!user && emailVerified && selectedSubs.length === 1 && questionCount > 0
+  const [hosting, setHosting] = useState(false)
+  const [hostError, setHostError] = useState('')
+  const myName = useUsernames(user ? [user.uid] : [])
 
   function toggleSub(key: string) {
     setSelected((prev) => {
@@ -115,6 +127,34 @@ export default function Ascend() {
     const qs = taggedPool(selectedSubs)
     startRace(qs.length > 0 ? qs : FALLBACK_POOL)
     setScreen('play')
+  }
+
+  /**
+   * Opens a table for friends. An online table runs on ONE topic — the room
+   * document carries a single subunit, the same as a Last Standing table — so
+   * hosting asks for exactly one pick rather than the solo game's set of six.
+   */
+  async function host() {
+    if (!canHost || !course || !user) return
+    const sub = selectedSubs[0]
+    const unit = course.units.find((u) => u.subunits.some((s) => s.id === sub.id))
+    if (!unit) return
+    setHosting(true)
+    setHostError('')
+    try {
+      const roomId = await createGameRoom(
+        'ascend',
+        { uid: user.uid, name: displayNameFor(myName[user.uid], user.email) },
+        { courseId: course.id, unitId: unit.id, subunitId: sub.id, difficulty: sub.difficulty },
+        Math.floor(Math.random() * 1e9),
+        (seats) => ascendStateData(createAscendState(seats)),
+      )
+      navigate(`/ascend/room/${roomId}`)
+    } catch (err) {
+      console.error('[eclipse-arcade] could not open a table:', err)
+      setHostError('Could not open a table — online play may not be switched on yet.')
+      setHosting(false)
+    }
   }
 
   function goBack() {
@@ -276,12 +316,24 @@ export default function Ascend() {
               </div>
             )}
             <div className="mt-7 flex flex-col items-center gap-2">
-              <button onClick={start} disabled={!canStart}
-                className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-[#0a0620] disabled:opacity-40 transition"
-                style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-                Start the climb
-              </button>
+              <div className="flex flex-wrap justify-center gap-3">
+                <button onClick={start} disabled={!canStart}
+                  className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-[#0a0620] disabled:opacity-40 transition"
+                  style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+                  Start the climb
+                </button>
+                {gameRoomsAvailable() && (
+                  <button onClick={host} disabled={!canHost || hosting}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white/90 border border-white/20 bg-white/5 enabled:hover:bg-white/10 disabled:opacity-40 transition">
+                    {hosting ? 'Opening a table…' : 'Play with friends'}
+                  </button>
+                )}
+              </div>
               {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+              {canStart && !canHost && (
+                <span className="text-xs text-white/60">Pick a single topic to play with friends.</span>
+              )}
+              {hostError && <span role="alert" className="text-xs text-[#ff9dbd]">{hostError}</span>}
             </div>
           </Section>
         )}
