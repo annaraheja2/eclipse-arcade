@@ -11,6 +11,8 @@ import { COURSE_LIST, type Course, type Difficulty, type Subunit, type Unit } fr
 import { loadCourse } from '../lib/content'
 import { poolFor, unitQuestionCount, startQueue, advance, current, answerText, type Queue, type PracticeItem } from '../lib/practice'
 import { summarize, type AnsweredItem } from '../lib/summary'
+import { instantiate } from '../lib/templates'
+import { templatesFor, hasTemplate } from '../data/templates'
 import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
 import { usePlayer, resolveCourseId, accuracy } from '../lib/player'
@@ -67,8 +69,15 @@ export default function Practice() {
     () => (course && unitId ? poolFor(course, unitId, selected) : []),
     [course, unitId, selected],
   )
-  const item = queue ? current(queue) : undefined
+  // A question built from this subtopic's template, shown in place of the queue's
+  // until the player moves on. The queue itself is untouched, so "next" still
+  // works through the authored questions in order.
+  const [generated, setGenerated] = useState<PracticeItem | null>(null)
+
+  const item = generated ?? (queue ? current(queue) : undefined)
   const q = item?.q
+  // Templates are written per subtopic, so the offer only appears where one exists.
+  const templates = item ? templatesFor(item.subunitId) : []
 
   function toggle(subId: string) {
     setSelected((prev) => {
@@ -82,6 +91,7 @@ export default function Practice() {
   function start() {
     if (pool.length === 0) return
     setQueue(startQueue(pool, Math.random))
+    setGenerated(null)
     setResult(null)
     setGraded(false)
     setAttempt((a) => a + 1)
@@ -109,7 +119,28 @@ export default function Practice() {
   }
 
   function next() {
-    setQueue((cur) => (cur ? advance(cur, Math.random) : cur))
+    // A generated question is a detour, not a place in the queue — leaving it
+    // returns to the authored question it was spun off from.
+    if (generated) setGenerated(null)
+    else setQueue((cur) => (cur ? advance(cur, Math.random) : cur))
+    setResult(null)
+    setGraded(false)
+    setAttempt((a) => a + 1)
+  }
+
+  /**
+   * Another question of the same shape: same structure, different numbers.
+   * Built here and now from the subtopic's template — no network, no waiting,
+   * and the answer is worked out rather than looked up, so it cannot be wrong.
+   */
+  function moreLikeThis() {
+    if (!item || templates.length === 0) return
+    const t = templates[Math.floor(Math.random() * templates.length)]
+    const made = instantiate(t, Math.random)
+    // A template that can't produce a question is an authoring bug, not
+    // something to show the player — leave the question they have.
+    if (!made.ok) { console.warn(`[eclipse-arcade] template "${t.id}": ${made.reason}`); return }
+    setGenerated({ q: made.question, subunitId: item.subunitId, subunitName: item.subunitName })
     setResult(null)
     setGraded(false)
     setAttempt((a) => a + 1)
@@ -271,6 +302,12 @@ export default function Practice() {
                       TRY AGAIN
                     </button>
                   )}
+                  {templates.length > 0 && (
+                    <button onClick={moreLikeThis}
+                      className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">
+                      ONE MORE LIKE THIS
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -338,6 +375,9 @@ function TopicButton({ s, checked, onToggle }: { s: Subunit; checked: boolean; o
         {s.description && <span className="block text-xs text-white/55 mt-0.5">{s.description}</span>}
         <span className="block text-xs text-white/55 mt-0.5">
           {empty ? 'No questions yet' : `${s.questions.length} question${s.questions.length === 1 ? '' : 's'}`}
+          {hasTemplate(s.id) && (
+            <span className="ml-2" style={{ color: ACCENT_TEXT }}>+ unlimited practice</span>
+          )}
         </span>
       </span>
     </button>
