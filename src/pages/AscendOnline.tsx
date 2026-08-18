@@ -20,10 +20,10 @@ import {
   commitGameTransition, deleteGameRoom, type GameRoom,
 } from '../lib/gameroom'
 import {
-  toAscendState, ascendStateData, applyAscendAnswer, createAscendState,
+  toAscendState, ascendStateData, applyAscendAnswer, createAscendState, rollForTurn,
   ascendPlacements, ascendScoreFor, isOver, MAX_SEATS, type AscendState,
 } from '../lib/ascendRoom'
-import { rollDie, resolveMove, LAST_SQUARE } from '../lib/ascend'
+import { resolveMove, LAST_SQUARE } from '../lib/ascend'
 import { questionIndexFor } from '../lib/lsroom'
 import { subscribeFriendships, type Friendship } from '../lib/social'
 import { useUsernames } from '../lib/useUsernames'
@@ -140,9 +140,11 @@ export default function AscendOnline() {
       answersRef.current.push({ subunitId: subunit.id, subunitName: subunit.name, correct })
     }
     if (correct) sfxPick(); else sfxDeny()
-    // The player taking the turn throws the die and publishes the number with
-    // their move, so the reducer stays pure and every board lands the same.
-    const roll = correct ? rollDie(Math.random) : 0
+    // Nobody throws their own die. The roll comes from the table's shared seed
+    // and this turn's number, so every other screen works out the same value and
+    // a client that published a flattering six would be contradicted by all of
+    // them (see moveIsHonest).
+    const roll = correct ? rollForTurn(room.seed, room.tick) : 0
     const next = applyAscendAnswer(state, correct, roll)
     void guard(
       () => commitGameTransition(room.id, room.tick, ascendStateData(next), isOver(next)),

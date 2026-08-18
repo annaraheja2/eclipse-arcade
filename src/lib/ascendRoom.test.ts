@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   createAscendState, applyAscendAnswer, isOver, ascendPlacements, ascendScoreFor,
-  toAscendState, ascendStateData, MAX_SEATS, type AscendState,
+  toAscendState, ascendStateData, rollForTurn, moveIsHonest, MAX_SEATS, type AscendState,
 } from './ascendRoom'
 import { LAST_SQUARE, START_SQUARE, LADDERS, SNAKES, POINTS_PER_CORRECT } from './ascend'
 
@@ -122,6 +122,81 @@ describe('placements and score', () => {
     // the winning answer counts too: 8 correct, 1st place
     expect(ascendScoreFor(won, 0)).toBe(8 * POINTS_PER_CORRECT + 1000)
     expect(ascendScoreFor(won, 1)).toBe(2 * POINTS_PER_CORRECT + 400)
+  })
+})
+
+describe('dice nobody throws for themselves', () => {
+  it('gives every client the same roll for the same turn', () => {
+    expect(rollForTurn(4242, 9)).toBe(rollForTurn(4242, 9))
+  })
+
+  it('is always a real die face', () => {
+    for (let tick = 0; tick < 300; tick++) {
+      const r = rollForTurn(31337, tick)
+      expect(Number.isInteger(r)).toBe(true)
+      expect(r).toBeGreaterThanOrEqual(1)
+      expect(r).toBeLessThanOrEqual(6)
+    }
+  })
+
+  it('varies from turn to turn and table to table', () => {
+    const overTurns = new Set(Array.from({ length: 60 }, (_, t) => rollForTurn(5, t)))
+    expect(overTurns.size).toBeGreaterThan(3)
+    const overTables = new Set(Array.from({ length: 60 }, (_, s) => rollForTurn(s, 0)))
+    expect(overTables.size).toBeGreaterThan(3)
+  })
+})
+
+describe('checking a published turn', () => {
+  const SEED = 8675309
+  const TICK = 3
+
+  it('accepts a turn played by the rules', () => {
+    const before = fresh(3)
+    const after = applyAscendAnswer(before, true, rollForTurn(SEED, TICK))
+    expect(moveIsHonest(before, after, SEED, TICK)).toBe(true)
+  })
+
+  it('accepts a wrong answer, which forfeits the throw', () => {
+    const before = fresh(3)
+    const after = applyAscendAnswer(before, false, 0)
+    expect(moveIsHonest(before, after, SEED, TICK)).toBe(true)
+  })
+
+  it('catches a player who claims a better roll than the table dealt', () => {
+    const before = fresh(3)
+    const honest = rollForTurn(SEED, TICK)
+    const flattering = honest === 6 ? 5 : 6
+    const after = applyAscendAnswer(before, true, flattering)
+    expect(moveIsHonest(before, after, SEED, TICK)).toBe(false)
+  })
+
+  it('catches a player moving a piece that is not theirs to move', () => {
+    const before = fresh(3)
+    const after = applyAscendAnswer(before, true, rollForTurn(SEED, TICK))
+    // Same legal turn, relabelled as somebody else's.
+    const forged = { ...after, last: { ...after.last!, seat: 2 } }
+    expect(moveIsHonest(before, forged, SEED, TICK)).toBe(false)
+  })
+
+  it('catches a hand-edited position', () => {
+    const before = fresh(3)
+    const after = applyAscendAnswer(before, true, rollForTurn(SEED, TICK))
+    const forged = { ...after, positions: [LAST_SQUARE - 1, 0, 0] }
+    expect(moveIsHonest(before, forged, SEED, TICK)).toBe(false)
+  })
+
+  it('rejects a turn that carries no move at all', () => {
+    const before = fresh(3)
+    expect(moveIsHonest(before, before, SEED, TICK)).toBe(false)
+  })
+
+  it('catches the same turn replayed against a different turn number', () => {
+    const before = fresh(3)
+    const after = applyAscendAnswer(before, true, rollForTurn(SEED, TICK))
+    // Only fails when that tick actually deals a different face.
+    const otherTick = [1, 2, 4, 5, 6, 7].find((t) => rollForTurn(SEED, t) !== rollForTurn(SEED, TICK))!
+    expect(moveIsHonest(before, after, SEED, otherTick)).toBe(false)
   })
 })
 

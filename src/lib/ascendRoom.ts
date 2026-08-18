@@ -7,7 +7,8 @@
 // whose turn it is, and how a turn advances.
 //
 // Pure. lib/gameroom.ts carries it to Firestore.
-import { LAST_SQUARE, START_SQUARE, resolveMove, nextRacer, placements, finalScore, type Chute } from './ascend'
+import { LAST_SQUARE, START_SQUARE, rollDie, resolveMove, nextRacer, placements, finalScore, type Chute } from './ascend'
+import { rngForTurn } from './fairseed'
 
 /** What the last turn did, kept so every client can animate the same hop. */
 export interface AscendMove {
@@ -54,6 +55,33 @@ export function resizeAscendState(seatCount: number): AscendState {
 }
 
 export const isOver = (s: AscendState): boolean => s.winner >= 0
+
+/**
+ * The die for one turn, fixed by the table's shared seed and the turn number.
+ *
+ * Nobody throws their own: every client works out the same number, so a player
+ * who publishes a turn claiming a six they did not get is contradicted by every
+ * other screen at the table. Checking a turn costs one call — the tick is mixed
+ * into the seed rather than advancing a running stream.
+ */
+export function rollForTurn(seed: number, tick: number): number {
+  return rollDie(rngForTurn(seed, tick))
+}
+
+/**
+ * Whether a published turn is the one the rules produce. Every client can run
+ * this against a committed move, which is what turns "trust the sender" into
+ * "check the sender".
+ */
+export function moveIsHonest(
+  previous: AscendState, next: AscendState, seed: number, tick: number,
+): boolean {
+  const move = next.last
+  if (!move) return false
+  if (move.seat !== previous.turn) return false
+  const expected = applyAscendAnswer(previous, move.correct, move.correct ? rollForTurn(seed, tick) : 0)
+  return JSON.stringify(ascendStateData(expected)) === JSON.stringify(ascendStateData(next))
+}
 
 /**
  * Plays one turn: the seat whose turn it is answers, and on a correct answer
