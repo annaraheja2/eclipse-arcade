@@ -446,6 +446,87 @@ service cloud.firestore {
       allow delete: if verified() && isRoomHost();
     }
 
+    // ---- gameRooms: one table shape for every turn-based cabinet -----------
+    //
+    // NOT YET PUBLISHED. Until this block is live in the Firebase console, any
+    // read or write to gameRooms is denied and the games below stay solo. See
+    // docs/multiplayer-rules.md for the hand-off.
+    //
+    // Ascend and the Card Game are turn-based and their rules already live as
+    // pure functions, exactly like Last Standing — so rather than give each its
+    // own collection, they share this one. It IS the lsRooms shape plus a
+    // `game` field naming which cabinet the table is for, which is what lets one
+    // invite, one lobby and one rules block serve all of them. A future
+    // turn-based game joins by adding a `game` value, not another rule.
+    //
+    // The trust model is deliberately identical to lsRooms, and so is its
+    // residual risk: rules cannot re-run a game engine, so they enforce what is
+    // checkable — only invitees join, one seat per join, a member removes only
+    // THEMSELF, only the host invites/starts/deletes, and every transition
+    // advances `tick` by exactly one so a stale client cannot replay a turn. A
+    // tampered client can still write a state that flatters its player, bounded
+    // to rooms they were invited into. Accepted for this prototype.
+    //
+    // NOTE: like lsRooms, these docs accumulate — no TTL/cleanup job yet.
+    match /gameRooms/{roomId} {
+      function isRoomHost() { return resource.data.host == request.auth.uid; }
+      function isMember() { return request.auth.uid in resource.data.members; }
+      function isInvited() { return request.auth.uid in resource.data.invited; }
+      function touched() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+      // Only people at the table, or asked to it, can watch it.
+      allow read: if verified() && (isMember() || isInvited());
+
+      allow create: if verified()
+        && request.resource.data.host == request.auth.uid
+        && request.resource.data.members == [request.auth.uid]
+        && request.resource.data.invited == []
+        && request.resource.data.status == 'lobby'
+        && request.resource.data.tick == 0
+        && request.resource.data.game in ['ascend', 'cardgame']
+        && request.resource.data.keys().hasOnly(
+             ['game', 'host', 'members', 'invited', 'names', 'status', 'sel', 'seed',
+              'seatUids', 'state', 'tick', 'turnStartedAt', 'createdAt', 'updatedAt']);
+
+      // The host invites friends while the table is still filling. `game` is
+      // absent from every update list below, so it is fixed at creation.
+      allow update: if verified() && isRoomHost()
+        && resource.data.status == 'lobby'
+        && touched().hasOnly(['invited', 'updatedAt']);
+
+      // An invited player takes exactly one free seat, and only their own.
+      allow update: if verified() && isInvited()
+        && resource.data.status == 'lobby'
+        && request.resource.data.members.hasAll(resource.data.members)
+        && request.resource.data.members.size() == resource.data.members.size() + 1
+        && request.resource.data.members.size() <= 6
+        && request.auth.uid in request.resource.data.members
+        && !(request.auth.uid in request.resource.data.invited)
+        && touched().hasOnly(['members', 'names', 'invited', 'seatUids', 'state', 'updatedAt']);
+
+      // Leaving, or declining an invite: a member may remove THEMSELF, nobody else.
+      allow update: if verified() && (isMember() || isInvited())
+        && !(request.auth.uid in request.resource.data.members)
+        && resource.data.members.hasAll(request.resource.data.members)
+        && touched().hasOnly(['members', 'names', 'invited', 'seatUids', 'state', 'updatedAt']);
+
+      // The host deals the first turn.
+      allow update: if verified() && isRoomHost()
+        && resource.data.status == 'lobby'
+        && request.resource.data.status == 'active'
+        && touched().hasOnly(['status', 'turnStartedAt', 'updatedAt']);
+
+      // A seated member commits the next transition.
+      allow update: if verified() && isMember()
+        && resource.data.status == 'active'
+        && request.resource.data.tick == resource.data.tick + 1
+        && request.resource.data.status in ['active', 'done']
+        && touched().hasOnly(['state', 'tick', 'status', 'turnStartedAt', 'updatedAt']);
+
+      // Closing the table is the host's alone.
+      allow delete: if verified() && isRoomHost();
+    }
+
     // Anything not matched above is denied (Firestore's implicit default;
     // stated here for clarity).
     match /{document=**} {
