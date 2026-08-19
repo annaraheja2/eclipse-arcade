@@ -18,18 +18,39 @@
 // reducer, then split the result back apart. The rules are never reimplemented,
 // only re-assembled around the one hand we are allowed to hold.
 //
-// NO SHARED DRAW PILE
+// NOBODY DEALS
 //
 // A face-down pile has the same problem as a hand: kept in the room document,
-// everyone can read what is coming. So the deck is dealt out at the start —
-// each player gets their opening hand plus a private reserve to draw from. The
-// cost is that the discard can never be reshuffled back in, so a very long game
-// could run a player dry; with 108 cards between four players that is far more
-// reserve than a game uses.
+// everyone can read what is coming. And if one player deals, that player has
+// seen every hand — rotating who deals only takes turns at the advantage rather
+// than removing it.
+//
+// So nobody deals. The room's seed splits the deck into one PIECE per seat,
+// publicly and identically on every client, and each player shuffles their own
+// piece with a secret only they hold. Their opening hand is the top of it and
+// the rest is their private reserve. No player ever holds another's cards, not
+// even for an instant.
+//
+// Two things this deliberately does NOT hide, both worth knowing:
+//
+//   * Which cards are in your piece is derivable by anyone, because the split
+//     comes from the public seed. Opponents can tell which 27 cards you MIGHT
+//     hold — not which five you do. Hiding that needs somebody to assign the
+//     pieces, and that somebody would see everything again.
+//   * Your shuffle secret is yours, so a determined player could throw it away
+//     and re-shuffle their own piece until they liked their hand. The secret is
+//     kept for the life of the table so an ordinary refresh doesn't re-roll it;
+//     closing it properly means committing to the secret up front, which
+//     lib/fairseed.ts already knows how to do.
+//
+// The deck can't be reshuffled from the discard, since there is no shared pile
+// to reshuffle into. With 108 cards between four players a reserve is far
+// deeper than a game uses.
 //
 // Pure. lib/gameroom.ts carries it to Firestore.
 import {
   createGame, playCard, stackOrTake, drawToPlay, passTurn, legalPlays, topCard,
+  makeDeck, shuffle, HAND_SIZE,
   COLORS, type Card, type Color, type Direction, type GameState,
 } from './cardgame'
 
@@ -98,10 +119,69 @@ function split(next: GameState, seat: number, seats: number): { pub: CardPublic;
   }
 }
 
-/** Opening deal: real hands, and the rest of the deck split into private reserves. */
+/** A small, seedable PRNG so every client splits the deck identically. */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** Turns a secret string into a seed, so a private shuffle stays private. */
+function seedFromSecret(secret: string): number {
+  let h = 2166136261
+  for (let i = 0; i < secret.length; i++) { h ^= secret.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return h >>> 0
+}
+
+/**
+ * The public split: the face-up starter, and which cards fall to each seat.
+ * Every client computes the same thing from the room's seed — including, by
+ * design, which cards an opponent's piece contains.
+ */
+export function splitDeck(seed: number, seats: number): { starter: Card; pieces: Card[][] } {
+  const deck = shuffle(makeDeck(), seeded(seed))
+  // The starter has to be an ordinary card, or the first turn begins mid-effect.
+  const startIdx = deck.findIndex((c) => c.kind === 'number')
+  const starter = deck[startIdx >= 0 ? startIdx : 0]
+  const rest = deck.filter((c) => c.id !== starter.id)
+  const per = Math.floor(rest.length / seats)
+  const pieces = Array.from({ length: seats }, (_, i) => rest.slice(i * per, (i + 1) * per))
+  return { starter, pieces }
+}
+
+/** The opening state everybody shares. No hand information in it at all. */
+export function openingPublic(seed: number, seats: number): CardPublic {
+  const { starter } = splitDeck(seed, seats)
+  return {
+    seats,
+    discardTop: starter,
+    currentColor: starter.color ?? COLORS[0],
+    turn: 0,
+    direction: 1,
+    pendingDraw: 0,
+    pendingKind: null,
+    counts: Array.from({ length: seats }, () => HAND_SIZE),
+    winner: null,
+  }
+}
+
+/**
+ * MY hand: my own piece, shuffled with a secret only I hold. Nobody else can
+ * compute this, and I never see anyone else's.
+ */
+export function dealMine(seed: number, seats: number, seat: number, secret: string): CardHand {
+  const { pieces } = splitDeck(seed, seats)
+  const mine = shuffle(pieces[seat] ?? [], seeded(seedFromSecret(secret)))
+  return { hand: mine.slice(0, HAND_SIZE), reserve: mine.slice(HAND_SIZE) }
+}
+
+/** Kept only so the solo-style helper stays available to tests and tooling. */
 export function dealTable(seats: number, rng: () => number): { pub: CardPublic; hands: CardHand[] } {
   const g = createGame(seats, rng)
-  // Even shares; any remainder simply stays undealt, which is harmless.
   const per = Math.floor(g.drawPile.length / seats)
   const hands: CardHand[] = g.players.map((hand, i) => ({
     hand,

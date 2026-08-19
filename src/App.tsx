@@ -6,6 +6,7 @@ import BattleshipPvp from './pages/BattleshipPvp'
 import Racer from './pages/Racer'
 import RacerOnline from './pages/RacerOnline'
 import CardGame from './pages/CardGame'
+import CardGameOnline from './pages/CardGameOnline'
 import Ascend from './pages/Ascend'
 import AscendOnline from './pages/AscendOnline'
 import LastStanding from './pages/LastStanding'
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/racer" element={<Racer />} />
         <Route path="/racer/room/:roomId" element={<RacerOnline />} />
         <Route path="/cardgame" element={<CardGame />} />
+        <Route path="/cardgame/room/:roomId" element={<CardGameOnline />} />
         <Route path="/ascend" element={<Ascend />} />
         <Route path="/ascend/room/:roomId" element={<AscendOnline />} />
         <Route path="/laststanding" element={<LastStanding />} />

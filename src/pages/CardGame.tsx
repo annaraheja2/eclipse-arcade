@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
+import { useAuth } from '../lib/auth'
+import { createGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { openingPublic, cardPublicData } from '../lib/cardRoom'
+import { useUsernames } from '../lib/useUsernames'
+import { seatName } from '../lib/username'
 import { useCardGame, type CardGameConfig } from '../hooks/useCardGame'
 
 type Game = ReturnType<typeof useCardGame>
@@ -65,6 +70,7 @@ type Screen = 'course' | 'build' | 'play'
 export default function CardGame() {
   const navigate = useNavigate()
   const { player, finishGame, recordAnswer } = usePlayer()
+  const { user, emailVerified } = useAuth()
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
 
   const [screen, setScreen] = useState<Screen>('course')
@@ -98,6 +104,39 @@ export default function CardGame() {
     : [], [course, selected])
   const questionCount = selectedSubs.reduce((n, s) => n + s.questions.length, 0)
   const canStart = selectedSubs.length > 0 && questionCount > 0
+  // A shared table runs on one topic, as every gameRooms table does.
+  const canHost = !!user && emailVerified && selected.size === 1 && questionCount > 0
+  const [hosting, setHosting] = useState(false)
+  const [hostError, setHostError] = useState('')
+  const myName = useUsernames(user ? [user.uid] : [])
+
+  async function host() {
+    if (!canHost || !course || !user) return
+    // The selection key carries the unit; subunit ids repeat across a course.
+    const [unitId, subId] = [...selected][0].split('/')
+    const unit = course.units.find((u) => u.id === unitId)
+    const sub = unit?.subunits.find((s) => s.id === subId)
+    if (!unit || !sub) return
+    setHosting(true)
+    setHostError('')
+    try {
+      const seed = Math.floor(Math.random() * 1e9)
+      const roomId = await createGameRoom(
+        'cardgame',
+        { uid: user.uid, name: seatName(myName[user.uid], user.email) },
+        { courseId: course.id, unitId: unit.id, subunitId: sub.id, difficulty: sub.difficulty },
+        seed,
+        // The shared state carries the face-up pile and hand SIZES only; the
+        // cards themselves never touch this document.
+        (n) => cardPublicData(openingPublic(seed, n)),
+      )
+      navigate(`/cardgame/room/${roomId}`)
+    } catch (err) {
+      console.error('[eclipse-arcade] could not open a table:', err)
+      setHostError('Could not open a table — online play may not be switched on yet.')
+      setHosting(false)
+    }
+  }
 
   function toggleSub(key: string) {
     setSelected((prev) => {
@@ -211,12 +250,24 @@ export default function CardGame() {
               </div>
             )}
             <div className="mt-7 flex flex-col items-center gap-2">
-              <button onClick={start} disabled={!canStart}
-                className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
-                style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-                Deal cards
-              </button>
+              <div className="flex flex-wrap justify-center gap-3">
+                <button onClick={start} disabled={!canStart}
+                  className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
+                  style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+                  Deal cards
+                </button>
+                {gameRoomsAvailable() && (
+                  <button onClick={host} disabled={!canHost || hosting}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white/90 border border-white/20 bg-white/5 enabled:hover:bg-white/10 disabled:opacity-40 transition">
+                    {hosting ? 'Opening a table…' : 'Play with friends'}
+                  </button>
+                )}
+              </div>
               {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+              {canStart && !canHost && (
+                <span className="text-xs text-white/60">Pick a single topic to play with friends.</span>
+              )}
+              {hostError && <span role="alert" className="text-xs text-[#ff9dbd]">{hostError}</span>}
             </div>
           </Section>
         )}

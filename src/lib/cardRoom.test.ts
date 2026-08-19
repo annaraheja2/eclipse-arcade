@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  dealTable, isMyTurn, myLegalPlays, playFromHand, stackOrTakePenalty, drawOne, passAfterDraw,
+  dealTable, splitDeck, dealMine, openingPublic,
+  isMyTurn, myLegalPlays, playFromHand, stackOrTakePenalty, drawOne, passAfterDraw,
   toCard, toCardPublic, toCardHand, cardPublicData, cardHandData,
-  type CardPublic, type CardHand,
+  type CardPublic,
 } from './cardRoom'
 import { HAND_SIZE, DECK_SIZE, type Card } from './cardgame'
 
@@ -18,6 +19,11 @@ function rngFrom(seed: number): () => number {
 }
 
 const ids = (cards: readonly Card[]) => cards.map((c) => c.id)
+
+/** Every card id a serialised document actually carries. Substring matching
+ *  won't do — "c3" appears inside "c37" and would report a leak that isn't. */
+const idsIn = (json: string): Set<string> =>
+  new Set([...json.matchAll(/"id":"([^"]+)"/g)].map((m) => m[1]))
 
 describe('the deal', () => {
   it('gives everyone a hand and a private reserve', () => {
@@ -44,23 +50,77 @@ describe('the deal', () => {
     expect(dealt).toBeLessThanOrEqual(DECK_SIZE)
   })
 
-  it('shares nothing about anyone hand but its size', () => {
-    // The public state is what everybody reads; it must carry no card identity
-    // beyond the face-up discard.
+  it('shares nothing about any hand but its size', () => {
+    // The public state is what everybody reads; it must name no card beyond the
+    // face-up discard.
     const { pub } = dealTable(4, rngFrom(11))
-    const serialised = JSON.stringify(cardPublicData(pub))
-    expect(serialised).toContain(pub.discardTop.id)
-    const { hands } = dealTable(4, rngFrom(11))
-    for (const h of hands) {
-      for (const c of h.hand) {
-        if (c.id === pub.discardTop.id) continue
-        expect(serialised).not.toContain(c.id)
-      }
-    }
+    expect(idsIn(JSON.stringify(cardPublicData(pub)))).toEqual(new Set([pub.discardTop.id]))
   })
 
   it('is reproducible for a given shuffle', () => {
     expect(JSON.stringify(dealTable(4, rngFrom(5)))).toBe(JSON.stringify(dealTable(4, rngFrom(5))))
+  })
+})
+
+describe('nobody deals', () => {
+  const SEED = 123456
+  const SEATS = 4
+
+  it('splits the deck the same way on every client', () => {
+    const a = splitDeck(SEED, SEATS)
+    const b = splitDeck(SEED, SEATS)
+    expect(ids(a.pieces.flat())).toEqual(ids(b.pieces.flat()))
+    expect(a.starter.id).toBe(b.starter.id)
+  })
+
+  it('gives every seat its own cards, with none shared', () => {
+    const { starter, pieces } = splitDeck(SEED, SEATS)
+    const all = [...pieces.flat().map((c) => c.id), starter.id]
+    expect(new Set(all).size).toBe(all.length)
+  })
+
+  it('starts on an ordinary card, not mid-effect', () => {
+    for (let s = 1; s < 40; s++) {
+      expect(splitDeck(s, SEATS).starter.kind).toBe('number')
+    }
+  })
+
+  it('deals me a hand only my secret can produce', () => {
+    const mine = dealMine(SEED, SEATS, 0, 'my-secret')
+    const other = dealMine(SEED, SEATS, 0, 'a-different-secret')
+    expect(mine.hand).toHaveLength(HAND_SIZE)
+    // Same piece, different order — so a different hand comes off the top.
+    expect(ids(mine.hand)).not.toEqual(ids(other.hand))
+  })
+
+  it('keeps my hand stable for a given secret, so a refresh does not re-roll it', () => {
+    expect(dealMine(SEED, SEATS, 1, 's')).toEqual(dealMine(SEED, SEATS, 1, 's'))
+  })
+
+  it('never gives two seats the same card', () => {
+    const held = [0, 1, 2, 3].map((s) => dealMine(SEED, SEATS, s, `secret-${s}`))
+    const all = held.flatMap((h) => [...ids(h.hand), ...ids(h.reserve)])
+    expect(new Set(all).size).toBe(all.length)
+  })
+
+  it('draws my hand only from my own piece', () => {
+    const { pieces } = splitDeck(SEED, SEATS)
+    const mine = dealMine(SEED, SEATS, 2, 'secret')
+    const allowed = new Set(ids(pieces[2]))
+    for (const c of [...mine.hand, ...mine.reserve]) expect(allowed.has(c.id)).toBe(true)
+  })
+
+  it('opens with a shared state carrying no hand information', () => {
+    const pub = openingPublic(SEED, SEATS)
+    expect(pub.counts).toEqual([HAND_SIZE, HAND_SIZE, HAND_SIZE, HAND_SIZE])
+    expect(pub.turn).toBe(0)
+    expect(pub.winner).toBeNull()
+    // The face-up starter is the ONLY card the shared document may name.
+    expect(idsIn(JSON.stringify(cardPublicData(pub)))).toEqual(new Set([pub.discardTop.id]))
+  })
+
+  it('leaves a reserve deep enough for a real game', () => {
+    expect(dealMine(SEED, SEATS, 0, 'secret').reserve.length).toBeGreaterThan(15)
   })
 })
 
