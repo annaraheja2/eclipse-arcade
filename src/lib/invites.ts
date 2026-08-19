@@ -106,6 +106,7 @@ export function fromRoom(room: LsRoom, myUid: string): GameInvite | null {
 const GAME_LABEL: Record<GameKind, string> = {
   ascend: 'Ascend',
   cardgame: 'Card Game',
+  racer: 'Racer',
 }
 
 /**

@@ -494,7 +494,7 @@ service cloud.firestore {
         && request.resource.data.invited == []
         && request.resource.data.status == 'lobby'
         && request.resource.data.tick == 0
-        && request.resource.data.game in ['ascend', 'cardgame']
+        && request.resource.data.game in ['ascend', 'cardgame', 'racer']
         && request.resource.data.keys().hasOnly(
              ['game', 'host', 'members', 'invited', 'names', 'status', 'sel', 'seed',
               'seatUids', 'state', 'tick', 'turnStartedAt', 'createdAt', 'updatedAt']);
@@ -585,6 +585,47 @@ service cloud.firestore {
 
         // Tidying up after the game, by the owner or the host.
         allow delete: if verified() && (request.auth.uid == uid || isDealer());
+      }
+
+      // ---- racers: where each car is, published by its own driver ---------
+      //
+      // Racer is not turn-based. Four cars move at once, so there is no single
+      // shared state to advance a tick at a time — and four clients writing the
+      // ROOM document once a second would fight each other, because a document
+      // only takes about one write a second before writes start failing.
+      //
+      // So each driver owns one document and writes only their own. Everyone
+      // reads the lot and works out where the others are between updates (see
+      // lib/racerRoom.ts), which keeps the write rate to roughly one per driver
+      // per few seconds and puts each write on its own document.
+      //
+      // `distance` and `speed` are range-checked here as well as on the way in,
+      // so a client cannot park a nonsense number in a document the whole table
+      // renders. This is not a claim that the position is HONEST — a driver
+      // simulates their own car, exactly as they always did — only that it is
+      // within the bounds a race can produce.
+      match /racers/{uid} {
+        function inRoom() {
+          return request.auth.uid in
+            get(/databases/$(database)/documents/gameRooms/$(roomId)).data.members;
+        }
+        // Everyone at the table watches the whole field.
+        allow read: if verified() && inRoom();
+
+        // You publish your own car and nobody else's.
+        allow create, update: if verified()
+          && request.auth.uid == uid
+          && inRoom()
+          && request.resource.data.distance is number
+          && request.resource.data.distance >= 0
+          && request.resource.data.distance <= 10
+          && request.resource.data.speed is number
+          && request.resource.data.speed >= 0
+          && request.resource.data.speed <= 30
+          && request.resource.data.finished is bool
+          && request.resource.data.keys().hasOnly(['distance', 'speed', 'atMs', 'finished']);
+
+        allow delete: if verified() && request.auth.uid == uid;
       }
     }
 

@@ -19,8 +19,8 @@ import { getFirebaseDb, isFirebaseConfigured } from './firebase'
 import { toSelection, type Selection } from './social'
 
 /** Which cabinet a table is for. Must match the list in firestore.rules. */
-export type GameKind = 'ascend' | 'cardgame'
-const GAME_KINDS: readonly GameKind[] = ['ascend', 'cardgame']
+export type GameKind = 'ascend' | 'cardgame' | 'racer'
+const GAME_KINDS: readonly GameKind[] = ['ascend', 'cardgame', 'racer']
 
 export type RoomStatus = 'lobby' | 'active' | 'done'
 const STATUSES: readonly RoomStatus[] = ['lobby', 'active', 'done']
@@ -267,6 +267,51 @@ export async function commitGameTransition(
 export async function deleteGameRoom(roomId: string): Promise<void> {
   const { sdk, db } = await fs()
   await sdk.deleteDoc(sdk.doc(db, COLL, roomId))
+}
+
+// ---------------------------------------------------------------------------
+// Racer: one document per driver, rather than one shared state
+// ---------------------------------------------------------------------------
+//
+// The turn-based games advance a single `state` a tick at a time. Racer can't:
+// four cars move at once, and four clients writing the same document once a
+// second would fight each other. So each driver owns a document under the room
+// and writes only their own. See lib/racerRoom.ts for what fills the gaps
+// between updates.
+
+/** Publishes where MY car is. Overwrites my own document, nobody else's. */
+export async function publishRacerProgress(
+  roomId: string, uid: string, data: Record<string, unknown>,
+): Promise<void> {
+  const { sdk, db } = await fs()
+  await sdk.setDoc(sdk.doc(db, COLL, roomId, 'racers', uid), data)
+}
+
+/** The whole field, live. `read` maps each document to whatever the caller wants. */
+export function subscribeRacers<T>(
+  roomId: string,
+  read: (uid: string, data: unknown) => T | null,
+  onRacers: (rows: T[]) => void,
+  onError: (err: unknown) => void,
+): () => void {
+  let stop = () => {}
+  let cancelled = false
+  void fs().then(({ sdk, db }) => {
+    if (cancelled) return
+    stop = sdk.onSnapshot(
+      sdk.collection(db, COLL, roomId, 'racers'),
+      (snap: { docs: Array<{ id: string; data: () => unknown }> }) => {
+        const rows: T[] = []
+        for (const d of snap.docs) {
+          const row = read(d.id, d.data())
+          if (row) rows.push(row)
+        }
+        onRacers(rows)
+      },
+      onError,
+    )
+  }).catch(onError)
+  return () => { cancelled = true; stop() }
 }
 
 export function subscribeGameRoom(
