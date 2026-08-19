@@ -10,7 +10,7 @@
     "preview": "vite preview --port 4173",
     "test": "vitest run",
     "check:dist": "node scripts/check-dist.mjs",
-    "deploy": "npm run build && npm run check:dist && gh-pages -d dist"
+    "deploy": "npm run build && npm run check:dist && npx --yes gh-pages -d dist"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
