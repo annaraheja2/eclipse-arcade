@@ -127,6 +127,9 @@ export async function deleteAccountData(
   }
 
   await del('matchmaking queue entry', ['matchQueue', uid])
+  // What they told us about themselves goes with them. Deleting an account has
+  // to take the survey too, or "delete my data" quietly leaves some behind.
+  await del('sign-up survey', ['surveys', uid])
   if (username) await del('username reservation', ['usernames', normalizeUsername(username)])
   await del('player profile', ['players', uid])
 

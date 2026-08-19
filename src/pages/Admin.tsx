@@ -4,6 +4,7 @@ import { COURSES, type Course, type Unit, type Subunit, type Question, type Diff
 import { fetchRemoteCourse, saveCourse, draftIssue, mergeBundledContent, slugify, uniqueId } from '../lib/content'
 import { isFirebaseConfigured } from '../lib/firebase'
 import { useAuth } from '../lib/auth'
+import SurveyReport from '../components/SurveyReport'
 import { ArrowLeft } from '../icons'
 
 // Admin content editor: edits arcadeContent/{courseId} in Firestore as one whole
@@ -130,10 +131,36 @@ export default function Admin() {
             This account doesn't have editor access. Sign out and sign back in with an admin account.
           </Gate>
         ) : (
-          <Editor email={user.email ?? ''} />
+          <AdminTabs email={user.email ?? ''} />
         )}
       </div>
     </div>
+  )
+}
+
+/** The two things an admin does here: edit the curriculum, or read who signed up. */
+function AdminTabs({ email }: { email: string }) {
+  const [tab, setTab] = useState<'content' | 'signups'>('content')
+  const tabClass = (active: boolean) =>
+    `px-3.5 py-2 rounded-lg text-sm font-semibold transition ${
+      active
+        ? 'bg-[#1F2A36] text-white'
+        : 'bg-[#FBFDFF] border border-[#CADDEE] text-[#566573] hover:bg-[#EDF5FC]'
+    }`
+  return (
+    <>
+      <div role="tablist" aria-label="Admin sections" className="flex gap-2 mb-5">
+        <button role="tab" aria-selected={tab === 'content'} onClick={() => setTab('content')}
+          className={tabClass(tab === 'content')}>
+          Content
+        </button>
+        <button role="tab" aria-selected={tab === 'signups'} onClick={() => setTab('signups')}
+          className={tabClass(tab === 'signups')}>
+          Sign-ups
+        </button>
+      </div>
+      {tab === 'content' ? <Editor email={email} /> : <SurveyReport />}
+    </>
   )
 }
 
