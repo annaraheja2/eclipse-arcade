@@ -270,6 +270,63 @@ export async function deleteGameRoom(roomId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Card Game: hands nobody else may read
+// ---------------------------------------------------------------------------
+//
+// The room document is readable by everyone at the table, so a hand kept there
+// is a hand everyone can read. Each player's cards live in their own document
+// instead, and the rules let only its owner read it (firestore.rules -> hands).
+//
+// The host deals, because dealing has to happen somewhere and there is no
+// server — so the host sees the deal as they make it, even though the rules stop
+// them reading it back. Rotating who hosts spreads that around; closing it
+// properly would mean dealing server-side. See docs/multiplayer-rules.md.
+
+/** The host deals: one write per seat, all in one batch so a half-dealt table
+ *  can't happen. */
+export async function dealHands(
+  roomId: string, hands: ReadonlyArray<{ uid: string; data: Record<string, unknown> }>,
+): Promise<void> {
+  const { sdk, db } = await fs()
+  const batch = sdk.writeBatch(db)
+  for (const h of hands) {
+    batch.set(sdk.doc(db, COLL, roomId, 'hands', h.uid), h.data)
+  }
+  await batch.commit()
+}
+
+/** Overwrites MY hand. The rules refuse this for anyone else's. */
+export async function writeMyHand(
+  roomId: string, uid: string, data: Record<string, unknown>,
+): Promise<void> {
+  const { sdk, db } = await fs()
+  await sdk.setDoc(sdk.doc(db, COLL, roomId, 'hands', uid), data)
+}
+
+/** My own hand, live. Reading anyone else's is denied by the rules. */
+export function subscribeMyHand<T>(
+  roomId: string,
+  uid: string,
+  read: (data: unknown) => T | null,
+  onHand: (hand: T | null) => void,
+  onError: (err: unknown) => void,
+): () => void {
+  let stop = () => {}
+  let cancelled = false
+  void fs().then(({ sdk, db }) => {
+    if (cancelled) return
+    stop = sdk.onSnapshot(
+      sdk.doc(db, COLL, roomId, 'hands', uid),
+      (snap: { exists: () => boolean; data: () => unknown }) => {
+        onHand(snap.exists() ? read(snap.data()) : null)
+      },
+      onError,
+    )
+  }).catch(onError)
+  return () => { cancelled = true; stop() }
+}
+
+// ---------------------------------------------------------------------------
 // Racer: one document per driver, rather than one shared state
 // ---------------------------------------------------------------------------
 //
