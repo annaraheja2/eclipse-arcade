@@ -18,6 +18,10 @@ import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
 import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
+import { useAuth } from '../lib/auth'
+import { createGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { useUsernames } from '../lib/useUsernames'
+import { seatName } from '../lib/username'
 import { isReducedMotion } from '../lib/motion'
 import { ArrowLeft, Volume, VolumeMute, Coin, Bolt, Replay } from '../icons'
 import { sfxPick, sfxDeny, sfxWin, sfxFire, sfxRotate, setMuted, isMuted } from '../lib/sound'
@@ -83,6 +87,7 @@ function buildCars(difficulty: Difficulty): Car[] {
 export default function Racer() {
   const navigate = useNavigate()
   const { player, finishGame, recordAnswer } = usePlayer()
+  const { user, emailVerified } = useAuth()
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
 
   const [ph, setPh] = useState<Phase>('course')
@@ -154,6 +159,42 @@ export default function Racer() {
     : []
   const questionCount = selectedSubs.reduce((n, s) => n + s.questions.length, 0)
   const atMax = selected.size >= 4
+
+  // An online grid runs on ONE topic — the room document carries a single
+  // subunit, as every shared table does — so hosting wants exactly one pick
+  // while the solo race keeps its set of four.
+  const canHost = !!user && emailVerified && selected.size === 1 && questionCount > 0
+  const [hosting, setHosting] = useState(false)
+  const [hostError, setHostError] = useState('')
+  const myName = useUsernames(user ? [user.uid] : [])
+
+  async function host() {
+    if (!canHost || !course || !user) return
+    // The selection key carries the unit; subunit ids repeat across a course, so
+    // searching for one by id alone can land on the wrong topic entirely.
+    const [unitId, subId] = [...selected][0].split('/')
+    const unit = course.units.find((u) => u.id === unitId)
+    const sub = unit?.subunits.find((s) => s.id === subId)
+    if (!unit || !sub) return
+    setHosting(true)
+    setHostError('')
+    try {
+      const roomId = await createGameRoom(
+        'racer',
+        { uid: user.uid, name: seatName(myName[user.uid], user.email) },
+        { courseId: course.id, unitId: unit.id, subunitId: sub.id, difficulty: sub.difficulty },
+        Math.floor(Math.random() * 1e9),
+        // A racer's position lives in their own document, so the room's shared
+        // state is unused here — an empty object keeps the shape valid.
+        () => ({}),
+      )
+      navigate(`/racer/room/${roomId}`)
+    } catch (err) {
+      console.error('[eclipse-arcade] could not open a grid:', err)
+      setHostError('Could not open a grid — online play may not be switched on yet.')
+      setHosting(false)
+    }
+  }
 
   function toggleSub(key: string) {
     setSelected((prev) => {
@@ -366,6 +407,10 @@ export default function Racer() {
             onSelectAll={() => setSelected(new Set(bearingKeys.slice(0, 4)))}
             onClear={() => setSelected(new Set())}
             onStart={startRace}
+            onHost={host}
+            canHost={canHost}
+            hosting={hosting}
+            hostError={hostError}
           />
         )}
 
@@ -483,9 +528,10 @@ function DiffBadge({ d }: { d: Difficulty }) {
 }
 
 // ---- set builder ----
-function SetBuilder({ course, selected, atMax, questionCount, canSelectAll, onToggle, onSelectAll, onClear, onStart }: {
+function SetBuilder({ course, selected, atMax, questionCount, canSelectAll, onToggle, onSelectAll, onClear, onStart, onHost, canHost, hosting, hostError }: {
   course: Course; selected: Set<string>; atMax: boolean; questionCount: number; canSelectAll: boolean
   onToggle: (key: string) => void; onSelectAll: () => void; onClear: () => void; onStart: () => void
+  onHost: () => void; canHost: boolean; hosting: boolean; hostError: string
 }) {
   const canStart = selected.size > 0 && questionCount > 0
   const empty = course.units.every((u) => u.subunits.every((s) => s.questions.length === 0))
@@ -547,12 +593,24 @@ function SetBuilder({ course, selected, atMax, questionCount, canSelectAll, onTo
       )}
 
       <div className="mt-7 flex flex-col items-center gap-2">
-        <button onClick={onStart} disabled={!canStart}
-          className="font-black text-[13px] tracking-[0.2em] px-8 py-3.5 rounded-lg disabled:opacity-40 transition"
-          style={{ background: ACCENT, color: '#06122b', boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-          START RACE
-        </button>
+        <div className="flex flex-wrap justify-center gap-3">
+          <button onClick={onStart} disabled={!canStart}
+            className="font-black text-[13px] tracking-[0.2em] px-8 py-3.5 rounded-lg disabled:opacity-40 transition"
+            style={{ background: ACCENT, color: '#06122b', boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+            START RACE
+          </button>
+          {gameRoomsAvailable() && (
+            <button onClick={onHost} disabled={!canHost || hosting}
+              className="font-black text-[13px] tracking-[0.2em] px-8 py-3.5 rounded-lg bg-track-slate ring-1 ring-white/15 text-white enabled:hover:bg-track-asphalt disabled:opacity-40 transition">
+              {hosting ? 'OPENING…' : 'RACE A FRIEND'}
+            </button>
+          )}
+        </div>
         {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+        {canStart && !canHost && (
+          <span className="text-xs text-white/60">Pick a single topic to race a friend.</span>
+        )}
+        {hostError && <span role="alert" className="text-xs text-[#ff9dbd]">{hostError}</span>}
       </div>
     </Sheet>
   )

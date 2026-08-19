@@ -29,6 +29,7 @@ import { subscribeFriendships, type Friendship } from '../lib/social'
 import { useUsernames } from '../lib/useUsernames'
 import { displayNameFor, seatName } from '../lib/username'
 import AscendBoard3D, { type BoardMove } from '../components/AscendBoard3D'
+import TableLobby from '../components/TableLobby'
 import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
 import { summarize, type AnsweredItem } from '../lib/summary'
@@ -177,9 +178,13 @@ export default function AscendOnline() {
       {error && <p role="alert" className="text-center text-sm text-[#ff9dbd] mb-4">{error}</p>}
 
       {room.status === 'lobby' && (
-        <Lobby
-          room={room} iAmHost={iAmHost} uid={uid!} seated={seated} busy={busy}
-          nameOf={nameOf} subunitName={subunit?.name ?? null}
+        <TableLobby
+          room={room} uid={uid!} iAmHost={iAmHost} seated={seated} busy={busy}
+          maxSeats={MAX_SEATS} accent={ACCENT} heading="THE CLIMB"
+          blurb={subunit
+            ? <>Everyone answers <span className="text-white/90">{subunit.name}</span>. A correct answer earns a roll — first to {LAST_SQUARE} wins.</>
+            : 'Loading the topic…'}
+          nameOf={nameOf}
           onInvite={(friendUid) => void guard(() => inviteToGameRoom(room.id, friendUid), 'Could not send that invite.')}
           onJoin={() => void guard(
             () => joinGameRoom(room.id, { uid: uid!, name: seatName(names[uid!], user.email) }, MAX_SEATS,
@@ -249,106 +254,6 @@ export default function AscendOnline() {
 }
 
 // ---------------------------------------------------------------------------
-
-function Lobby({ room, iAmHost, uid, seated, busy, nameOf, subunitName, onInvite, onJoin, onStart, onLeave }: {
-  room: GameRoom; iAmHost: boolean; uid: string; seated: boolean; busy: boolean
-  nameOf: (uid: string) => string; subunitName: string | null
-  onInvite: (uid: string) => void; onJoin: () => void; onStart: () => void; onLeave: () => void
-}) {
-  const [friends, setFriends] = useState<Friendship[]>([])
-  useEffect(() => subscribeFriendships(uid, setFriends, (err) =>
-    console.error('[eclipse-arcade] friends feed failed:', err)), [uid])
-
-  const friendUids = friends.map((f) => f.uids.find((u) => u !== uid) ?? '').filter(Boolean)
-  const usernames = useUsernames(friendUids)
-  const full = room.members.length >= MAX_SEATS
-
-  return (
-    <div className="grid gap-6">
-      <div className="text-center">
-        <p className="font-pixel text-[11px]" style={{ color: ACCENT }}>THE CLIMB</p>
-        <p className="mt-2 text-sm text-white/70">
-          {subunitName ? <>Everyone answers <span className="text-white/90">{subunitName}</span>.</> : 'Loading the topic…'}
-        </p>
-        <p className="mt-1 text-xs text-white/50">
-          A correct answer earns a roll. First to {LAST_SQUARE} wins.
-        </p>
-      </div>
-
-      <section>
-        <h2 className="font-pixel text-[10px] text-white/60 mb-2">
-          AT THE TABLE · {room.members.length}/{MAX_SEATS}
-        </h2>
-        <ul className="grid gap-2">
-          {room.members.map((u) => (
-            <li key={u} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
-              <span className="text-sm text-white/90 truncate">
-                {nameOf(u)}
-                {u === room.host && <span className="ml-2 font-pixel text-[8px]" style={{ color: ACCENT }}>HOST</span>}
-                {u === uid && <span className="ml-2 text-xs text-white/45">you</span>}
-              </span>
-            </li>
-          ))}
-          {room.invited.map((u) => (
-            <li key={u} className="flex items-center justify-between rounded-lg border border-white/10 border-dashed px-4 py-3">
-              <span className="text-sm text-white/50 truncate">{nameOf(u)}</span>
-              <span className="text-xs text-white/40">invited…</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {iAmHost && (
-        <section>
-          <h2 className="font-pixel text-[10px] text-white/60 mb-2">INVITE A FRIEND</h2>
-          {friendUids.length === 0 ? (
-            <p className="text-sm text-white/55">
-              No friends yet — add some on the Friends page and they'll show up here.
-            </p>
-          ) : (
-            <ul className="grid gap-2">
-              {friendUids.map((f) => {
-                const already = room.members.includes(f) || room.invited.includes(f)
-                return (
-                  <li key={f} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5">
-                    <span className="text-sm text-white/85 truncate">{displayNameFor(usernames[f], null)}</span>
-                    <button onClick={() => onInvite(f)} disabled={busy || already || full}
-                      className="font-pixel text-[9px] px-3 py-2 rounded-lg text-[#04331d] disabled:opacity-40"
-                      style={BTN}>
-                      {already ? 'ASKED' : 'INVITE'}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </section>
-      )}
-
-      <div className="flex flex-wrap justify-center gap-3">
-        {!seated && (
-          <button onClick={onJoin} disabled={busy || full}
-            className="font-pixel text-[11px] px-5 py-3 rounded-lg text-[#04331d] disabled:opacity-40" style={BTN}>
-            {full ? 'TABLE FULL' : 'TAKE A SEAT'}
-          </button>
-        )}
-        {iAmHost && (
-          <button onClick={onStart} disabled={busy || room.members.length < 2}
-            className="font-pixel text-[11px] px-5 py-3 rounded-lg text-[#04331d] disabled:opacity-40" style={BTN}>
-            START THE CLIMB
-          </button>
-        )}
-        <button onClick={onLeave} disabled={busy}
-          className="font-pixel text-[11px] px-5 py-3 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10">
-          {iAmHost ? 'CLOSE TABLE' : 'LEAVE'}
-        </button>
-      </div>
-      {iAmHost && room.members.length < 2 && (
-        <p className="text-center text-xs text-white/50">Invite at least one friend to start.</p>
-      )}
-    </div>
-  )
-}
 
 function Racer({ name, you, square, correct, place, active }: {
   name: string; you: boolean; square: number; correct: number; place: number; active: boolean

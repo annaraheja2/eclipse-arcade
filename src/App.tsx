@@ -4,6 +4,7 @@ import Game from './pages/Game'
 import Battleship from './pages/Battleship'
 import BattleshipPvp from './pages/BattleshipPvp'
 import Racer from './pages/Racer'
+import RacerOnline from './pages/RacerOnline'
 import CardGame from './pages/CardGame'
 import Ascend from './pages/Ascend'
 import AscendOnline from './pages/AscendOnline'
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/battleship" element={<Battleship />} />
         <Route path="/battleship/pvp/:matchId" element={<BattleshipPvp />} />
         <Route path="/racer" element={<Racer />} />
+        <Route path="/racer/room/:roomId" element={<RacerOnline />} />
         <Route path="/cardgame" element={<CardGame />} />
         <Route path="/ascend" element={<Ascend />} />
         <Route path="/ascend/room/:roomId" element={<AscendOnline />} />
