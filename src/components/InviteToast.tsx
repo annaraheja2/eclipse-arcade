@@ -11,16 +11,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
-import {
-  subscribeMyMatches, acceptInvite, deleteInviteMatch, type Match,
-} from '../lib/social'
-import { subscribeMyRooms, joinRoom, leaveRoom, type LsRoom } from '../lib/lsroom'
-import {
-  subscribeMyGameRooms, joinGameRoom, leaveGameRoom, gameRoomsAvailable, type GameRoom,
-} from '../lib/gameroom'
-import { MAX_SEATS as ASCEND_SEATS, createAscendState, ascendStateData } from '../lib/ascendRoom'
+import { subscribeMyMatches, type Match } from '../lib/social'
+import { subscribeMyRooms, type LsRoom } from '../lib/lsroom'
+import { subscribeMyGameRooms, gameRoomsAvailable, type GameRoom } from '../lib/gameroom'
+import { acceptGameInvite, declineGameInvite } from '../lib/inviteActions'
 import { useUsernames } from '../lib/useUsernames'
-import { displayNameFor } from '../lib/username'
+import { displayNameFor, seatName } from '../lib/username'
 import {
   collectInvites, formatLeft, msLeft, TOAST_MS, type GameInvite,
 } from '../lib/invites'
@@ -86,7 +82,13 @@ export default function InviteToast() {
     return () => window.clearTimeout(id)
   }, [invite])
 
-  const uids = useMemo(() => (invite ? [invite.fromUid] : []), [invite])
+  // Both the sender (to name them on the card) and me (accepting writes my name
+  // into the room, and looking up only the sender would leave mine unresolved
+  // and fall back to my raw email).
+  const uids = useMemo(
+    () => (invite ? [invite.fromUid, ...(uid ? [uid] : [])] : []),
+    [invite, uid],
+  )
   const usernames = useUsernames(uids)
 
   const dismiss = useCallback((id: string) => {
@@ -99,17 +101,10 @@ export default function InviteToast() {
     setBusy(true)
     setError('')
     try {
-      const name = displayNameFor(usernames[uid], user?.email ?? null)
-      if (i.kind === 'battleship') {
-        await acceptInvite(i.id)
-      } else if (i.kind === 'laststanding') {
-        await joinRoom(i.id, { uid, name })
-      } else {
-        await joinGameRoom(i.id, { uid, name }, ASCEND_SEATS,
-          (seats) => ascendStateData(createAscendState(seats)))
-      }
+      const name = seatName(usernames[uid], user?.email ?? null)
+      const route = await acceptGameInvite(i, { uid, name })
       dismiss(i.id)
-      navigate(i.route)
+      navigate(route)
     } catch (err) {
       console.error('[eclipse-arcade] accepting an invite failed:', err)
       setError('Could not join — check your connection and try from the Friends page.')
@@ -125,12 +120,7 @@ export default function InviteToast() {
     // write is still in flight.
     dismiss(i.id)
     try {
-      if (i.kind === 'battleship') await deleteInviteMatch(i.id)
-      else if (i.kind === 'laststanding') await leaveRoom(i.id, uid)
-      else {
-        await leaveGameRoom(i.id, uid, ASCEND_SEATS,
-          (seats) => ascendStateData(createAscendState(seats)))
-      }
+      await declineGameInvite(i, uid)
     } catch (err) {
       // Nothing to surface — the invite is gone from this player's view either
       // way, and it expires on its own within three minutes.

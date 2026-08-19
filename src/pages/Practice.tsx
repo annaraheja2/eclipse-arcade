@@ -119,10 +119,12 @@ export default function Practice() {
   }
 
   function next() {
-    // A generated question is a detour, not a place in the queue — leaving it
-    // returns to the authored question it was spun off from.
-    if (generated) setGenerated(null)
-    else setQueue((cur) => (cur ? advance(cur, Math.random) : cur))
+    // The queue advances either way. A generated question is a detour taken
+    // AFTER its authored one was already answered, so staying put would ask that
+    // question a second time — with its answer still on screen, and counting it
+    // twice in both the summary and the lifetime accuracy.
+    setGenerated(null)
+    setQueue((cur) => (cur ? advance(cur, Math.random) : cur))
     setResult(null)
     setGraded(false)
     setAttempt((a) => a + 1)

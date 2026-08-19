@@ -27,7 +27,7 @@ import { resolveMove, LAST_SQUARE } from '../lib/ascend'
 import { questionIndexFor } from '../lib/lsroom'
 import { subscribeFriendships, type Friendship } from '../lib/social'
 import { useUsernames } from '../lib/useUsernames'
-import { displayNameFor } from '../lib/username'
+import { displayNameFor, seatName } from '../lib/username'
 import AscendBoard3D, { type BoardMove } from '../components/AscendBoard3D'
 import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
@@ -81,7 +81,11 @@ export default function AscendOnline() {
   const state: AscendState | null = useMemo(
     () => (room ? toAscendState(room.state) : null), [room],
   )
-  const mySeat = room && uid ? room.members.indexOf(uid) : -1
+  // Seats, not membership. Leaving mid-race shrinks `members` but deliberately
+  // leaves `seatUids` and the board alone, so indexing by members would slide
+  // everyone behind the leaver onto somebody else's piece.
+  const seats = room?.seatUids ?? []
+  const mySeat = room && uid ? seats.indexOf(uid) : -1
   const seated = mySeat >= 0
   const myTurn = !!state && !!room && room.status === 'active' && state.turn === mySeat && !isOver(state)
 
@@ -117,7 +121,12 @@ export default function AscendOnline() {
     setReward(finishGame('ascend', ascendScoreFor(state, mySeat)))
   }, [state, seated, mySeat, finishGame])
 
-  const names = useUsernames(room?.members ?? [])
+  // Must include the invitees AND me: someone taking a seat is by definition not
+  // in `members` yet, so looking up only members would never resolve their own
+  // handle and the join would write their raw email in as their name.
+  const names = useUsernames(
+    room ? [...room.members, ...room.invited, ...(uid ? [uid] : [])] : [],
+  )
   const nameOf = useCallback(
     (u: string) => room?.names[u] ?? displayNameFor(names[u], null),
     [room, names],
@@ -173,7 +182,7 @@ export default function AscendOnline() {
           nameOf={nameOf} subunitName={subunit?.name ?? null}
           onInvite={(friendUid) => void guard(() => inviteToGameRoom(room.id, friendUid), 'Could not send that invite.')}
           onJoin={() => void guard(
-            () => joinGameRoom(room.id, { uid: uid!, name: displayNameFor(names[uid!], user.email) }, MAX_SEATS,
+            () => joinGameRoom(room.id, { uid: uid!, name: seatName(names[uid!], user.email) }, MAX_SEATS,
               (seats) => ascendStateData(createAscendState(seats))),
             'Could not take a seat.',
           )}
@@ -196,10 +205,10 @@ export default function AscendOnline() {
           />
 
           <div className="mt-4 grid gap-2">
-            {room.members.map((u, seat) => (
+            {seats.map((u, seat) => (
               <Racer
-                key={u}
-                name={nameOf(u)}
+                key={u ?? `empty-${seat}`}
+                name={u ? nameOf(u) : 'Empty seat'}
                 you={u === uid}
                 square={state.positions[seat] ?? 0}
                 correct={state.correct[seat] ?? 0}
@@ -212,7 +221,7 @@ export default function AscendOnline() {
           {isOver(state) ? (
             <Finished
               won={state.winner === mySeat}
-              winner={nameOf(room.members[state.winner] ?? '')}
+              winner={nameOf(seats[state.winner] ?? '')}
               reward={reward}
               level={levelFromXp(player.xp).level}
               answers={answersRef.current}
@@ -229,7 +238,7 @@ export default function AscendOnline() {
           ) : (
             <p className="mt-5 text-center font-sans text-sm text-white/70">
               {seated
-                ? <>Waiting for <span className="font-semibold text-white">{nameOf(room.members[state.turn] ?? '')}</span> to answer…</>
+                ? <>Waiting for <span className="font-semibold text-white">{nameOf(seats[state.turn] ?? '')}</span> to answer…</>
                 : 'Watching this table.'}
             </p>
           )}

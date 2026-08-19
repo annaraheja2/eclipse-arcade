@@ -13,7 +13,11 @@ import {
   acceptInvite, deleteInviteMatch,
   type FriendRequest, type Friendship, type Match,
 } from '../lib/social'
-import { fromMatch, isExpired, msLeft, formatLeft } from '../lib/invites'
+import { collectInvites, msLeft, formatLeft, type GameInvite } from '../lib/invites'
+import { acceptGameInvite, declineGameInvite } from '../lib/inviteActions'
+import { subscribeMyRooms, type LsRoom } from '../lib/lsroom'
+import { subscribeMyGameRooms, gameRoomsAvailable, type GameRoom } from '../lib/gameroom'
+import { seatName } from '../lib/username'
 import { displayNameFor } from '../lib/username'
 import { useUsernames } from '../lib/useUsernames'
 import { ArrowLeft } from '../icons'
@@ -76,6 +80,8 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
   const [requests, setRequests] = useState<FriendRequest[] | null>(null)
   const [friends, setFriends] = useState<Friendship[] | null>(null)
   const [matches, setMatches] = useState<Match[] | null>(null)
+  const [rooms, setRooms] = useState<LsRoom[]>([])
+  const [gameRooms, setGameRooms] = useState<GameRoom[]>([])
   const [feedError, setFeedError] = useState('')
 
   useEffect(() => {
@@ -86,7 +92,16 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
     const u1 = subscribeIncomingRequests(email, setRequests, onError)
     const u2 = subscribeFriendships(uid, setFriends, onError)
     const u3 = subscribeMyMatches(uid, setMatches, onError)
-    return () => { u1(); u2(); u3() }
+    const u4 = subscribeMyRooms(uid, setRooms, onError)
+    // Denied until the gameRooms rules are published — that must not take the
+    // rest of the page down, so it warns and carries on with an empty list.
+    const u5 = gameRoomsAvailable()
+      ? subscribeMyGameRooms(uid, setGameRooms, (err) => {
+        console.warn('[eclipse-arcade] shared tables unavailable (rules not published?):', err)
+        setGameRooms([])
+      })
+      : () => {}
+    return () => { u1(); u2(); u3(); u4(); u5() }
   }, [uid, email])
 
   // Ticks so an invite's countdown runs down and it drops off on its own.
@@ -96,12 +111,10 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
     return () => window.clearInterval(id)
   }, [])
 
-  // An invite keeps its place here for the full three minutes — that's the
-  // point of the list, for someone who was mid-game when the pop-up appeared.
-  const incomingInvites = (matches ?? []).filter((m) => {
-    const invite = fromMatch(m, uid)
-    return invite !== null && !isExpired(invite, now)
-  })
+  // EVERY game's invites, not just Battleship's. The pop-up withdraws after 20
+  // seconds; this list is where an invite keeps its place for the full three
+  // minutes, which is the whole point of it for someone who was mid-game.
+  const incomingInvites = collectInvites(matches ?? [], rooms, gameRooms, uid, now)
   const liveMatches = (matches ?? []).filter((m) => m.status === 'placing' || m.status === 'active')
 
   // Reverse-lookup handles for everyone shown, so people appear by username
@@ -110,13 +123,17 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
     ...(requests ?? []).map((r) => r.fromUid),
     ...(friends ?? []).flatMap((f) => f.uids),
     ...(matches ?? []).flatMap((m) => m.players),
+    // Whoever invited me, and me — accepting writes my own name onto a seat, so
+    // my handle has to resolve or it falls back to my email address.
+    ...incomingInvites.map((i) => i.fromUid),
+    uid,
   ])
 
   return (
     <div className="space-y-10">
       {feedError && <p role="alert" className="text-center text-sm text-[#ff9dbd]">{feedError}</p>}
       {(incomingInvites.length > 0 || liveMatches.length > 0) && (
-        <MatchesSection uid={uid} invites={incomingInvites} live={liveMatches} usernames={usernames} navigate={navigate} now={now} />
+        <MatchesSection uid={uid} email={email} invites={incomingInvites} live={liveMatches} usernames={usernames} navigate={navigate} now={now} />
       )}
       <AddFriend uid={uid} email={email} friends={friends ?? []} />
       <RequestsSection uid={uid} requests={requests} usernames={usernames} />
@@ -127,9 +144,9 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
 
 // ----- battleship invites + in-progress matches -----
 
-function MatchesSection({ uid, invites, live, usernames, navigate, now }: {
-  uid: string; invites: Match[]; live: Match[]; usernames: Record<string, string>
-  navigate: (to: string) => void; now: number
+function MatchesSection({ uid, email, invites, live, usernames, navigate, now }: {
+  uid: string; email: string; invites: GameInvite[]; live: Match[]
+  usernames: Record<string, string>; navigate: (to: string) => void; now: number
 }) {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -147,28 +164,31 @@ function MatchesSection({ uid, invites, live, usernames, navigate, now }: {
   }
 
   return (
-    <Section title="BATTLES">
+    <Section title="GAMES">
       {error && <ErrorLine text={error} />}
       <ul className="grid gap-3">
-        {invites.map((m) => (
-          <li key={m.id} className="flex items-center justify-between gap-3 rounded-xl border border-neon-magenta/40 bg-neon-magenta/10 p-4">
+        {invites.map((i) => (
+          <li key={i.id} className="flex items-center justify-between gap-3 rounded-xl border border-neon-magenta/40 bg-neon-magenta/10 p-4">
             <span className="min-w-0 text-sm text-white/90">
               <span className="block truncate">
-                <span className="font-semibold">{displayNameFor(usernames[m.players[0]], m.emails[m.players[0]])}</span> challenges you to Battleship
+                <span className="font-semibold">{displayNameFor(usernames[i.fromUid], null)}</span> invited you to {i.gameName}
               </span>
               <span className="block text-xs text-white/50 tabular-nums mt-0.5">
-                Expires in {formatLeft(msLeft(fromMatch(m, uid)!, now))}
+                Expires in {formatLeft(msLeft(i, now))}
               </span>
             </span>
             <span className="flex gap-2 shrink-0">
               <button
-                onClick={() => void act(m.id, async () => { await acceptInvite(m.id); navigate(`/battleship/pvp/${m.id}`) }, 'Could not accept the invite — try again.')}
+                onClick={() => void act(i.id, async () => {
+                  const route = await acceptGameInvite(i, { uid, name: seatName(usernames[uid], email) })
+                  navigate(route)
+                }, 'Could not accept the invite — try again.')}
                 disabled={busyId !== null}
                 className="arcade-btn font-pixel text-[9px] px-4 py-2.5 rounded-lg text-[#0a0620] disabled:opacity-60" style={CY_BTN}>
                 ACCEPT
               </button>
               <button
-                onClick={() => void act(m.id, () => deleteInviteMatch(m.id), 'Could not decline the invite — try again.')}
+                onClick={() => void act(i.id, () => declineGameInvite(i, uid), 'Could not decline the invite — try again.')}
                 disabled={busyId !== null}
                 className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 disabled:opacity-60">
                 DECLINE

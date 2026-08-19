@@ -14,7 +14,7 @@ import { useAuth } from '../lib/auth'
 import { createGameRoom, gameRoomsAvailable } from '../lib/gameroom'
 import { createAscendState, ascendStateData } from '../lib/ascendRoom'
 import { useUsernames } from '../lib/useUsernames'
-import { displayNameFor } from '../lib/username'
+import { seatName } from '../lib/username'
 import { usePlayer, resolveCourseId } from '../lib/player'
 import { isReducedMotion } from '../lib/motion'
 import { SEAT_TINTS } from '../components/Character3D'
@@ -136,15 +136,20 @@ export default function Ascend() {
    */
   async function host() {
     if (!canHost || !course || !user) return
-    const sub = selectedSubs[0]
-    const unit = course.units.find((u) => u.subunits.some((s) => s.id === sub.id))
-    if (!unit) return
+    // The selection key already carries the unit. Searching for a unit by
+    // subunit id alone would be wrong: ids are unique within a unit, not across
+    // a course — 'applications' exists under two different Algebra 2 units, so
+    // a lookup could seat the table on the wrong topic entirely.
+    const [unitId, subId] = [...selected][0].split('/')
+    const unit = course.units.find((u) => u.id === unitId)
+    const sub = unit?.subunits.find((s) => s.id === subId)
+    if (!unit || !sub) return
     setHosting(true)
     setHostError('')
     try {
       const roomId = await createGameRoom(
         'ascend',
-        { uid: user.uid, name: displayNameFor(myName[user.uid], user.email) },
+        { uid: user.uid, name: seatName(myName[user.uid], user.email) },
         { courseId: course.id, unitId: unit.id, subunitId: sub.id, difficulty: sub.difficulty },
         Math.floor(Math.random() * 1e9),
         (seats) => ascendStateData(createAscendState(seats)),

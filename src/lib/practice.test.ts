@@ -115,6 +115,20 @@ describe('the practice queue', () => {
   })
 })
 
+describe('leaving a generated detour', () => {
+  // Practice can spin a fresh question off a template ("one more like this").
+  // That detour happens AFTER its authored question was answered, so moving on
+  // has to advance the queue — staying put re-asked the answered question with
+  // its answer still on screen, and counted it a second time.
+  it('advances past the question the detour came from', () => {
+    const pool = poolFor(COURSE, 'u1', new Set(['a', 'b']))
+    const opened = startQueue(pool, seq())
+    const first = current(opened)
+    const after = advance(opened, seq())
+    expect(current(after)).not.toBe(first)
+  })
+})
+
 describe('answerText', () => {
   it('reads a graph answer as a point', () => {
     expect(answerText(g('plot it', 3, -2))).toBe('(3, -2)')

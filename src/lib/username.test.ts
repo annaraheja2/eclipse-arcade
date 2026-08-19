@@ -1,4 +1,23 @@
+import { seatName } from './username'
 import { describe, it, expect } from 'vitest'
+
+describe('seatName', () => {
+  it('prefers the handle', () => {
+    expect(seatName('NOVA', 'nova@example.com')).toBe('NOVA')
+  })
+  it('never puts a whole email on a seat other players can see', () => {
+    const name = seatName(null, 'ben.smith@gmail.com')
+    expect(name).toBe('ben.smith')
+    expect(name).not.toContain('@')
+  })
+  it('copes with a missing handle and a missing email', () => {
+    expect(seatName(null, null)).toBe('PLAYER')
+    expect(seatName('  ', '  ')).toBe('PLAYER')
+  })
+  it('copes with an email that is only a domain', () => {
+    expect(seatName(null, '@nowhere.com')).toBe('PLAYER')
+  })
+})
 import { normalizeUsername, validateUsername, displayNameFor, seatNameFor, planUsernameClaim } from './username'
 
 describe('normalizeUsername', () => {

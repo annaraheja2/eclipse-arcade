@@ -59,6 +59,20 @@ export function validateUsername(raw: string): UsernameValidation {
 }
 
 /** The name to show for a person: their handle if set, else email, else a generic label. */
+/**
+ * A name to put on a seat other players can see. Same as displayNameFor, except
+ * that a missing handle falls back to the part of the email BEFORE the @ — a
+ * whole address doesn't belong on a screen the rest of the table is looking at,
+ * and this value gets written into the room document for everyone to read.
+ */
+export function seatName(username: string | null | undefined, email: string | null | undefined): string {
+  const u = username?.trim()
+  if (u) return u
+  const e = email?.trim()
+  if (e) return e.split('@')[0] || 'PLAYER'
+  return 'PLAYER'
+}
+
 export function displayNameFor(username: string | null | undefined, email: string | null | undefined): string {
   const u = username?.trim()
   if (u) return u
