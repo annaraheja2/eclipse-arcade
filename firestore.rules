@@ -459,9 +459,9 @@ service cloud.firestore {
 
     // ---- gameRooms: one table shape for every turn-based cabinet -----------
     //
-    // NOT YET PUBLISHED. Until this block is live in the Firebase console, any
-    // read or write to gameRooms is denied and the games below stay solo. See
-    // docs/multiplayer-rules.md for the hand-off.
+    // Published 19 Aug 2026. Rules are published by hand from this file (see
+    // docs/multiplayer-rules.md), so if you change this block it does nothing
+    // until somebody pastes the file into the Firebase console again.
     //
     // Ascend and the Card Game are turn-based and their rules already live as
     // pure functions, exactly like Last Standing — so rather than give each its

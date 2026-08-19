@@ -1,19 +1,27 @@
 # Publishing the multiplayer rules
 
-> **Republish needed (2026-08-18).** Both room blocks were tightened: the
-> "leaving" clause allowed anyone merely INVITED to submit `members: []` and
-> empty a whole lobby, because an empty list is a subset that trivially
-> excludes them. Leaving now requires the member list to shrink by exactly one,
-> and declining an invite is its own clause that cannot touch the seated
-> players. Until this is republished the hole is live.
+> **Live as of 2026-08-19.** Verified in the console: the deployed ruleset
+> carries the `gameRooms` block, the private `hands` block, and the tightened
+> "leaving" clause in BOTH room blocks. Ascend tables work; nothing is
+> outstanding.
 
-Firestore denies anything its rules don't explicitly name. Ascend and the Card
-Game will use a `gameRooms` collection, and until the rule block for it is live
-in the Firebase console **every read and write to it fails** — the games stay
-solo no matter what the app code does.
+Firestore denies anything its rules don't explicitly name, and there is no
+automated rules deploy. This file is the source of truth, but editing it does
+nothing by itself — every change has to be pasted into the Firebase console by
+hand, using the steps below, before it takes effect.
 
-The block is already written and version-controlled in `firestore.rules`. It has
-to be published by hand, once. That is the whole task.
+## Reading what is actually live
+
+Two traps, both hit in practice:
+
+- **The console editor only keeps visible lines in the page**, so the browser's
+  Ctrl+F silently misses anything past the first screen and reports "not found"
+  for text that is right there. Click INSIDE the editor first so its own search
+  runs instead.
+- **The end of the file looks identical either way.** Every version ends with the
+  `match /{document=**}` catch-all, so seeing it proves nothing. Look at what
+  sits above it, or read the version list on the left — the starred entry at the
+  top is the deployed ruleset, and selecting it shows exactly what is live.
 
 ## Who can do it
 
