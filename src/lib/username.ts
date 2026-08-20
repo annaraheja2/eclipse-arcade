@@ -224,6 +224,24 @@ export async function claimUsername(uid: string, email: string | null, raw: stri
  * Reads the public usernames collection; uids with no reservation are simply
  * absent from the map (callers fall back to email).
  */
+/**
+ * The uid behind a handle, or null if nobody has it.
+ *
+ * Reads the public usernames collection — a handle maps to a uid, and stops
+ * there on purpose. It does NOT reach an email address: players/{uid} is
+ * readable only by its owner, which is what keeps addresses from leaking. So a
+ * friend request found this way is addressed by uid, not by email.
+ */
+export async function lookupUsername(raw: string): Promise<string | null> {
+  const check = validateUsername(raw)
+  if (!check.ok) return null
+  const { sdk, db } = await fs()
+  const snap = await sdk.getDoc(sdk.doc(db, USERNAMES, check.lower))
+  if (!snap.exists()) return null
+  const data = snap.data() as { uid?: unknown }
+  return typeof data.uid === 'string' && data.uid.length > 0 ? data.uid : null
+}
+
 export async function resolveUsernames(uids: string[]): Promise<Record<string, string>> {
   const unique = [...new Set(uids)].filter((u) => u.length > 0)
   if (unique.length === 0) return {}

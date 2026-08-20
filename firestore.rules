@@ -203,10 +203,21 @@ service cloud.firestore {
     // Friend requests are addressed by (lowercased) email. Doc id is
     // DETERMINISTIC — `${fromUid}_${toEmail}` — which dedupes repeat requests
     // and lets the friendships create rule look the settled request up by id.
+    // A request is addressed one of TWO ways, and only one:
+    //   by email — the sender typed an address, doc id `${fromUid}_${toEmail}`
+    //   by uid   — the sender typed a USERNAME, doc id `${fromUid}_${toUid}`
+    // The second exists because a handle resolves to a uid publicly but an
+    // address does not: players/{uid} is readable only by its owner, which is
+    // what stops the app leaking addresses. A request sent by handle therefore
+    // carries no address at all, and the recipient finds it by their own uid.
     match /friendRequests/{requestId} {
+      function addressedToMe() {
+        return (('toEmail' in resource.data) && resource.data.toEmail == myEmail())
+          || (('toUid' in resource.data) && resource.data.toUid == request.auth.uid);
+      }
       allow read: if verified()
-        && (resource.data.fromUid == request.auth.uid
-            || resource.data.toEmail == myEmail());
+        && (resource.data.fromUid == request.auth.uid || addressedToMe());
+      // By email.
       allow create: if verified()
         && request.resource.data.fromUid == request.auth.uid
         && request.resource.data.fromEmail == myEmail()
@@ -216,9 +227,20 @@ service cloud.firestore {
         && request.resource.data.status == 'pending'
         && request.resource.data.keys().hasOnly(
              ['fromUid', 'fromEmail', 'toEmail', 'status', 'createdAt']);
+      // By uid. The id pins the recipient, so it can't be re-aimed after the
+      // fact, and no address is carried.
+      allow create: if verified()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.fromEmail == myEmail()
+        && request.resource.data.toUid is string
+        && request.resource.data.toUid != request.auth.uid
+        && requestId == request.auth.uid + '_' + request.resource.data.toUid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasOnly(
+             ['fromUid', 'fromEmail', 'toUid', 'status', 'createdAt']);
       // Only the recipient settles a request, exactly once, status-only.
       allow update: if verified()
-        && resource.data.toEmail == myEmail()
+        && addressedToMe()
         && resource.data.status == 'pending'
         && request.resource.data.status in ['accepted', 'declined']
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
@@ -228,8 +250,7 @@ service cloud.firestore {
       // Benign: deleting a request you sent or received only removes your own
       // pending/settled edge — it can't touch anyone else's relationships.
       allow delete: if verified()
-        && (resource.data.fromUid == request.auth.uid
-            || resource.data.toEmail == myEmail());
+        && (resource.data.fromUid == request.auth.uid || addressedToMe());
     }
 
     // Doc id = the two uids sorted and '_'-joined; created by the accepter.
@@ -250,6 +271,22 @@ service cloud.firestore {
           && getAfter(reqPath(otherUid)).data.status == 'accepted'
           && getAfter(reqPath(otherUid)).data.fromUid != request.auth.uid;
       }
+      // The same check for a request that was addressed by uid (sent by
+      // username). Its id ends in MY uid rather than my email, so it needs its
+      // own path; everything else about the check is identical, including that
+      // the sender must not be me.
+      function reqPathUid(otherUid) {
+        return /databases/$(database)/documents/friendRequests/$(otherUid + '_' + request.auth.uid);
+      }
+      function acceptedRequestFromUid(otherUid) {
+        return exists(reqPathUid(otherUid))
+          && getAfter(reqPathUid(otherUid)).data.status == 'accepted'
+          && getAfter(reqPathUid(otherUid)).data.fromUid != request.auth.uid
+          && getAfter(reqPathUid(otherUid)).data.toUid == request.auth.uid;
+      }
+      function acceptedEitherWay(otherUid) {
+        return acceptedRequestFrom(otherUid) || acceptedRequestFromUid(otherUid);
+      }
       allow read: if signedIn() && request.auth.uid in resource.data.uids;
       // Two-branch check: rules can't know which of uids[0]/uids[1] is the
       // request's sender, so whichever slot ISN'T the creator must have sent
@@ -261,9 +298,9 @@ service cloud.firestore {
         && pairId == request.resource.data.uids[0] + '_' + request.resource.data.uids[1]
         && request.resource.data.keys().hasOnly(['uids', 'emails', 'createdAt'])
         && ((request.auth.uid == request.resource.data.uids[0]
-              && acceptedRequestFrom(request.resource.data.uids[1]))
+              && acceptedEitherWay(request.resource.data.uids[1]))
             || (request.auth.uid == request.resource.data.uids[1]
-              && acceptedRequestFrom(request.resource.data.uids[0])));
+              && acceptedEitherWay(request.resource.data.uids[0])));
       // Unfriend: either side may sever the friendship at any time.
       allow delete: if signedIn() && request.auth.uid in resource.data.uids;
     }

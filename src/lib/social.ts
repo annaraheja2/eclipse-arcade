@@ -37,7 +37,15 @@ export interface FriendRequest {
   id: string
   fromUid: string
   fromEmail: string
+  /** Set when the request was addressed by email. Empty on a uid-addressed one. */
   toEmail: string
+  /**
+   * Set when the request was addressed by USERNAME. A username resolves to a
+   * uid publicly, but an address does not — players/{uid} is readable only by
+   * its owner, which is what stops the app leaking email addresses. So a
+   * request sent by handle is addressed by uid and carries no address at all.
+   */
+  toUid: string
   status: RequestStatus
   createdAtMs: number
 }
@@ -193,10 +201,18 @@ const SHOT_RESULTS: readonly ShotResult[] = ['pending', 'miss', 'hit', 'sunk']
 /** Narrows an untrusted friendRequests doc, or null if malformed. */
 export function toFriendRequest(id: string, data: unknown): FriendRequest | null {
   if (!isRecord(data)) return null
-  const { fromUid, fromEmail, toEmail, status } = data
-  if (!str(fromUid) || !str(fromEmail) || !str(toEmail)) return null
+  const { fromUid, fromEmail, status } = data
+  if (!str(fromUid) || !str(fromEmail)) return null
   if (!str(status) || !(REQUEST_STATUSES as readonly string[]).includes(status)) return null
-  return { id, fromUid, fromEmail, toEmail, status: status as RequestStatus, createdAtMs: millisOf(data.createdAt) }
+  // Exactly one of the two addressing forms must be present: by email, or by
+  // uid when the sender only knew a username.
+  const toEmail = str(data.toEmail) ? data.toEmail : ''
+  const toUid = str(data.toUid) ? data.toUid : ''
+  if (!toEmail && !toUid) return null
+  return {
+    id, fromUid, fromEmail, toEmail, toUid,
+    status: status as RequestStatus, createdAtMs: millisOf(data.createdAt),
+  }
 }
 
 /** Narrows an untrusted friendships doc, or null if malformed. */
@@ -455,6 +471,38 @@ export async function sendFriendRequest(fromUid: string, fromEmail: string, toEm
   })
 }
 
+/** The doc id for a request addressed by uid — the username path. */
+export function requestIdByUid(fromUid: string, toUid: string): string {
+  return `${fromUid}_${toUid}`
+}
+
+/**
+ * Sends a friend request to a uid, which is how a request by USERNAME travels.
+ * A handle resolves to a uid through the public usernames collection; an email
+ * address is deliberately not reachable that way, so this form carries none.
+ */
+export async function sendFriendRequestToUid(
+  fromUid: string, fromEmail: string, toUid: string,
+): Promise<void> {
+  const { sdk, db } = await fs()
+  await sdk.setDoc(sdk.doc(db, REQUESTS, requestIdByUid(fromUid, toUid)), {
+    fromUid, fromEmail: fromEmail.toLowerCase(), toUid,
+    status: 'pending', createdAt: sdk.serverTimestamp(),
+  })
+}
+
+/** True if a pending request from this sender to this uid already exists. */
+export async function hasPendingRequestToUid(fromUid: string, toUid: string): Promise<boolean> {
+  const { sdk, db } = await fs()
+  const snap = await sdk.getDocs(sdk.query(
+    sdk.collection(db, REQUESTS),
+    sdk.where('fromUid', '==', fromUid),
+    sdk.where('toUid', '==', toUid),
+    sdk.where('status', '==', 'pending'),
+  ))
+  return !snap.empty
+}
+
 /** True if a pending request from this sender to this address already exists. */
 export async function hasPendingRequest(fromUid: string, toEmail: string): Promise<boolean> {
   const { sdk, db } = await fs()
@@ -467,33 +515,64 @@ export async function hasPendingRequest(fromUid: string, toEmail: string): Promi
   return !snap.empty
 }
 
-/** Live list of pending requests addressed to this email, oldest first. */
+/**
+ * Live list of pending requests addressed to me, oldest first.
+ *
+ * Two queries, because a request can be addressed either way and Firestore
+ * cannot OR across different fields — the same shape subscribeMyRooms uses.
+ * Results are merged by doc id so a request could never appear twice.
+ */
 export function subscribeIncomingRequests(
-  email: string, onChange: (reqs: FriendRequest[]) => void, onError: (err: unknown) => void
+  email: string, myUid: string,
+  onChange: (reqs: FriendRequest[]) => void, onError: (err: unknown) => void,
 ): () => void {
-  return subscribe(
+  const byEmail = new Map<string, FriendRequest>()
+  const byUid = new Map<string, FriendRequest>()
+  const emit = () => {
+    const merged = new Map([...byEmail, ...byUid])
+    onChange([...merged.values()].sort((a, b) => a.createdAtMs - b.createdAtMs))
+  }
+  const stopEmail = subscribe(
     (sdk, db) => sdk.query(
       sdk.collection(db, REQUESTS),
       sdk.where('toEmail', '==', email),
       sdk.where('status', '==', 'pending'),
     ),
     toFriendRequest,
-    (reqs) => onChange(reqs.sort((a, b) => a.createdAtMs - b.createdAtMs)),
-    onError
+    (reqs) => { byEmail.clear(); for (const r of reqs) byEmail.set(r.id, r); emit() },
+    onError,
   )
+  const stopUid = subscribe(
+    (sdk, db) => sdk.query(
+      sdk.collection(db, REQUESTS),
+      sdk.where('toUid', '==', myUid),
+      sdk.where('status', '==', 'pending'),
+    ),
+    toFriendRequest,
+    (reqs) => { byUid.clear(); for (const r of reqs) byUid.set(r.id, r); emit() },
+    onError,
+  )
+  return () => { stopEmail(); stopUid() }
 }
 
 /**
  * Settles a pending request. Accepting also creates the friendships doc (the
  * accepter is the only party who knows both uids at this point) in one batch.
  */
-export async function respondToRequest(req: FriendRequest, accept: boolean, myUid: string): Promise<void> {
+export async function respondToRequest(
+  req: FriendRequest, accept: boolean, myUid: string, myEmail: string,
+): Promise<void> {
   const { sdk, db } = await fs()
   const batch = sdk.writeBatch(db)
   batch.update(sdk.doc(db, REQUESTS, req.id), { status: accept ? 'accepted' : 'declined' })
   if (accept) {
     const uids = [req.fromUid, myUid].sort() as [string, string]
-    const emailOf: Record<string, string> = { [req.fromUid]: req.fromEmail, [myUid]: req.toEmail }
+    // A uid-addressed request carries no address for me, so my own is used —
+    // I am the one accepting, so it is the one address I certainly know.
+    const emailOf: Record<string, string> = {
+      [req.fromUid]: req.fromEmail,
+      [myUid]: req.toEmail || myEmail,
+    }
     batch.set(sdk.doc(db, FRIENDSHIPS, friendshipId(req.fromUid, myUid)), {
       uids, emails: [emailOf[uids[0]], emailOf[uids[1]]], createdAt: sdk.serverTimestamp(),
     })

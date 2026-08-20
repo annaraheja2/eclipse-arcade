@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   friendshipId, requestId, friendRequestIdsFor, normalizeEmail, opponentOf,
-  toFriendRequest, toFriendship, toQueueEntry, toMatch, toShot, toStoredMatch,
+  toFriendRequest, requestIdByUid, toFriendship, toQueueEntry, toMatch, toShot, toStoredMatch,
   toSelection, pickOpponent,
   adjudicateShot, fleetWithHits, shotMarks, sortShots, priorResultAt,
   type Friendship, type Match, type Shot, type QueueEntry, type Selection,
@@ -50,16 +50,38 @@ describe('normalizeEmail', () => {
 
 describe('toFriendRequest', () => {
   const valid = { fromUid: 'u1', fromEmail: 'a@b.com', toEmail: 'c@d.com', status: 'pending', createdAt: ts(5) }
-  it('accepts a well-formed doc', () => {
+  it('accepts a request addressed by email', () => {
     expect(toFriendRequest('r1', valid)).toEqual({
-      id: 'r1', fromUid: 'u1', fromEmail: 'a@b.com', toEmail: 'c@d.com', status: 'pending', createdAtMs: 5,
+      id: 'r1', fromUid: 'u1', fromEmail: 'a@b.com', toEmail: 'c@d.com', toUid: '',
+      status: 'pending', createdAtMs: 5,
     })
+  })
+  it('accepts a request addressed by uid, which carries no address at all', () => {
+    // Sent by username: a handle resolves to a uid publicly, an email does not.
+    const byUid = { fromUid: 'u1', fromEmail: 'a@b.com', toUid: 'u2', status: 'pending', createdAt: ts(5) }
+    expect(toFriendRequest('r1', byUid)).toEqual({
+      id: 'r1', fromUid: 'u1', fromEmail: 'a@b.com', toEmail: '', toUid: 'u2',
+      status: 'pending', createdAtMs: 5,
+    })
+  })
+  it('rejects a request addressed to nobody', () => {
+    // Neither form present: there is no recipient, so it must not be shown.
+    expect(toFriendRequest('r1', { fromUid: 'u1', fromEmail: 'a@b.com', status: 'pending' })).toBeNull()
+    expect(toFriendRequest('r1', { ...valid, toEmail: undefined })).toBeNull()
   })
   it('rejects malformed docs', () => {
     expect(toFriendRequest('r1', null)).toBeNull()
     expect(toFriendRequest('r1', { ...valid, status: 'hacked' })).toBeNull()
     expect(toFriendRequest('r1', { ...valid, fromUid: 7 })).toBeNull()
-    expect(toFriendRequest('r1', { ...valid, toEmail: undefined })).toBeNull()
+  })
+})
+
+describe('requestIdByUid', () => {
+  it('pins both parties into the id, so a request cannot be re-aimed', () => {
+    expect(requestIdByUid('sender', 'recipient')).toBe('sender_recipient')
+  })
+  it('gives each direction its own doc', () => {
+    expect(requestIdByUid('a', 'b')).not.toBe(requestIdByUid('b', 'a'))
   })
 })
 

@@ -9,6 +9,7 @@ import AccountControl from '../components/AccountControl'
 import VerifyEmailNotice from '../components/VerifyEmailNotice'
 import {
   normalizeEmail, sendFriendRequest, hasPendingRequest, respondToRequest, removeFriend,
+  sendFriendRequestToUid, hasPendingRequestToUid,
   subscribeIncomingRequests, subscribeFriendships, subscribeMyMatches,
   acceptInvite, deleteInviteMatch,
   type FriendRequest, type Friendship, type Match,
@@ -17,7 +18,7 @@ import { collectInvites, msLeft, formatLeft, type GameInvite } from '../lib/invi
 import { acceptGameInvite, declineGameInvite } from '../lib/inviteActions'
 import { subscribeMyRooms, type LsRoom } from '../lib/lsroom'
 import { subscribeMyGameRooms, gameRoomsAvailable, type GameRoom } from '../lib/gameroom'
-import { seatName } from '../lib/username'
+import { seatName, validateUsername, lookupUsername } from '../lib/username'
 import { INVITABLE, inviteState, type InvitableGame } from '../lib/inviteFriend'
 import { displayNameFor } from '../lib/username'
 import { useUsernames } from '../lib/useUsernames'
@@ -90,7 +91,7 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
       console.error('[eclipse-arcade] friends feed failed:', err)
       setFeedError('Live updates failed — check your connection and reload.')
     }
-    const u1 = subscribeIncomingRequests(email, setRequests, onError)
+    const u1 = subscribeIncomingRequests(email, uid, setRequests, onError)
     const u2 = subscribeFriendships(uid, setFriends, onError)
     const u3 = subscribeMyMatches(uid, setMatches, onError)
     const u4 = subscribeMyRooms(uid, setRooms, onError)
@@ -137,7 +138,7 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
         <MatchesSection uid={uid} email={email} invites={incomingInvites} live={liveMatches} usernames={usernames} navigate={navigate} now={now} />
       )}
       <AddFriend uid={uid} email={email} friends={friends ?? []} />
-      <RequestsSection uid={uid} requests={requests} usernames={usernames} />
+      <RequestsSection uid={uid} email={email} requests={requests} usernames={usernames} />
       <FriendsSection uid={uid} friends={friends} matches={matches ?? []} usernames={usernames} navigate={navigate} />
     </div>
   )
@@ -228,15 +229,44 @@ function AddFriend({ uid, email, friends }: { uid: string; email: string; friend
     e.preventDefault()
     setError('')
     setSentTo('')
-    const to = normalizeEmail(value)
-    if (!to) { setError('Enter a valid email address.'); return }
-    if (to === email) { setError('That would be you — invite someone else.'); return }
-    if (friends.some((f) => f.emails.includes(to))) { setError('You are already friends.'); return }
+    const typed = value.trim()
+    if (!typed) { setError('Enter a username or an email address.'); return }
+    // An "@" is the only reliable tell: usernames can't contain one (see
+    // validateUsername), so anything with one is meant as an address.
+    const looksLikeEmail = typed.includes('@')
+
+    if (looksLikeEmail) {
+      const to = normalizeEmail(typed)
+      if (!to) { setError('That email address does not look right.'); return }
+      if (to === email) { setError('That would be you — invite someone else.'); return }
+      if (friends.some((f) => f.emails.includes(to))) { setError('You are already friends.'); return }
+      setBusy(true)
+      try {
+        if (await hasPendingRequest(uid, to)) { setError('Request already sent — waiting for them to accept.'); return }
+        await sendFriendRequest(uid, email, to)
+        setSentTo(to)
+        setValue('')
+      } catch (err) {
+        console.error('[eclipse-arcade] friend request failed:', err)
+        setError('Could not send the request — check your connection and try again.')
+      } finally { setBusy(false) }
+      return
+    }
+
+    const check = validateUsername(typed)
+    if (!check.ok) { setError(check.reason); return }
     setBusy(true)
     try {
-      if (await hasPendingRequest(uid, to)) { setError('Request already sent — waiting for them to accept.'); return }
-      await sendFriendRequest(uid, email, to)
-      setSentTo(to)
+      const toUid = await lookupUsername(typed)
+      // Deliberately the same wording whether the handle is free or taken by
+      // somebody who isn't you — this form should not double as a way to test
+      // whether a given handle exists.
+      if (!toUid) { setError(`Nobody here goes by ${check.value}.`); return }
+      if (toUid === uid) { setError('That would be you — invite someone else.'); return }
+      if (friends.some((f) => f.uids.includes(toUid))) { setError('You are already friends.'); return }
+      if (await hasPendingRequestToUid(uid, toUid)) { setError('Request already sent — waiting for them to accept.'); return }
+      await sendFriendRequestToUid(uid, email, toUid)
+      setSentTo(check.value)
       setValue('')
     } catch (err) {
       console.error('[eclipse-arcade] friend request failed:', err)
@@ -247,13 +277,18 @@ function AddFriend({ uid, email, friends }: { uid: string; email: string; friend
   return (
     <Section title="ADD A FRIEND">
       <form onSubmit={(e) => void submit(e)} className="flex gap-2.5">
-        <label htmlFor="friend-email" className="sr-only">Friend's email address</label>
+        <label htmlFor="friend-who" className="sr-only">Friend's username or email address</label>
         <input
-          id="friend-email"
-          type="email"
+          id="friend-who"
+          // Not type="email": this field takes a username too, and the browser
+          // would refuse to submit one.
+          type="text"
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
           value={value}
           onChange={(e) => { setValue(e.target.value); setError(''); setSentTo('') }}
-          placeholder="friend@example.com"
+          placeholder="username or friend@example.com"
           className="flex-1 min-w-0 rounded-lg bg-white/5 border border-white/15 px-3 py-2.5 text-sm text-white placeholder:text-white/40"
         />
         <button type="submit" disabled={busy}
@@ -269,8 +304,8 @@ function AddFriend({ uid, email, friends }: { uid: string; email: string; friend
 
 // ----- incoming requests -----
 
-function RequestsSection({ uid, requests, usernames }: {
-  uid: string; requests: FriendRequest[] | null; usernames: Record<string, string>
+function RequestsSection({ uid, email, requests, usernames }: {
+  uid: string; email: string; requests: FriendRequest[] | null; usernames: Record<string, string>
 }) {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -278,7 +313,7 @@ function RequestsSection({ uid, requests, usernames }: {
   async function respond(req: FriendRequest, accept: boolean) {
     setError('')
     setBusyId(req.id)
-    try { await respondToRequest(req, accept, uid) } catch (err) {
+    try { await respondToRequest(req, accept, uid, email) } catch (err) {
       console.error('[eclipse-arcade] request response failed:', err)
       setError('Could not update the request — try again.')
     } finally { setBusyId(null) }
