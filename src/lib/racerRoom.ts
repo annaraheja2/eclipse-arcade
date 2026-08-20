@@ -42,6 +42,9 @@ export interface RacerProgress {
  */
 export const MAX_EXTRAPOLATION_MS = 6_000
 
+/** Cars on the grid — one per livery, so the field is four. */
+export const MAX_SEATS = 4
+
 /** The furthest anyone could travel in `ms`, flat out. Used to reject a
  *  nonsensical published distance on the way in — see toRacerProgress. */
 export function maxDistanceBy(elapsedMs: number): number {

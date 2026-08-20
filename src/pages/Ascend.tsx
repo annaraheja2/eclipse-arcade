@@ -12,7 +12,8 @@ import SessionSummary from '../components/SessionSummary'
 import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
 import { useAuth } from '../lib/auth'
 import { createGameRoom, inviteToGameRoom, gameRoomsAvailable } from '../lib/gameroom'
-import { friendFromState } from '../lib/inviteFriend'
+import { friendFromState, inviteeLabel } from '../lib/inviteFriend'
+import InviteBanner from '../components/InviteBanner'
 import { createAscendState, ascendStateData } from '../lib/ascendRoom'
 import { useUsernames } from '../lib/useUsernames'
 import { seatName } from '../lib/username'
@@ -100,6 +101,11 @@ export default function Ascend() {
   // Set when the Friends list sent us here to invite somebody specific.
   const location = useLocation()
   const invitee = friendFromState(location.state)
+  // Why the invite can't go out yet. The topic pick is the usual reason, but a
+  // signed-out or unverified visitor (stale router state) can't host at all.
+  const inviteHint = !user || !emailVerified
+    ? 'Sign in and verify your email to open a table.'
+    : 'Pick exactly one topic to open the table.'
 
   function toggleSub(key: string) {
     setSelected((prev) => {
@@ -255,6 +261,10 @@ export default function Ascend() {
           <div aria-hidden className="w-10 h-10" />
         </div>
 
+        {invitee && screen !== 'play' && (
+          <InviteBanner name={inviteeLabel(invitee)} accent={ACCENT} />
+        )}
+
         {screen === 'course' && (
           <Section title="CHOOSE A COURSE">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -329,20 +339,32 @@ export default function Ascend() {
             )}
             <div className="mt-7 flex flex-col items-center gap-2">
               <div className="flex flex-wrap justify-center gap-3">
-                <button onClick={start} disabled={!canStart}
-                  className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-[#0a0620] disabled:opacity-40 transition"
-                  style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-                  Start the climb
-                </button>
+                {/* Sent here to invite somebody: opening the table IS the errand,
+                    so the solo climb doesn't offer itself as a way out of it. */}
+                {!invitee && (
+                  <button onClick={start} disabled={!canStart}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-[#0a0620] disabled:opacity-40 transition"
+                    style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+                    Start the climb
+                  </button>
+                )}
                 {gameRoomsAvailable() && (
                   <button onClick={host} disabled={!canHost || hosting}
-                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white/90 border border-white/20 bg-white/5 enabled:hover:bg-white/10 disabled:opacity-40 transition">
-                    {hosting ? 'Opening a table…' : 'Play with friends'}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg disabled:opacity-40 transition"
+                    style={invitee
+                      ? { background: ACCENT, color: '#0a0620', boxShadow: canHost ? `0 6px 20px -6px ${ACCENT}` : 'none' }
+                      : { color: 'rgba(255,255,255,0.9)', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.05)' }}>
+                    {hosting
+                      ? 'Opening a table…'
+                      : invitee ? `Invite ${inviteeLabel(invitee)}` : 'Play with friends'}
                   </button>
                 )}
               </div>
-              {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
-              {canStart && !canHost && (
+              {!invitee && !canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+              {invitee && !canHost && (
+                <span className="text-xs text-white/60">{inviteHint}</span>
+              )}
+              {!invitee && canStart && !canHost && (
                 <span className="text-xs text-white/60">Pick a single topic to play with friends.</span>
               )}
               {hostError && <span role="alert" className="text-xs text-[#ff9dbd]">{hostError}</span>}

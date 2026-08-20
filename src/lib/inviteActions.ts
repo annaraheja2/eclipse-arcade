@@ -6,11 +6,16 @@
 // kind of bug that only shows up with two people and two devices. So the
 // per-game branching lives here rather than being written out twice.
 //
+// The shared-table games (Ascend, the Card Game, Racer) all seat a player the
+// same way; what differs — chairs and opening state — comes from TABLE_RULES
+// (lib/gameTables.ts), so accepting an invite can never disagree with the
+// lobby's own JOIN button about how a table is seated.
+//
 // The pure side of invites (what they are, when they expire) is lib/invites.ts.
 import { acceptInvite, deleteInviteMatch } from './social'
 import { joinRoom, leaveRoom } from './lsroom'
-import { joinGameRoom, leaveGameRoom } from './gameroom'
-import { createAscendState, ascendStateData, MAX_SEATS as ASCEND_SEATS } from './ascendRoom'
+import { joinGameRoom, leaveGameRoom, type GameKind } from './gameroom'
+import { tableRules } from './gameTables'
 import type { GameInvite } from './invites'
 
 /** Takes the seat and returns where to send the player. */
@@ -25,13 +30,12 @@ export async function acceptGameInvite(
       await joinRoom(invite.id, me)
       break
     case 'ascend':
-      await joinGameRoom(invite.id, me, ASCEND_SEATS,
-        (seats) => ascendStateData(createAscendState(seats)))
-      break
     case 'cardgame':
-      // No table implementation yet, so nothing can create one of these — but
-      // failing loudly beats navigating to a route that does not exist.
-      throw new Error('Card Game tables are not available yet.')
+    case 'racer': {
+      const rules = tableRules(invite.kind satisfies GameKind)
+      await joinGameRoom(invite.id, me, rules.maxSeats, rules.seatState)
+      break
+    }
   }
   return invite.route
 }
@@ -47,8 +51,10 @@ export async function declineGameInvite(invite: GameInvite, uid: string): Promis
       break
     case 'ascend':
     case 'cardgame':
-      await leaveGameRoom(invite.id, uid, ASCEND_SEATS,
-        (seats) => ascendStateData(createAscendState(seats)))
+    case 'racer': {
+      const rules = tableRules(invite.kind satisfies GameKind)
+      await leaveGameRoom(invite.id, uid, rules.maxSeats, rules.seatState)
       break
+    }
   }
 }

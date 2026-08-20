@@ -20,7 +20,8 @@ import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '.
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { createGameRoom, inviteToGameRoom, gameRoomsAvailable } from '../lib/gameroom'
-import { friendFromState } from '../lib/inviteFriend'
+import { friendFromState, inviteeLabel } from '../lib/inviteFriend'
+import InviteBanner from '../components/InviteBanner'
 import { useUsernames } from '../lib/useUsernames'
 import { seatName } from '../lib/username'
 import { isReducedMotion } from '../lib/motion'
@@ -171,6 +172,11 @@ export default function Racer() {
   // Set when the Friends list sent us here to invite somebody specific.
   const location = useLocation()
   const invitee = friendFromState(location.state)
+  // Why the invite can't go out yet. The topic pick is the usual reason, but a
+  // signed-out or unverified visitor (stale router state) can't host at all.
+  const inviteHint = !user || !emailVerified
+    ? 'Sign in and verify your email to open a grid.'
+    : 'Pick exactly one topic to open the grid.'
 
   async function host() {
     if (!canHost || !course || !user) return
@@ -374,6 +380,10 @@ export default function Racer() {
           </button>
         </div>
 
+        {invitee && ph !== 'race' && (
+          <InviteBanner name={inviteeLabel(invitee)} accent={ACCENT} />
+        )}
+
         {ph === 'course' && (
           <Sheet title="CHOOSE A COURSE" sub="Pit lane — pick the championship you're racing in.">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -417,6 +427,8 @@ export default function Racer() {
             canHost={canHost}
             hosting={hosting}
             hostError={hostError}
+            inviting={invitee ? inviteeLabel(invitee) : null}
+            inviteHint={inviteHint}
           />
         )}
 
@@ -534,10 +546,12 @@ function DiffBadge({ d }: { d: Difficulty }) {
 }
 
 // ---- set builder ----
-function SetBuilder({ course, selected, atMax, questionCount, canSelectAll, onToggle, onSelectAll, onClear, onStart, onHost, canHost, hosting, hostError }: {
+function SetBuilder({ course, selected, atMax, questionCount, canSelectAll, onToggle, onSelectAll, onClear, onStart, onHost, canHost, hosting, hostError, inviting, inviteHint }: {
   course: Course; selected: Set<string>; atMax: boolean; questionCount: number; canSelectAll: boolean
   onToggle: (key: string) => void; onSelectAll: () => void; onClear: () => void; onStart: () => void
   onHost: () => void; canHost: boolean; hosting: boolean; hostError: string
+  /** Who the Friends list sent us here to invite, or null on a normal visit. */
+  inviting: string | null; inviteHint: string
 }) {
   const canStart = selected.size > 0 && questionCount > 0
   const empty = course.units.every((u) => u.subunits.every((s) => s.questions.length === 0))
@@ -600,20 +614,29 @@ function SetBuilder({ course, selected, atMax, questionCount, canSelectAll, onTo
 
       <div className="mt-7 flex flex-col items-center gap-2">
         <div className="flex flex-wrap justify-center gap-3">
-          <button onClick={onStart} disabled={!canStart}
-            className="font-black text-[13px] tracking-[0.2em] px-8 py-3.5 rounded-lg disabled:opacity-40 transition"
-            style={{ background: ACCENT, color: '#06122b', boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-            START RACE
-          </button>
+          {/* Sent here to invite somebody: opening the grid IS the errand, so the
+              solo race doesn't offer itself as a way out of it. */}
+          {!inviting && (
+            <button onClick={onStart} disabled={!canStart}
+              className="font-black text-[13px] tracking-[0.2em] px-8 py-3.5 rounded-lg disabled:opacity-40 transition"
+              style={{ background: ACCENT, color: '#06122b', boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+              START RACE
+            </button>
+          )}
           {gameRoomsAvailable() && (
             <button onClick={onHost} disabled={!canHost || hosting}
-              className="font-black text-[13px] tracking-[0.2em] px-8 py-3.5 rounded-lg bg-track-slate ring-1 ring-white/15 text-white enabled:hover:bg-track-asphalt disabled:opacity-40 transition">
-              {hosting ? 'OPENING…' : 'RACE A FRIEND'}
+              className={`font-black text-[13px] tracking-[0.2em] px-8 py-3.5 rounded-lg disabled:opacity-40 transition ${
+                inviting ? '' : 'bg-track-slate ring-1 ring-white/15 text-white enabled:hover:bg-track-asphalt'}`}
+              style={inviting
+                ? { background: ACCENT, color: '#06122b', boxShadow: canHost ? `0 6px 20px -6px ${ACCENT}` : 'none' }
+                : undefined}>
+              {hosting ? 'OPENING…' : inviting ? `INVITE ${inviting.toUpperCase()}` : 'RACE A FRIEND'}
             </button>
           )}
         </div>
-        {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
-        {canStart && !canHost && (
+        {!inviting && !canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+        {inviting && !canHost && <span className="text-xs text-white/60">{inviteHint}</span>}
+        {!inviting && canStart && !canHost && (
           <span className="text-xs text-white/60">Pick a single topic to race a friend.</span>
         )}
         {hostError && <span role="alert" className="text-xs text-[#ff9dbd]">{hostError}</span>}

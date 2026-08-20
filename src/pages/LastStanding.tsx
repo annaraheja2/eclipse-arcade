@@ -19,7 +19,8 @@ import { useAuth } from '../lib/auth'
 import { seatNameFor } from '../lib/username'
 import { useUsernames } from '../lib/useUsernames'
 import { createRoom, inviteToRoom, subscribeMyRooms, roomsAvailable, type LsRoom } from '../lib/lsroom'
-import { friendFromState } from '../lib/inviteFriend'
+import { friendFromState, inviteeLabel } from '../lib/inviteFriend'
+import InviteBanner from '../components/InviteBanner'
 import LastStandingTable3D from '../components/LastStandingTable3D'
 import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
@@ -291,6 +292,10 @@ export default function LastStanding() {
           <button aria-label={muted ? 'Unmute sound' : 'Mute sound'} onClick={() => { const m = !muted; setMuted(m); setMutedState(m) }} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">{muted ? <VolumeMute width={18} height={18} /> : <Volume width={18} height={18} />}</button>
         </div>
 
+        {invitee && screen !== 'play' && (
+          <InviteBanner name={inviteeLabel(invitee)} accent={ACCENT} />
+        )}
+
         {screen === 'course' && myRooms.length > 0 && (
           <div className="mb-8">
             <Section title="YOUR TABLES">
@@ -395,20 +400,36 @@ export default function LastStanding() {
             )}
             <div className="mt-7 flex flex-col items-center gap-2">
               <div className="flex flex-wrap justify-center gap-3">
-                <button onClick={start} disabled={!canStart}
-                  className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
-                  style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-                  Take your seat
-                </button>
+                {/* Sent here to invite somebody: opening the table IS the errand,
+                    so the solo seat doesn't offer itself as a way out of it. */}
+                {!invitee && (
+                  <button onClick={start} disabled={!canStart}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
+                    style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+                    Take your seat
+                  </button>
+                )}
                 {canPlayOnline && (
                   <button onClick={() => void hostTable()} disabled={selectedSubs.length !== 1 || roomBusy}
-                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white/90 border border-white/20 bg-white/5 enabled:hover:bg-white/10 disabled:opacity-40 transition">
-                    {roomBusy ? 'Opening a table…' : 'Play with friends'}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg disabled:opacity-40 transition"
+                    style={invitee
+                      ? { background: ACCENT, color: '#fff', boxShadow: selectedSubs.length === 1 ? `0 6px 20px -6px ${ACCENT}` : 'none' }
+                      : { color: 'rgba(255,255,255,0.9)', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.05)' }}>
+                    {roomBusy
+                      ? 'Opening a table…'
+                      : invitee ? `Invite ${inviteeLabel(invitee)}` : 'Play with friends'}
                   </button>
                 )}
               </div>
-              {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
-              {canStart && canPlayOnline && selectedSubs.length !== 1 && (
+              {!invitee && !canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+              {invitee && (!canPlayOnline || selectedSubs.length !== 1) && (
+                <span className="text-xs text-white/60">
+                  {canPlayOnline
+                    ? 'Pick exactly one topic to open the table.'
+                    : 'Sign in and verify your email to open a table.'}
+                </span>
+              )}
+              {!invitee && canStart && canPlayOnline && selectedSubs.length !== 1 && (
                 <span className="text-xs text-white/60">Playing with friends uses a single shared topic — select exactly one.</span>
               )}
               {roomError && <span role="alert" className="text-xs" style={{ color: '#ff9dbd' }}>{roomError}</span>}

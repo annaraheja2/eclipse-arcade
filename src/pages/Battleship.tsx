@@ -23,7 +23,8 @@ import {
 } from '../lib/social'
 import { ArrowLeft, Volume, VolumeMute, Target } from '../icons'
 import { sfxFire, sfxHit, sfxMiss, sfxSink, sfxWin, setMuted, isMuted } from '../lib/sound'
-import { friendFromState } from '../lib/inviteFriend'
+import { friendFromState, inviteeLabel, type InviteFriend } from '../lib/inviteFriend'
+import InviteBanner from '../components/InviteBanner'
 
 const CY = '#3df5ff'
 // accent vars for the `.arcade-btn` chunky-button chrome (see index.css)
@@ -91,7 +92,7 @@ export default function Battleship() {
   const [invitingUid, setInvitingUid] = useState<string | null>(null)
   // Set when the Friends page routed us here to challenge a specific friend:
   // we run the topic pickers, then invite THIS friend directly (skip the list).
-  const [inviteTarget, setInviteTarget] = useState<{ uid: string; email: string } | null>(null)
+  const [inviteTarget, setInviteTarget] = useState<InviteFriend | null>(null)
 
   const location = useLocation()
   useEffect(() => {
@@ -292,6 +293,14 @@ export default function Battleship() {
           <div className="font-pixel text-[12px]" style={{ color: CY }}>BATTLESHIP</div>
           <button aria-label={muted ? 'Unmute sound' : 'Mute sound'} onClick={() => { const m = !muted; setMuted(m); setMutedState(m) }} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">{muted ? <VolumeMute width={18} height={18} /> : <Volume width={18} height={18} />}</button>
         </div>
+
+        {/* Sent here from the Friends list to challenge one person: say so, the
+            same way every other cabinet does. It clears once the invite is away
+            (the invite phases navigate to the match). */}
+        {inviteTarget && (ph === 'course' || ph === 'unit' || ph === 'subunit') && (
+          <InviteBanner name={inviteeLabel(inviteTarget)} accent={CY}
+            hint={`Pick the topic you'll both answer — the challenge goes to ${inviteeLabel(inviteTarget)} straight after.`} />
+        )}
 
         {ph === 'mode' && (
           <Section title="CHOOSE YOUR OPPONENT">

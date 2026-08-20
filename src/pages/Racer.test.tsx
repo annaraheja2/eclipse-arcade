@@ -58,4 +58,31 @@ describe('Racer without Firebase config', () => {
     expect(html).toContain('CHOOSE A COURSE')
     expect(html).toContain('Algebra 1')
   })
+
+  // Arriving from the Friends list carries the friend in router state. The page
+  // must read it (and say so) — that same `invitee` is what hides the solo START
+  // RACE button on the topic screen, so a banner here means the handoff landed.
+  it('names the friend when the Friends list sent us here to invite them', async () => {
+    vi.resetModules()
+    for (const name of FIREBASE_ENV) vi.stubEnv(name, '')
+    const [{ AuthProvider }, { PlayerProvider }, { default: Racer }] = await Promise.all([
+      import('../lib/auth'),
+      import('../lib/player'),
+      import('./Racer'),
+    ])
+    const html = renderToString(
+      <MemoryRouter initialEntries={[{
+        pathname: '/racer',
+        state: { inviteFriend: { uid: 'friend-uid', email: 'nova@example.com', name: 'NOVA' } },
+      }]}>
+        <AuthProvider>
+          <PlayerProvider>
+            <Racer />
+          </PlayerProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+    expect(html).toContain('INVITING')
+    expect(html).toContain('NOVA gets the invite straight away')
+  })
 })

@@ -5,7 +5,8 @@ import { loadCourse } from '../lib/content'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { createGameRoom, inviteToGameRoom, gameRoomsAvailable } from '../lib/gameroom'
-import { friendFromState } from '../lib/inviteFriend'
+import { friendFromState, inviteeLabel } from '../lib/inviteFriend'
+import InviteBanner from '../components/InviteBanner'
 import { openingPublic, cardPublicData } from '../lib/cardRoom'
 import { useUsernames } from '../lib/useUsernames'
 import { seatName } from '../lib/username'
@@ -113,6 +114,11 @@ export default function CardGame() {
   // Set when the Friends list sent us here to invite somebody specific.
   const location = useLocation()
   const invitee = friendFromState(location.state)
+  // Why the invite can't go out yet. The topic pick is the usual reason, but a
+  // signed-out or unverified visitor (stale router state) can't host at all.
+  const inviteHint = !user || !emailVerified
+    ? 'Sign in and verify your email to open a table.'
+    : 'Pick exactly one topic to open the table.'
 
   async function host() {
     if (!canHost || !course || !user) return
@@ -182,6 +188,10 @@ export default function CardGame() {
           <div className="flex items-center gap-2 font-sans font-bold text-sm tracking-[0.14em]" style={{ color: '#c9b3ff' }}><Cards width={18} height={18} /> CARD GAME</div>
           <button aria-label={muted ? 'Unmute sound' : 'Mute sound'} onClick={() => { const m = !muted; setMuted(m); setMutedState(m) }} className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white">{muted ? <VolumeMute width={18} height={18} /> : <Volume width={18} height={18} />}</button>
         </div>
+
+        {invitee && screen !== 'play' && (
+          <InviteBanner name={inviteeLabel(invitee)} accent={ACCENT} />
+        )}
 
         {screen === 'course' && (
           <Section title="CHOOSE A COURSE">
@@ -257,20 +267,32 @@ export default function CardGame() {
             )}
             <div className="mt-7 flex flex-col items-center gap-2">
               <div className="flex flex-wrap justify-center gap-3">
-                <button onClick={start} disabled={!canStart}
-                  className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
-                  style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
-                  Deal cards
-                </button>
+                {/* Sent here to invite somebody: opening the table IS the errand,
+                    so the solo deal doesn't offer itself as a way out of it. */}
+                {!invitee && (
+                  <button onClick={start} disabled={!canStart}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white disabled:opacity-40 transition"
+                    style={{ background: ACCENT, boxShadow: canStart ? `0 6px 20px -6px ${ACCENT}` : 'none' }}>
+                    Deal cards
+                  </button>
+                )}
                 {gameRoomsAvailable() && (
                   <button onClick={host} disabled={!canHost || hosting}
-                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg text-white/90 border border-white/20 bg-white/5 enabled:hover:bg-white/10 disabled:opacity-40 transition">
-                    {hosting ? 'Opening a table…' : 'Play with friends'}
+                    className="font-sans font-bold text-sm tracking-wide px-8 py-3.5 rounded-lg disabled:opacity-40 transition"
+                    style={invitee
+                      ? { background: ACCENT, color: '#fff', boxShadow: canHost ? `0 6px 20px -6px ${ACCENT}` : 'none' }
+                      : { color: 'rgba(255,255,255,0.9)', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.05)' }}>
+                    {hosting
+                      ? 'Opening a table…'
+                      : invitee ? `Invite ${inviteeLabel(invitee)}` : 'Play with friends'}
                   </button>
                 )}
               </div>
-              {!canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
-              {canStart && !canHost && (
+              {!invitee && !canStart && <span className="text-xs text-white/60">Select at least one topic to start.</span>}
+              {invitee && !canHost && (
+                <span className="text-xs text-white/60">{inviteHint}</span>
+              )}
+              {!invitee && canStart && !canHost && (
                 <span className="text-xs text-white/60">Pick a single topic to play with friends.</span>
               )}
               {hostError && <span role="alert" className="text-xs text-[#ff9dbd]">{hostError}</span>}

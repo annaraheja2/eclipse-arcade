@@ -163,7 +163,7 @@ export async function joinGameRoom(
   roomId: string,
   me: { uid: string; name: string },
   maxSeats: number,
-  reseat: (seatCount: number) => Record<string, unknown>,
+  reseat: (seatCount: number, room: GameRoom) => Record<string, unknown>,
 ): Promise<void> {
   const { sdk, db } = await fs()
   await sdk.runTransaction(db, async (tx) => {
@@ -180,7 +180,7 @@ export async function joinGameRoom(
       names: { ...room.names, [me.uid]: me.name },
       invited: room.invited.filter((u) => u !== me.uid),
       seatUids: seatsFor(members, maxSeats),
-      state: reseat(members.length),
+      state: reseat(members.length, room),
       updatedAt: sdk.serverTimestamp(),
     })
   })
@@ -191,7 +191,7 @@ export async function leaveGameRoom(
   roomId: string,
   uid: string,
   maxSeats: number,
-  reseat: (seatCount: number) => Record<string, unknown>,
+  reseat: (seatCount: number, room: GameRoom) => Record<string, unknown>,
 ): Promise<void> {
   const { sdk, db } = await fs()
   await sdk.runTransaction(db, async (tx) => {
@@ -210,7 +210,7 @@ export async function leaveGameRoom(
       // Re-seating mid-race would scramble everyone's progress, so only a lobby
       // leave re-seats; someone who walks out of a live game keeps their chair.
       ...(room.status === 'lobby'
-        ? { seatUids: seatsFor(members, maxSeats), state: reseat(Math.max(1, members.length)) }
+        ? { seatUids: seatsFor(members, maxSeats), state: reseat(Math.max(1, members.length), room) }
         : {}),
       updatedAt: sdk.serverTimestamp(),
     })

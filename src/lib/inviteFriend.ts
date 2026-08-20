@@ -9,8 +9,10 @@
 // One key for the handoff, read the same way everywhere, so a new game joins by
 // adding a row to INVITABLE rather than inventing its own convention.
 
-/** Who to invite, carried from the Friends list to a game's setup screen. */
-export interface InviteFriend { uid: string; email: string }
+/** Who to invite, carried from the Friends list to a game's setup screen.
+ *  `name` is how the Friends list was already showing them, so the setup screen
+ *  can name them without a second handle lookup; it may be missing. */
+export interface InviteFriend { uid: string; email: string; name?: string }
 
 /** The router-state key every game reads. */
 export const INVITE_STATE_KEY = 'inviteFriend'
@@ -57,10 +59,19 @@ export function friendFromState(state: unknown): InviteFriend | null {
   if (typeof state !== 'object' || state === null) return null
   const raw = (state as Record<string, unknown>)[INVITE_STATE_KEY]
   if (typeof raw !== 'object' || raw === null) return null
-  const { uid, email } = raw as Record<string, unknown>
+  const { uid, email, name } = raw as Record<string, unknown>
   if (typeof uid !== 'string' || uid.length === 0) return null
-  return { uid, email: typeof email === 'string' ? email : '' }
+  return {
+    uid,
+    email: typeof email === 'string' ? email : '',
+    ...(typeof name === 'string' && name.length > 0 ? { name } : {}),
+  }
 }
+
+/** What to call the friend on a setup screen: their handle if we were handed
+ *  one, their address if not, and a neutral word if we have neither. */
+export const inviteeLabel = (friend: InviteFriend): string =>
+  friend.name || friend.email || 'your friend'
 
 /** The router state to navigate with. */
 export function inviteState(friend: InviteFriend): Record<string, InviteFriend> {

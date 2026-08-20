@@ -24,7 +24,10 @@ import {
   drawOne, passAfterDraw, toCardPublic, toCardHand, cardPublicData, cardHandData,
   type CardPublic, type CardHand,
 } from '../lib/cardRoom'
-import { COLORS, PLAYER_MAX, type Card, type Color } from '../lib/cardgame'
+import { COLORS, type Card, type Color } from '../lib/cardgame'
+// Chairs and opening state come from the one registry every seating surface
+// reads, so the JOIN button here and an accepted invite agree.
+import { tableRules } from '../lib/gameTables'
 import { colorName } from '../lib/cardgameView'
 import { randomSecret } from '../lib/fairseed'
 import { questionIndexFor } from '../lib/lsroom'
@@ -39,6 +42,7 @@ import { sfxPick, sfxDeny, sfxWin } from '../lib/sound'
 import { ArrowLeft, Coin, Bolt, Star } from '../icons'
 
 const ACCENT = '#7c3aff'
+const TABLE = tableRules('cardgame')
 const SEAT_TINT = ['#7c3aff', '#ff4d8d', '#3dffa2', '#ffb43d', '#3df5ff'] as const
 
 /**
@@ -246,15 +250,15 @@ export default function CardGameOnline() {
       {room.status === 'lobby' && (
         <TableLobby
           room={room} uid={uid!} iAmHost={iAmHost} seated={seated} busy={busy}
-          maxSeats={PLAYER_MAX} accent={ACCENT} heading="THE TABLE"
+          maxSeats={TABLE.maxSeats} accent={ACCENT} heading="THE TABLE"
           blurb={subunit
             ? <>Everyone answers <span className="text-white/90">{subunit.name}</span>. Solve to play a card — first to empty their hand wins. Nobody deals: you shuffle your own cards.</>
             : 'Loading the topic…'}
           nameOf={nameOf}
           onInvite={(f) => void guard(() => inviteToGameRoom(room.id, f), 'Could not send that invite.')}
           onJoin={() => void guard(
-            () => joinGameRoom(room.id, { uid: uid!, name: seatName(names[uid!], user.email) }, PLAYER_MAX,
-              (n) => cardPublicData(openingPublic(room.seed, n))),
+            () => joinGameRoom(room.id, { uid: uid!, name: seatName(names[uid!], user.email) },
+              TABLE.maxSeats, TABLE.seatState),
             'Could not take a seat.',
           )}
           onStart={() => void guard(async () => {
@@ -264,8 +268,7 @@ export default function CardGameOnline() {
             await startGameRoom(room.id, uid!)
           }, 'Could not start the game.')}
           onLeave={() => void guard(async () => {
-            await leaveGameRoom(room.id, uid!, PLAYER_MAX,
-              (n) => cardPublicData(openingPublic(room.seed, n)))
+            await leaveGameRoom(room.id, uid!, TABLE.maxSeats, TABLE.seatState)
             navigate('/cardgame')
           }, 'Could not leave the table.')}
         />

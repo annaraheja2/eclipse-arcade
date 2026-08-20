@@ -20,9 +20,12 @@ import {
   commitGameTransition, deleteGameRoom, type GameRoom,
 } from '../lib/gameroom'
 import {
-  toAscendState, ascendStateData, applyAscendAnswer, createAscendState, rollForTurn,
-  ascendPlacements, ascendScoreFor, isOver, MAX_SEATS, type AscendState,
+  toAscendState, ascendStateData, applyAscendAnswer, rollForTurn,
+  ascendPlacements, ascendScoreFor, isOver, type AscendState,
 } from '../lib/ascendRoom'
+// Chairs and opening state come from the one registry every seating surface
+// reads, so the JOIN button here and an accepted invite agree.
+import { tableRules } from '../lib/gameTables'
 import { resolveMove, LAST_SQUARE } from '../lib/ascend'
 import { questionIndexFor } from '../lib/lsroom'
 import { subscribeFriendships, type Friendship } from '../lib/social'
@@ -38,6 +41,7 @@ import { sfxPick, sfxDeny, sfxWin } from '../lib/sound'
 import { ArrowLeft, Coin, Bolt, Star, Replay } from '../icons'
 
 const ACCENT = '#3dffa2'
+const TABLE = tableRules('ascend')
 const BTN: CSSProperties = { background: ACCENT, color: '#04331d' }
 
 export default function AscendOnline() {
@@ -180,20 +184,20 @@ export default function AscendOnline() {
       {room.status === 'lobby' && (
         <TableLobby
           room={room} uid={uid!} iAmHost={iAmHost} seated={seated} busy={busy}
-          maxSeats={MAX_SEATS} accent={ACCENT} heading="THE CLIMB"
+          maxSeats={TABLE.maxSeats} accent={ACCENT} heading="THE CLIMB"
           blurb={subunit
             ? <>Everyone answers <span className="text-white/90">{subunit.name}</span>. A correct answer earns a roll — first to {LAST_SQUARE} wins.</>
             : 'Loading the topic…'}
           nameOf={nameOf}
           onInvite={(friendUid) => void guard(() => inviteToGameRoom(room.id, friendUid), 'Could not send that invite.')}
           onJoin={() => void guard(
-            () => joinGameRoom(room.id, { uid: uid!, name: seatName(names[uid!], user.email) }, MAX_SEATS,
-              (seats) => ascendStateData(createAscendState(seats))),
+            () => joinGameRoom(room.id, { uid: uid!, name: seatName(names[uid!], user.email) },
+              TABLE.maxSeats, TABLE.seatState),
             'Could not take a seat.',
           )}
           onStart={() => void guard(() => startGameRoom(room.id, uid!), 'Could not start the climb.')}
           onLeave={() => void guard(async () => {
-            await leaveGameRoom(room.id, uid!, MAX_SEATS, (seats) => ascendStateData(createAscendState(seats)))
+            await leaveGameRoom(room.id, uid!, TABLE.maxSeats, TABLE.seatState)
             navigate('/ascend')
           }, 'Could not leave the table.')}
         />

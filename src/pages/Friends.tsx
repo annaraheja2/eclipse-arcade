@@ -359,7 +359,7 @@ function FriendsSection({ uid, friends, matches, usernames, navigate }: {
   // Which friend's game picker is open, if any.
   const [pickingFor, setPickingFor] = useState<string | null>(null)
 
-  function invite(game: InvitableGame, friendUid: string, friendEmail: string) {
+  function invite(game: InvitableGame, friendUid: string, friendEmail: string, friendName: string) {
     setPickingFor(null)
     // A Battleship invite to this friend already pending? Jump back into it
     // rather than stacking a duplicate challenge.
@@ -368,8 +368,12 @@ function FriendsSection({ uid, friends, matches, usernames, navigate }: {
       if (existing) { navigate(`/battleship/pvp/${existing.id}`); return }
     }
     // Every game needs a topic, and this page has no topic picker — so hand the
-    // friend to the game's own setup screen, which finishes the job.
-    navigate(game.route, { state: inviteState({ uid: friendUid, email: friendEmail }) })
+    // friend to the game's own setup screen, which finishes the job. The name
+    // travels too, so that screen can say who it is opening a table for without
+    // looking the handle up again.
+    navigate(game.route, {
+      state: inviteState({ uid: friendUid, email: friendEmail, name: friendName }),
+    })
   }
 
   async function unfriend(f: Friendship, friendUid: string) {
@@ -432,7 +436,7 @@ function FriendsSection({ uid, friends, matches, usernames, navigate }: {
                       {INVITABLE.map((g) => (
                         <li key={g.key}>
                           <button
-                            onClick={() => invite(g, f.uids[idx], f.emails[idx])}
+                            onClick={() => invite(g, f.uids[idx], f.emails[idx], name)}
                             className="w-full text-left rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 hover:bg-white/[0.07] transition">
                             <span className="block font-sans font-semibold text-sm" style={{ color: g.color }}>
                               {g.name}

@@ -23,8 +23,10 @@ import {
   standings, projectedDistance, shouldPublish, toRacerProgress, racerProgressData,
   secondsLeft, type RacerProgress,
 } from '../lib/racerRoom'
+// Chairs and opening state come from the one registry every seating surface
+// reads, so the JOIN button here and an accepted invite agree.
+import { tableRules } from '../lib/gameTables'
 import { applyAnswer, advanceDistance, raceScore, START_MPH, RACE_SECONDS, type Car } from '../lib/racer'
-import { createAscendState, ascendStateData } from '../lib/ascendRoom'
 import { useUsernames } from '../lib/useUsernames'
 import { displayNameFor, seatName } from '../lib/username'
 import TableLobby from '../components/TableLobby'
@@ -38,7 +40,8 @@ import { ArrowLeft, Coin, Bolt, Star } from '../icons'
 const CircuitGL = lazy(() => import('../components/CircuitGL'))
 
 const ACCENT = '#4d8dff'
-const MAX_SEATS = 4
+const TABLE = tableRules('racer')
+const MAX_SEATS = TABLE.maxSeats
 // Car colours, assigned by seat so every screen paints the field the same.
 const LIVERY = ['#4d8dff', '#ff4d8d', '#3dffa2', '#ffb43d'] as const
 
@@ -267,13 +270,13 @@ export default function RacerOnline() {
           nameOf={nameOf}
           onInvite={(f) => void guard(() => inviteToGameRoom(room.id, f), 'Could not send that invite.')}
           onJoin={() => void guard(
-            () => joinGameRoom(room.id, { uid: uid!, name: seatName(names[uid!], user.email) }, MAX_SEATS,
-              (s) => ascendStateData(createAscendState(s))),
+            () => joinGameRoom(room.id, { uid: uid!, name: seatName(names[uid!], user.email) },
+              TABLE.maxSeats, TABLE.seatState),
             'Could not take a seat.',
           )}
           onStart={() => void guard(() => startGameRoom(room.id, uid!), 'Could not start the race.')}
           onLeave={() => void guard(async () => {
-            await leaveGameRoom(room.id, uid!, MAX_SEATS, (s) => ascendStateData(createAscendState(s)))
+            await leaveGameRoom(room.id, uid!, TABLE.maxSeats, TABLE.seatState)
             navigate('/racer')
           }, 'Could not leave the grid.')}
         />

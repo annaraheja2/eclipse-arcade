@@ -60,4 +60,31 @@ describe('Last Standing without Firebase config', () => {
     expect(html).toContain('CHOOSE A COURSE')
     expect(html).toContain('Algebra 1')
   })
+
+  // Arriving from the Friends list carries the friend in router state. The page
+  // must read it (and say so) — that same `invitee` is what hides the solo
+  // "Take your seat" button on the topic screen.
+  it('names the friend when the Friends list sent us here to invite them', async () => {
+    vi.resetModules()
+    for (const name of FIREBASE_ENV) vi.stubEnv(name, '')
+    const [{ AuthProvider }, { PlayerProvider }, { default: LastStanding }] = await Promise.all([
+      import('../lib/auth'),
+      import('../lib/player'),
+      import('./LastStanding'),
+    ])
+    const html = renderToString(
+      <MemoryRouter initialEntries={[{
+        pathname: '/laststanding',
+        state: { inviteFriend: { uid: 'friend-uid', email: 'nova@example.com', name: 'NOVA' } },
+      }]}>
+        <AuthProvider>
+          <PlayerProvider>
+            <LastStanding />
+          </PlayerProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+    expect(html).toContain('INVITING')
+    expect(html).toContain('NOVA gets the invite straight away')
+  })
 })
