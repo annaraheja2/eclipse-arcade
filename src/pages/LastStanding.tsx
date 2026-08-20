@@ -6,7 +6,7 @@
 // course → topics picker as the Card Game.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
@@ -18,7 +18,8 @@ import {
 import { useAuth } from '../lib/auth'
 import { seatNameFor } from '../lib/username'
 import { useUsernames } from '../lib/useUsernames'
-import { createRoom, subscribeMyRooms, roomsAvailable, type LsRoom } from '../lib/lsroom'
+import { createRoom, inviteToRoom, subscribeMyRooms, roomsAvailable, type LsRoom } from '../lib/lsroom'
+import { friendFromState } from '../lib/inviteFriend'
 import LastStandingTable3D from '../components/LastStandingTable3D'
 import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
@@ -64,6 +65,9 @@ interface GameResult {
 
 export default function LastStanding() {
   const navigate = useNavigate()
+  // Set when the Friends list sent us here to invite somebody specific.
+  const location = useLocation()
+  const invitee = friendFromState(location.state)
   const { player, finishGame, recordAnswer } = usePlayer()
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
 
@@ -121,6 +125,9 @@ export default function LastStanding() {
         { courseId, unitId: unit.id, subunitId: sub.id, difficulty: sub.difficulty },
         Math.floor(Math.random() * 0x7fffffff),
       )
+      // Opened from the Friends list: ask that friend straight away, so picking
+      // a game there really does invite them rather than just opening a table.
+      if (invitee) await inviteToRoom(id, invitee.uid)
       navigate(`/laststanding/room/${id}`)
     } catch (err) {
       setRoomError(err instanceof Error ? err.message : 'Could not open a table.')

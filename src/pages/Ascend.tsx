@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { COURSES, COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import {
@@ -11,7 +11,8 @@ import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
 import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
 import { useAuth } from '../lib/auth'
-import { createGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { createGameRoom, inviteToGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { friendFromState } from '../lib/inviteFriend'
 import { createAscendState, ascendStateData } from '../lib/ascendRoom'
 import { useUsernames } from '../lib/useUsernames'
 import { seatName } from '../lib/username'
@@ -96,6 +97,9 @@ export default function Ascend() {
   const [hosting, setHosting] = useState(false)
   const [hostError, setHostError] = useState('')
   const myName = useUsernames(user ? [user.uid] : [])
+  // Set when the Friends list sent us here to invite somebody specific.
+  const location = useLocation()
+  const invitee = friendFromState(location.state)
 
   function toggleSub(key: string) {
     setSelected((prev) => {
@@ -154,6 +158,9 @@ export default function Ascend() {
         Math.floor(Math.random() * 1e9),
         (seats) => ascendStateData(createAscendState(seats)),
       )
+      // Opened from the Friends list: ask that friend straight away, so picking
+      // a game there really does invite them rather than just opening a lobby.
+      if (invitee) await inviteToGameRoom(roomId, invitee.uid)
       navigate(`/ascend/room/${roomId}`)
     } catch (err) {
       console.error('[eclipse-arcade] could not open a table:', err)

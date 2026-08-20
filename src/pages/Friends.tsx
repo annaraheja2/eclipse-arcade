@@ -18,6 +18,7 @@ import { acceptGameInvite, declineGameInvite } from '../lib/inviteActions'
 import { subscribeMyRooms, type LsRoom } from '../lib/lsroom'
 import { subscribeMyGameRooms, gameRoomsAvailable, type GameRoom } from '../lib/gameroom'
 import { seatName } from '../lib/username'
+import { INVITABLE, inviteState, type InvitableGame } from '../lib/inviteFriend'
 import { displayNameFor } from '../lib/username'
 import { useUsernames } from '../lib/useUsernames'
 import { ArrowLeft } from '../icons'
@@ -320,15 +321,20 @@ function FriendsSection({ uid, friends, matches, usernames, navigate }: {
   const [error, setError] = useState('')
   const [busyUid, setBusyUid] = useState<string | null>(null)
   const [confirmUnfriendId, setConfirmUnfriendId] = useState<string | null>(null)
+  // Which friend's game picker is open, if any.
+  const [pickingFor, setPickingFor] = useState<string | null>(null)
 
-  function invite(friendUid: string, friendEmail: string) {
-    // An invite to this friend already pending? Jump back into it instead of
-    // stacking a duplicate challenge.
-    const existing = matches.find((m) => m.status === 'invite' && m.players[0] === uid && m.players[1] === friendUid)
-    if (existing) { navigate(`/battleship/pvp/${existing.id}`); return }
-    // Hand off to Battleship's topic pickers (course → unit → subunit), which
-    // then create the invite on the chosen subunit for THIS friend.
-    navigate('/battleship', { state: { pvpInvite: { uid: friendUid, email: friendEmail } } })
+  function invite(game: InvitableGame, friendUid: string, friendEmail: string) {
+    setPickingFor(null)
+    // A Battleship invite to this friend already pending? Jump back into it
+    // rather than stacking a duplicate challenge.
+    if (game.key === 'battleship') {
+      const existing = matches.find((m) => m.status === 'invite' && m.players[0] === uid && m.players[1] === friendUid)
+      if (existing) { navigate(`/battleship/pvp/${existing.id}`); return }
+    }
+    // Every game needs a topic, and this page has no topic picker — so hand the
+    // friend to the game's own setup screen, which finishes the job.
+    navigate(game.route, { state: inviteState({ uid: friendUid, email: friendEmail }) })
   }
 
   async function unfriend(f: Friendship, friendUid: string) {
@@ -352,31 +358,59 @@ function FriendsSection({ uid, friends, matches, usernames, navigate }: {
             const idx = f.uids[0] === uid ? 1 : 0
             const name = displayNameFor(usernames[f.uids[idx]], f.emails[idx])
             return (
-              <li key={f.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                <span className="text-sm text-white/90 truncate">{name}</span>
-                {confirmUnfriendId === f.id ? (
-                  <span className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm text-white/80">Remove {name}?</span>
-                    <button onClick={() => void unfriend(f, f.uids[idx])} disabled={busyUid !== null}
-                      className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-[#ff4d8d] text-[#2a0512] disabled:opacity-60">
-                      CONFIRM
-                    </button>
-                    <button onClick={() => setConfirmUnfriendId(null)} disabled={busyUid !== null}
-                      className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 disabled:opacity-60">
-                      KEEP
-                    </button>
-                  </span>
-                ) : (
-                  <span className="flex gap-2 shrink-0">
-                    <button onClick={() => void invite(f.uids[idx], f.emails[idx])} disabled={busyUid !== null}
-                      className="arcade-btn font-pixel text-[9px] px-4 py-2.5 rounded-lg text-[#0a0620] disabled:opacity-60" style={CY_BTN}>
-                      {busyUid === f.uids[idx] ? 'INVITING…' : 'INVITE TO BATTLESHIP'}
-                    </button>
-                    <button onClick={() => setConfirmUnfriendId(f.id)} disabled={busyUid !== null}
-                      className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-60">
-                      UNFRIEND
-                    </button>
-                  </span>
+              <li key={f.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-white/90 truncate">{name}</span>
+                  {confirmUnfriendId === f.id ? (
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm text-white/80">Remove {name}?</span>
+                      <button onClick={() => void unfriend(f, f.uids[idx])} disabled={busyUid !== null}
+                        className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-[#ff4d8d] text-[#2a0512] disabled:opacity-60">
+                        CONFIRM
+                      </button>
+                      <button onClick={() => setConfirmUnfriendId(null)} disabled={busyUid !== null}
+                        className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/80 hover:bg-white/10 disabled:opacity-60">
+                        KEEP
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="flex gap-2 shrink-0">
+                      <button
+                        onClick={() => setPickingFor(pickingFor === f.id ? null : f.id)}
+                        disabled={busyUid !== null}
+                        aria-expanded={pickingFor === f.id}
+                        className="arcade-btn font-pixel text-[9px] px-4 py-2.5 rounded-lg text-[#0a0620] disabled:opacity-60" style={CY_BTN}>
+                        {pickingFor === f.id ? 'CLOSE' : 'INVITE TO A GAME'}
+                      </button>
+                      <button onClick={() => setConfirmUnfriendId(f.id)} disabled={busyUid !== null}
+                        className="font-pixel text-[9px] px-4 py-2.5 rounded-lg bg-white/5 border border-white/15 text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-60">
+                        UNFRIEND
+                      </button>
+                    </span>
+                  )}
+                </div>
+
+                {pickingFor === f.id && confirmUnfriendId !== f.id && (
+                  <div className="mt-3 border-t border-white/10 pt-3">
+                    <p className="font-pixel text-[9px] text-white/50 mb-2">PICK A GAME</p>
+                    <ul className="grid gap-2">
+                      {INVITABLE.map((g) => (
+                        <li key={g.key}>
+                          <button
+                            onClick={() => invite(g, f.uids[idx], f.emails[idx])}
+                            className="w-full text-left rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 hover:bg-white/[0.07] transition">
+                            <span className="block font-sans font-semibold text-sm" style={{ color: g.color }}>
+                              {g.name}
+                            </span>
+                            <span className="block text-xs text-white/55 mt-0.5">{g.blurb}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-white/45">
+                      You'll pick the topic on the next screen, then they get the invite.
+                    </p>
+                  </div>
                 )}
               </li>
             )

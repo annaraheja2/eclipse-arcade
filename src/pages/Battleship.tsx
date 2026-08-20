@@ -23,6 +23,7 @@ import {
 } from '../lib/social'
 import { ArrowLeft, Volume, VolumeMute, Target } from '../icons'
 import { sfxFire, sfxHit, sfxMiss, sfxSink, sfxWin, setMuted, isMuted } from '../lib/sound'
+import { friendFromState } from '../lib/inviteFriend'
 
 const CY = '#3df5ff'
 // accent vars for the `.arcade-btn` chunky-button chrome (see index.css)
@@ -94,10 +95,14 @@ export default function Battleship() {
 
   const location = useLocation()
   useEffect(() => {
-    const st = location.state as { pvpInvite?: { uid: string; email: string } } | null
-    if (!st?.pvpInvite) return
+    // The Friends list hands a friend over here. `inviteFriend` is the shared
+    // key every game now reads; `pvpInvite` was Battleship's own and is still
+    // honoured so a navigation already in flight isn't lost.
+    const legacy = (location.state as { pvpInvite?: { uid: string; email: string } } | null)?.pvpInvite
+    const friend = friendFromState(location.state) ?? legacy
+    if (!friend) return
     setIntent('friend')
-    setInviteTarget(st.pvpInvite)
+    setInviteTarget(friend)
     setPh('course')
     // Clear the router state so a refresh or a back-nav can't re-trigger the invite.
     navigate('/battleship', { replace: true })

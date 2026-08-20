@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
 import { useAuth } from '../lib/auth'
-import { createGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { createGameRoom, inviteToGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { friendFromState } from '../lib/inviteFriend'
 import { openingPublic, cardPublicData } from '../lib/cardRoom'
 import { useUsernames } from '../lib/useUsernames'
 import { seatName } from '../lib/username'
@@ -109,6 +110,9 @@ export default function CardGame() {
   const [hosting, setHosting] = useState(false)
   const [hostError, setHostError] = useState('')
   const myName = useUsernames(user ? [user.uid] : [])
+  // Set when the Friends list sent us here to invite somebody specific.
+  const location = useLocation()
+  const invitee = friendFromState(location.state)
 
   async function host() {
     if (!canHost || !course || !user) return
@@ -130,6 +134,8 @@ export default function CardGame() {
         // cards themselves never touch this document.
         (n) => cardPublicData(openingPublic(seed, n)),
       )
+      // Opened from the Friends list: ask that friend straight away.
+      if (invitee) await inviteToGameRoom(roomId, invitee.uid)
       navigate(`/cardgame/room/${roomId}`)
     } catch (err) {
       console.error('[eclipse-arcade] could not open a table:', err)

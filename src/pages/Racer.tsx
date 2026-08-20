@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import {
@@ -19,7 +19,8 @@ import SessionSummary from '../components/SessionSummary'
 import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
 import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
 import { useAuth } from '../lib/auth'
-import { createGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { createGameRoom, inviteToGameRoom, gameRoomsAvailable } from '../lib/gameroom'
+import { friendFromState } from '../lib/inviteFriend'
 import { useUsernames } from '../lib/useUsernames'
 import { seatName } from '../lib/username'
 import { isReducedMotion } from '../lib/motion'
@@ -167,6 +168,9 @@ export default function Racer() {
   const [hosting, setHosting] = useState(false)
   const [hostError, setHostError] = useState('')
   const myName = useUsernames(user ? [user.uid] : [])
+  // Set when the Friends list sent us here to invite somebody specific.
+  const location = useLocation()
+  const invitee = friendFromState(location.state)
 
   async function host() {
     if (!canHost || !course || !user) return
@@ -188,6 +192,8 @@ export default function Racer() {
         // state is unused here — an empty object keeps the shape valid.
         () => ({}),
       )
+      // Opened from the Friends list: ask that friend straight away.
+      if (invitee) await inviteToGameRoom(roomId, invitee.uid)
       navigate(`/racer/room/${roomId}`)
     } catch (err) {
       console.error('[eclipse-arcade] could not open a grid:', err)
