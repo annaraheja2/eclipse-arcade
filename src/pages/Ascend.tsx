@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { COURSES, coursesFor, type Course, type Subunit, type Question, type Difficulty, type SubjectId } from '../data/subjects'
-import SubjectTabs from '../components/SubjectTabs'
+import { COURSES, COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import {
   RACERS, START_SQUARE, LAST_SQUARE, rollDie, resolveMove, nextRacer,
@@ -18,7 +17,7 @@ import InviteBanner from '../components/InviteBanner'
 import { createAscendState, ascendStateData } from '../lib/ascendRoom'
 import { useUsernames } from '../lib/useUsernames'
 import { seatName } from '../lib/username'
-import { usePlayer, resolveCourseId, resolveSubjectId } from '../lib/player'
+import { usePlayer, resolveCourseId } from '../lib/player'
 import { isReducedMotion } from '../lib/motion'
 import { SEAT_TINTS } from '../components/Character3D'
 import { ArrowLeft, Ladder } from '../icons'
@@ -60,9 +59,6 @@ export default function Ascend() {
   const reduced = prefersReducedMotion()
 
   const [screen, setScreen] = useState<Screen>('course')
-  // Which subject's courses the picker is listing. Opens on the player's own,
-  // but it's a tab, not a lock — the other subject is always one tap away.
-  const [subject, setSubject] = useState<SubjectId>(() => resolveSubjectId(player.preferredCourseId))
   const [courseId, setCourseId] = useState<string | null>(null)
   const [course, setCourse] = useState<Course | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -271,13 +267,12 @@ export default function Ascend() {
 
         {screen === 'course' && (
           <Section title="CHOOSE A COURSE">
-            <SubjectTabs value={subject} onPick={setSubject} accent={ACCENT} />
             <div className="grid gap-3 sm:grid-cols-2">
-              {coursesFor(subject).map((c) => {
+              {COURSE_LIST.map((c) => {
                 const preferred = c.id === preferredCourseId
                 return (
                   <button key={c.id} onClick={() => { setCourseId(c.id); setSelected(new Set()); setScreen('build') }}
-                    aria-label={preferred ? `${c.name} — your level` : c.name}
+                    aria-label={preferred ? `${c.name} — your math level` : c.name}
                     className={`text-left rounded-xl border bg-white/[0.03] p-4 transition ${preferred ? 'border-neon-green/70' : 'border-white/10 hover:border-neon-green/60'}`}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-bold">{c.name}</span>

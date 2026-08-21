@@ -118,18 +118,9 @@ This is the biggest thing to understand before adding content or a game:
    scoring. **Only the Daily Challenge runs on this now** — the PinPoint and Slider cabinets
    were removed, but their round pools survive as Daily's question source.
 
-2. **Curriculum model** — `data/subjects.ts`. `Subject → Course → Unit → Subunit → Question`,
-   with difficulty and a third answer type (`fill`, via `FillInput`/`QuestionPanel`). Currently
+2. **Curriculum model** — `data/subjects.ts`. `Course → Unit → Subunit → Question`, with
+   difficulty and a third answer type (`fill`, via `FillInput`/`QuestionPanel`). Currently
    wired **only into Battleship**, where solving a question is what lets you fire.
-
-   **Subjects are a grouping over courses and nothing else.** `SubjectId` is `'math' |
-   'science'`; a science course is the same `Course` shape, built by the same `buildCourse`
-   from the same curriculum outline, graded by the same `checkAnswer`, and played by the same
-   cabinets. The subject only decides which courses a picker lists together
-   (`coursesFor(subject)`), via the shared `components/SubjectTabs.tsx` every course picker
-   carries. A player's subject is **derived** from `preferredCourseId` (`resolveSubjectId`),
-   never stored beside it — two fields could disagree about which one a picker should believe;
-   one cannot. Changing subject in `/settings` moves the preferred course into that subject.
 
    `data/subjects.ts` is the single public surface (every importer goes through it), but the
    bundled content itself lives **one file per course** in `data/courses/`, with the shared
@@ -245,17 +236,9 @@ stays focused.
 - **Prototype (`0.1.0`).** Every cabinet in the lobby is a real, playable game — the
   `'soon'` placeholder type is gone, along with PinPoint, Grid-Fill, Match-Up and
   Fit-the-Line. Daily Challenge still runs on the flat round model, so `lib/games.ts` keeps
-  its round pools and `pages/Game.tsx` even though the aim-and-fire cabinets are gone. All seven
-  courses carry authored content — **1220 bundled questions**, 788 across the four math courses
-  and 432 across Biology, Chemistry and Physics (144 each). Every unit has ≥20 except the four
-  original Algebra 1 sample units, which still ship 4 each and are worth topping up.
-- **Science content is thinner than math by design, not by accident.** Each science course
-  authors two subtopics per unit (12 questions each) and leaves the rest of its curriculum
-  outline as placeholders — visible in the pickers, disabled, waiting for content. Topping one
-  up means adding a set and a `PLACEMENT` entry, exactly as for math. Watch `fill` especially
-  in science: it has no alternate-answer support, so `mitochondria`/`mitochondrion` and
-  `hemoglobin`/`haemoglobin` are traps. Phrase so exactly one word fits ("an organelle called
-  a ______" forces the singular) or use a slider.
+  its round pools and `pages/Game.tsx` even though the aim-and-fire cabinets are gone. All four courses now
+  carry authored content (788 bundled questions; every unit has ≥20 except the four original
+  Algebra 1 sample units, which still ship 4 each and are worth topping up).
 - **Two content models** (above) are the main structural debt.
 - **Deploy is live but manual.** Remote is `github.com/annaraheja2/eclipse-arcade`; GitHub
   Pages already serves from the **`gh-pages`** branch at

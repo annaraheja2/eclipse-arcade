@@ -60,49 +60,4 @@ describe('Practice without Firebase config', () => {
     expect(html).toContain('Algebra 1')
     expect(html).toContain('Precalculus')
   })
-
-  it('offers both subjects and opens on math for a new player', async () => {
-    vi.resetModules()
-    localStorage.clear()
-    for (const name of FIREBASE_ENV) vi.stubEnv(name, '')
-    const [{ AuthProvider }, { PlayerProvider }, { default: Practice }] = await Promise.all([
-      import('../lib/auth'), import('../lib/player'), import('./Practice'),
-    ])
-    const html = renderToString(
-      <MemoryRouter><AuthProvider><PlayerProvider><Practice /></PlayerProvider></AuthProvider></MemoryRouter>
-    )
-    // Both tabs are always present — the subject is a focus, not a lock.
-    expect(html).toContain('Math')
-    expect(html).toContain('Science')
-    // …but a player with no stored preference opens on math's courses. The one
-    // permitted mention of Biology is the Science tab's own tooltip ("Biology,
-    // chemistry, and physics."), so this counts rather than merely excludes —
-    // a second occurrence would mean a science course leaked into the grid.
-    expect(html).toContain('Algebra 1')
-    expect(html.split('Biology').length - 1).toBe(1)
-  })
-
-  it('opens on the science courses for a player whose course is a science one', async () => {
-    // The whole point of deriving the subject from preferredCourseId: storing
-    // 'biology' is enough to make every picker open on Science, with no second
-    // field to keep in step.
-    vi.resetModules()
-    localStorage.clear()
-    localStorage.setItem('eclipse-arcade:player', JSON.stringify({
-      coins: 0, xp: 0, streak: 0, lastPlayed: '', bests: {},
-      gamesPlayed: 0, questionsAnswered: 0, questionsCorrect: 0,
-      preferredCourseId: 'biology',
-    }))
-    for (const name of FIREBASE_ENV) vi.stubEnv(name, '')
-    const [{ AuthProvider }, { PlayerProvider }, { default: Practice }] = await Promise.all([
-      import('../lib/auth'), import('../lib/player'), import('./Practice'),
-    ])
-    const html = renderToString(
-      <MemoryRouter><AuthProvider><PlayerProvider><Practice /></PlayerProvider></AuthProvider></MemoryRouter>
-    )
-    expect(html).toContain('Biology')
-    expect(html).toContain('Chemistry')
-    expect(html).toContain('Physics')
-    expect(html).not.toContain('Algebra 1')
-  })
 })

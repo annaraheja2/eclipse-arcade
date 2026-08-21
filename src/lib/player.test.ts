@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isStreakAtRisk, mergePlayerState, prevDay, toPlayerState,
-  accuracy, isValidCourseId, resolveCourseId, resolveSubjectId, isValidAvatarColor,
+  accuracy, isValidCourseId, resolveCourseId, isValidAvatarColor,
   DEFAULT_COURSE_ID, AVATAR_COLORS, type PlayerState,
 } from './player'
 
@@ -207,31 +207,15 @@ describe('accuracy', () => {
 })
 
 describe('course + avatar validation', () => {
-  it('recognizes every known course, science included', () => {
+  it('recognizes the four known courses', () => {
     expect(isValidCourseId('algebra-1')).toBe(true)
     expect(isValidCourseId('geometry')).toBe(true)
-    expect(isValidCourseId('biology')).toBe(true)
-    expect(isValidCourseId('physics')).toBe(true)
     expect(isValidCourseId('nope')).toBe(false)
   })
   it('resolves an absent/invalid course to Algebra 1', () => {
     expect(resolveCourseId(undefined)).toBe(DEFAULT_COURSE_ID)
     expect(resolveCourseId('nope')).toBe(DEFAULT_COURSE_ID)
     expect(resolveCourseId('precalculus')).toBe('precalculus')
-  })
-  it('derives the subject from the preferred course, never storing it twice', () => {
-    // The subject is not persisted — it IS the subject of the preferred course.
-    // That is what makes "science with a preferred course of Algebra 1"
-    // unrepresentable, and what lets the existing saved state load unmigrated.
-    expect(resolveSubjectId('algebra-1')).toBe('math')
-    expect(resolveSubjectId('precalculus')).toBe('math')
-    expect(resolveSubjectId('biology')).toBe('science')
-    expect(resolveSubjectId('chemistry')).toBe('science')
-    expect(resolveSubjectId('physics')).toBe('science')
-  })
-  it('resolves an absent/invalid course to the default subject', () => {
-    expect(resolveSubjectId(undefined)).toBe('math')
-    expect(resolveSubjectId('nope')).toBe('math')
   })
   it('accepts only palette avatar colors', () => {
     expect(isValidAvatarColor(AVATAR_COLORS[0])).toBe(true)

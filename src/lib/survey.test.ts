@@ -5,7 +5,7 @@ import {
 } from './survey'
 
 const row = (over: Partial<SurveyRow> = {}): SurveyRow => ({
-  uid: 'u', role: null, level: null, goal: null, source: null, subject: null,
+  uid: 'u', role: null, level: null, goal: null, source: null,
   skipped: false, createdAtMs: 0, ...over,
 })
 
@@ -48,8 +48,8 @@ describe('reading a survey document', () => {
   })
 
   it('round-trips a real answer', () => {
-    const s: Survey = { role: 'teacher', level: 'high', goal: 'test-prep', source: 'friend', subject: 'science', skipped: false, createdAtMs: 0 }
-    expect(toSurvey('u', surveyData(s))).toMatchObject({ role: 'teacher', level: 'high', goal: 'test-prep', source: 'friend', subject: 'science' })
+    const s: Survey = { role: 'teacher', level: 'high', goal: 'test-prep', source: 'friend', skipped: false, createdAtMs: 0 }
+    expect(toSurvey('u', surveyData(s))).toMatchObject({ role: 'teacher', level: 'high', goal: 'test-prep', source: 'friend' })
   })
 })
 

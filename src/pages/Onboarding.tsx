@@ -10,7 +10,7 @@
 // the corner, and pressing it still records a row so "skipped" can be told apart
 // from "never asked".
 import { useState, type CSSProperties } from 'react'
-import { coursesFor, SUBJECTS, type SubjectId } from '../data/subjects'
+import { COURSE_LIST } from '../data/subjects'
 import { usePlayer } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { claimUsername, validateUsername } from '../lib/username'
@@ -24,21 +24,16 @@ import { Book } from '../icons'
 const ACCENT = '#a24bff'
 const BTN: CSSProperties = { background: ACCENT, color: '#12042b' }
 
-type Step = 'name' | 'subject' | 'course' | 'survey'
+type Step = 'name' | 'course' | 'survey'
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
   const { player, setUsername, updatePreferences } = usePlayer()
   const { user } = useAuth()
-  const [step, setStep] = useState<Step>(player.username ? 'subject' : 'name')
+  const [step, setStep] = useState<Step>(player.username ? 'course' : 'name')
 
   const [name, setName] = useState(player.username ?? '')
   const [nameError, setNameError] = useState('')
   const [busy, setBusy] = useState(false)
-  // Subject first, because it decides which courses the next step can offer.
-  // It is recorded on the survey too, so /admin can see the split — but it is
-  // not a survey QUESTION, since the player is already choosing it right here
-  // and asking the same thing twice would be a worse form, not better data.
-  const [subject, setSubject] = useState<SubjectId>('math')
   const [survey, setSurvey] = useState<Survey>(EMPTY_SURVEY)
 
   async function submitName() {
@@ -52,19 +47,13 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         if (!res.ok) { setNameError(res.message); return }
       }
       setUsername(check.value)
-      setStep('subject')
+      setStep('course')
     } catch (err) {
       console.error('[eclipse-arcade] could not claim that name:', err)
       setNameError('Could not save that name — check your connection and try again.')
     } finally {
       setBusy(false)
     }
-  }
-
-  function chooseSubject(next: SubjectId) {
-    setSubject(next)
-    setSurvey((s) => ({ ...s, subject: next }))
-    setStep('course')
   }
 
   function chooseCourse(courseId: string) {
@@ -77,10 +66,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   async function finishSurvey(skipped: boolean) {
     setBusy(true)
     try {
-      // `subject` rides along even on a skip: they really did choose it a
-      // moment ago, so recording it is honest, and it is the one answer the
-      // admin breakdown can always count on.
-      if (user) await saveSurvey(user.uid, { ...survey, subject, skipped })
+      if (user) await saveSurvey(user.uid, { ...survey, skipped })
     } catch (err) {
       // Never trap a player behind an optional question.
       console.error('[eclipse-arcade] could not save the survey:', err)
@@ -102,8 +88,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
           <h1 className="font-pixel text-[15px]" style={{ color: ACCENT }}>WELCOME</h1>
           <p className="mt-2 text-sm text-white/60">
             {step === 'name' && 'Pick a name other players will see.'}
-            {step === 'subject' && 'Which subject do you want to focus on?'}
-            {step === 'course' && 'And which course are you working on?'}
+            {step === 'course' && 'Which maths are you working on?'}
             {step === 'survey' && 'Last thing — and you can skip it.'}
           </p>
         </div>
@@ -138,34 +123,15 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
           </section>
         )}
 
-        {step === 'subject' && (
-          <section className="mt-7 grid gap-2">
-            {SUBJECTS.map((s) => (
-              <button key={s.id} onClick={() => chooseSubject(s.id)}
-                className="text-left rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3.5 hover:border-neon-purple/60 transition">
-                <span className="block font-sans font-semibold text-white/90">{s.name}</span>
-                <span className="block text-xs text-white/55 mt-0.5">{s.blurb}</span>
-              </button>
-            ))}
-            <p className="mt-1 text-xs text-white/45 text-center">
-              Every game carries both — this is just where you start.
-            </p>
-          </section>
-        )}
-
         {step === 'course' && (
           <section className="mt-7 grid gap-2">
-            {coursesFor(subject).map((c) => (
+            {COURSE_LIST.map((c) => (
               <button key={c.id} onClick={() => chooseCourse(c.id)}
                 className="text-left rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3.5 hover:border-neon-purple/60 transition">
                 <span className="block font-sans font-semibold text-white/90">{c.name}</span>
               </button>
             ))}
-            <button onClick={() => setStep('subject')}
-              className="mt-1 text-xs text-white/50 hover:text-white/80 underline underline-offset-2">
-              Back to subjects
-            </button>
-            <p className="text-xs text-white/45 text-center">
+            <p className="mt-1 text-xs text-white/45 text-center">
               You can play any course — this is just what opens by default.
             </p>
           </section>
@@ -203,7 +169,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 }
 
 function Progress({ step }: { step: Step }) {
-  const order: Step[] = ['name', 'subject', 'course', 'survey']
+  const order: Step[] = ['name', 'course', 'survey']
   const at = order.indexOf(step)
   return (
     <ol className="flex gap-2" aria-label={`Step ${at + 1} of ${order.length}`}>

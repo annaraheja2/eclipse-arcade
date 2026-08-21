@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react'
 import { loadAllSurveys } from '../lib/surveyStore'
 import {
-  summarise, ROLES, LEVELS, GOALS, SOURCES, SUBJECT_CHOICES,
+  summarise, ROLES, LEVELS, GOALS, SOURCES,
   type SurveyRow, type SurveySummary, type Count,
 } from '../lib/survey'
 
@@ -58,7 +58,6 @@ export default function SurveyReport() {
           note={s.responses > 0 ? `${Math.round((s.skipped / s.responses) * 100)}% of sign-ups` : undefined} />
       </div>
 
-      <Breakdown title="Subject they chose" answered={s.subject.answered} counts={s.subject.counts} total={SUBJECT_CHOICES.length} />
       <Breakdown title="Who they are" answered={s.role.answered} counts={s.role.counts} total={ROLES.length} />
       <Breakdown title="School level" answered={s.level.answered} counts={s.level.counts} total={LEVELS.length} />
       <Breakdown title="What they came for" answered={s.goal.answered} counts={s.goal.counts} total={GOALS.length} />

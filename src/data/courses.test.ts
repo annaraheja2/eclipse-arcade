@@ -4,9 +4,6 @@ import { ALGEBRA_1 } from './courses/algebra1'
 import { GEOMETRY } from './courses/geometry'
 import { ALGEBRA_2 } from './courses/algebra2'
 import { PRECALCULUS } from './courses/precalculus'
-import { BIOLOGY } from './courses/biology'
-import { CHEMISTRY } from './courses/chemistry'
-import { PHYSICS } from './courses/physics'
 import { CURRICULUM, PLACEMENT } from './courses/curriculum'
 import { draftIssue } from '../lib/content'
 import { checkAnswer } from '../components/QuestionPanel'
@@ -54,7 +51,6 @@ describe('bundled curriculum — structure', () => {
   it('loses no authored question set in the restructure', () => {
     const raw: Record<string, typeof ALGEBRA_1> = {
       'algebra-1': ALGEBRA_1, geometry: GEOMETRY, 'algebra-2': ALGEBRA_2, precalculus: PRECALCULUS,
-      biology: BIOLOGY, chemistry: CHEMISTRY, physics: PHYSICS,
     }
     for (const c of COURSES) {
       const before = raw[c.id].units.flatMap((u) => u.subunits.filter((s) => s.questions.length > 0))

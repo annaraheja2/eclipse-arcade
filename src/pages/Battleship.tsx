@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { coursesFor, type Course, type Unit, type Subunit, type Question , type SubjectId } from '../data/subjects'
-import SubjectTabs from '../components/SubjectTabs'
+import { COURSE_LIST, type Course, type Unit, type Subunit, type Question } from '../data/subjects'
 import { loadCourse } from '../lib/content'
 import {
   randomFleet, allSunk, isSunk, keyOf, aiPick, applyFire,
@@ -14,7 +13,7 @@ import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
 import { summarize, type AnsweredItem } from '../lib/summary'
 import VerifyEmailNotice from '../components/VerifyEmailNotice'
-import { usePlayer, resolveCourseId, resolveSubjectId } from '../lib/player'
+import { usePlayer, resolveCourseId } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { isFirebaseConfigured } from '../lib/firebase'
 import {
@@ -51,12 +50,9 @@ export default function Battleship() {
   const navigate = useNavigate()
   const { player, finishGame, recordAnswer } = usePlayer()
   const { user, loading: authLoading, emailVerified } = useAuth()
-  // The player's preferred course pre-selects in the vs-AI course picker.
+  // The player's preferred math level pre-selects in the vs-AI course picker.
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
   const [ph, setPh] = useState<Phase>('mode')
-  // Which subject's courses the picker lists. Opens on the player's own, but
-  // it's a tab, not a lock — the other subject is always one tap away.
-  const [subject, setSubject] = useState<SubjectId>(() => resolveSubjectId(player.preferredCourseId))
   // What the pickers are choosing FOR (set on the mode screen).
   const [intent, setIntent] = useState<Intent>('ai')
   // The picked topic, carried into a friend invite / the quick-match queue.
@@ -387,13 +383,12 @@ export default function Battleship() {
 
         {ph === 'course' && (
           <Section title="CHOOSE A COURSE">
-            <SubjectTabs value={subject} onPick={setSubject} accent={CY} />
             <div className="grid gap-3 sm:grid-cols-2">
-              {coursesFor(subject).map((c) => {
+              {COURSE_LIST.map((c) => {
                 const preferred = c.id === preferredCourseId
                 return (
                   <button key={c.id} onClick={() => { setAiCourseId(c.id); setUnit(null); setSub(null); setPh('unit') }}
-                    aria-label={preferred ? `${c.name} — your level` : c.name}
+                    aria-label={preferred ? `${c.name} — your math level` : c.name}
                     className={`text-left rounded-xl border bg-white/[0.03] p-4 transition ${preferred ? 'border-neon-cyan/70' : 'border-white/10 hover:border-neon-cyan/60'}`}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-bold">{c.name}</span>
