@@ -671,6 +671,14 @@ service cloud.firestore {
       // renders. This is not a claim that the position is HONEST — a driver
       // simulates their own car, exactly as they always did — only that it is
       // within the bounds a race can produce.
+      //
+      // UNITS: `distance` is what the simulation accumulates, mph × SECONDS —
+      // NOT miles. A whole race pinned at the 30 mph cap is 180 * 30 = 5400, so
+      // the ceiling is 6000 (that, plus slack for a race that runs a touch long).
+      // The old bound of 10 was written as though this were miles, and it
+      // rejected every position published after the first second of a race —
+      // which is what left rivals' cars frozen on the start line. Keep this in
+      // step with RACE_SECONDS * MAX_MPH in src/lib/racer.ts.
       match /racers/{uid} {
         function inRoom() {
           return request.auth.uid in
@@ -685,7 +693,7 @@ service cloud.firestore {
           && inRoom()
           && request.resource.data.distance is number
           && request.resource.data.distance >= 0
-          && request.resource.data.distance <= 10
+          && request.resource.data.distance <= 6000
           && request.resource.data.speed is number
           && request.resource.data.speed >= 0
           && request.resource.data.speed <= 30

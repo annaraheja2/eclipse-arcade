@@ -4,32 +4,38 @@ import {
   toRacerProgress, racerProgressData, maxDistanceBy,
   MAX_EXTRAPOLATION_MS, HEARTBEAT_MS, type RacerProgress,
 } from './racerRoom'
-import { MAX_MPH, RACE_SECONDS } from './racer'
+import { MAX_MPH, RACE_SECONDS, advanceDistance } from './racer'
 
 const START = 1_000_000
 const at = (over: Partial<RacerProgress> = {}): RacerProgress =>
   ({ uid: 'a', distance: 0, speed: 20, atMs: START, finished: false, ...over })
 
-// Miles covered at `mph` for `ms`.
-const miles = (mph: number, ms: number) => (mph * ms) / 3_600_000
+// Track units covered at `mph` for `ms` — mph × SECONDS, the unit the solo
+// simulation accumulates (see the UNITS note in racerRoom.ts). These fixtures
+// used to be written in miles, which is why a 3600× mismatch against the
+// simulation passed the whole suite while the field sat frozen on the grid.
+const units = (mph: number, ms: number) => (mph * ms) / 1_000
+
+/** A full race pinned at the cap — the top of the scale everything lives on. */
+const FULL_RACE = RACE_SECONDS * MAX_MPH
 
 describe('dead reckoning', () => {
   it('returns the published position at the moment it was published', () => {
-    expect(projectedDistance(at({ distance: 0.5 }), START)).toBeCloseTo(0.5, 6)
+    expect(projectedDistance(at({ distance: 1800 }), START)).toBeCloseTo(1800, 6)
   })
 
   it('carries a racer forward at their last known speed', () => {
-    const p = at({ distance: 0.5, speed: 24 })
-    expect(projectedDistance(p, START + 2000)).toBeCloseTo(0.5 + miles(24, 2000), 6)
+    const p = at({ distance: 1800, speed: 24 })
+    expect(projectedDistance(p, START + 2000)).toBeCloseTo(1800 + units(24, 2000), 6)
   })
 
   it('does not move a stopped car', () => {
-    expect(projectedDistance(at({ distance: 0.4, speed: 0 }), START + 5000)).toBeCloseTo(0.4, 6)
+    expect(projectedDistance(at({ distance: 1440, speed: 0 }), START + 5000)).toBeCloseTo(1440, 6)
   })
 
   it('stops guessing once an update goes stale', () => {
     // A player who closed their laptop must not coast to the horizon.
-    const p = at({ distance: 1, speed: MAX_MPH })
+    const p = at({ distance: 3600, speed: MAX_MPH })
     const capped = projectedDistance(p, START + MAX_EXTRAPOLATION_MS)
     const wayLater = projectedDistance(p, START + MAX_EXTRAPOLATION_MS * 20)
     expect(wayLater).toBeCloseTo(capped, 6)
@@ -41,8 +47,8 @@ describe('dead reckoning', () => {
     // two laptops would drag a legitimate racer backwards. Absurd values are
     // rejected on the way in instead (see 'rejects a distance no race could
     // produce'), which needs no shared clock.
-    const far = at({ distance: 1.5, speed: 0 })
-    expect(projectedDistance(far, START + 1000)).toBeCloseTo(1.5, 6)
+    const far = at({ distance: 5000, speed: 0 })
+    expect(projectedDistance(far, START + 1000)).toBeCloseTo(5000, 6)
   })
 
   it('bounds how far a single guess can carry someone', () => {
@@ -53,20 +59,20 @@ describe('dead reckoning', () => {
   })
 
   it('freezes a finished racer where they crossed', () => {
-    const done = at({ distance: 0.9, speed: MAX_MPH, finished: true })
-    expect(projectedDistance(done, START + 5000)).toBeCloseTo(0.9, 6)
+    const done = at({ distance: 3240, speed: MAX_MPH, finished: true })
+    expect(projectedDistance(done, START + 5000)).toBeCloseTo(3240, 6)
   })
 
   it('never goes negative on a clock that ran backwards', () => {
-    expect(projectedDistance(at({ distance: 0.2 }), START - 5000)).toBeGreaterThanOrEqual(0)
+    expect(projectedDistance(at({ distance: 720 }), START - 5000)).toBeGreaterThanOrEqual(0)
   })
 })
 
 describe('standings', () => {
   const field = (): RacerProgress[] => [
-    at({ uid: 'slow', distance: 0.2, speed: 0 }),
-    at({ uid: 'fast', distance: 0.8, speed: 0 }),
-    at({ uid: 'mid', distance: 0.5, speed: 0 }),
+    at({ uid: 'slow', distance: 720, speed: 0 }),
+    at({ uid: 'fast', distance: 2880, speed: 0 }),
+    at({ uid: 'mid', distance: 1800, speed: 0 }),
   ]
 
   it('puts the leader first', () => {
@@ -77,8 +83,8 @@ describe('standings', () => {
 
   it('gives every client the same order on a tie', () => {
     const tied: RacerProgress[] = [
-      at({ uid: 'zoe', distance: 0.5, speed: 0 }),
-      at({ uid: 'abe', distance: 0.5, speed: 0 }),
+      at({ uid: 'zoe', distance: 1800, speed: 0 }),
+      at({ uid: 'abe', distance: 1800, speed: 0 }),
     ]
     // Same input in the other order must still rank identically.
     expect(standings(tied, START).map((r) => r.uid))
@@ -88,8 +94,8 @@ describe('standings', () => {
   it('ranks by where people are NOW, not where they last reported', () => {
     // 'behind' reported less distance but is moving; 'ahead' has stopped.
     const s = standings([
-      at({ uid: 'ahead', distance: 0.50, speed: 0 }),
-      at({ uid: 'behind', distance: 0.49, speed: MAX_MPH }),
+      at({ uid: 'ahead', distance: 1800, speed: 0 }),
+      at({ uid: 'behind', distance: 1764, speed: MAX_MPH }),
     ], START + 5000)
     expect(s[0].uid).toBe('behind')
   })
@@ -161,7 +167,7 @@ describe('when to publish', () => {
 
 describe('reading another client document', () => {
   it('round-trips a real position', () => {
-    const p = at({ distance: 1.25, speed: 18, finished: true })
+    const p = at({ distance: 4500, speed: 18, finished: true })
     expect(toRacerProgress('a', racerProgressData(p))).toEqual(p)
   })
 
@@ -192,5 +198,54 @@ describe('reading another client document', () => {
 
   it('writes no undefined, which Firestore refuses', () => {
     expect(JSON.stringify(racerProgressData(at()))).not.toContain('undefined')
+  })
+})
+
+// The seam this file used to leave untested, and where the bug actually lived.
+//
+// Every test above could pass with the online layer on a completely different
+// scale from the race it reports on — and for a long time it was: the simulation
+// accumulated mph × SECONDS while this module read the same number as miles.
+// 3600× out. Nothing caught it because nothing here ever fed real simulation
+// output through toRacerProgress, so online races ran with every rival's car
+// frozen on the start line, their positions silently rejected as malformed.
+//
+// These tests bind the two together. If anyone changes the unit on either side,
+// these fail.
+describe('agreeing with the race it is reporting on', () => {
+  it('accepts the position a whole race at the cap actually produces', () => {
+    // Drive the real integrator, exactly as RacerOnline does, for a full race.
+    let distance = 0
+    for (let s = 0; s < RACE_SECONDS; s++) distance = advanceDistance(distance, MAX_MPH, 1)
+    expect(distance).toBeCloseTo(FULL_RACE, 6)
+    // The bug: this returned null, because 5400 read as miles is absurd.
+    const read = toRacerProgress('a', { distance, speed: MAX_MPH, atMs: START, finished: false })
+    expect(read).not.toBeNull()
+    expect(read?.distance).toBeCloseTo(FULL_RACE, 6)
+  })
+
+  it('accepts a position from every second of a race, not just the first', () => {
+    // The old bound rejected everything past ~1.5; the rules bound past ~10.
+    for (const secs of [1, 10, 60, 120, RACE_SECONDS]) {
+      const distance = advanceDistance(0, MAX_MPH, secs)
+      expect(toRacerProgress('a', { distance, speed: MAX_MPH, atMs: START })).not.toBeNull()
+    }
+  })
+
+  it('dead-reckons at the same rate the simulation drives', () => {
+    // A rival guessed forward two seconds must land where the simulation would
+    // have put them. This is the assertion that pins both layers to one unit.
+    const speed = 24
+    const start = 1800
+    const simulated = advanceDistance(start, speed, 2)
+    const guessed = projectedDistance(at({ distance: start, speed }), START + 2000)
+    expect(guessed).toBeCloseTo(simulated, 6)
+  })
+
+  it('fills the progress bar over a race rather than leaving it pinned at zero', () => {
+    // With the units mismatched, a mid-race car reported a fraction of ~0.0003.
+    const half = advanceDistance(0, MAX_MPH, RACE_SECONDS / 2)
+    expect(standings([at({ distance: half, speed: 0 })], START)[0].fraction).toBeCloseTo(0.5, 6)
+    expect(standings([at({ distance: FULL_RACE, speed: 0 })], START)[0].fraction).toBe(1)
   })
 })

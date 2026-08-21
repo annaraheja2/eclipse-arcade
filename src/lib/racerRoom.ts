@@ -19,12 +19,24 @@
 // from colliding.
 //
 // Pure. lib/gameroom.ts carries it to Firestore.
+//
+// UNITS — the one thing to get right here. `distance` is whatever the solo
+// simulation accumulates, and that is `mph × SECONDS` (advanceDistance adds
+// `speed * dt` with dt in seconds and no conversion to hours). So a full race
+// pinned at the cap is RACE_SECONDS * MAX_MPH, which is exactly what
+// trackFraction normalises by. It is NOT miles, and treating it as miles is off
+// by a factor of 3600 — which silently discarded every rival's position as
+// "nonsense rather than a fast lap" and froze the whole field on the start line.
+// Extrapolate and bound in the same unit the simulation produces.
 import { MAX_MPH, RACE_SECONDS, trackFraction } from './racer'
+
+/** Milliseconds in the second `distance` is measured against — see UNITS above. */
+const MS_PER_UNIT_TIME = 1_000
 
 /** Where one racer said they were, and when they said it. */
 export interface RacerProgress {
   uid: string
-  /** Miles travelled at `atMs`. */
+  /** Track units travelled at `atMs` (mph × seconds — see UNITS above). */
   distance: number
   /** Miles per hour at `atMs` — what dead reckoning extrapolates with. */
   speed: number
@@ -48,7 +60,7 @@ export const MAX_SEATS = 4
 /** The furthest anyone could travel in `ms`, flat out. Used to reject a
  *  nonsensical published distance on the way in — see toRacerProgress. */
 export function maxDistanceBy(elapsedMs: number): number {
-  return (MAX_MPH * Math.max(0, elapsedMs)) / 3_600_000
+  return (MAX_MPH * Math.max(0, elapsedMs)) / MS_PER_UNIT_TIME
 }
 
 /**
@@ -67,7 +79,7 @@ export function projectedDistance(p: RacerProgress, nowMs: number): number {
   // Negative elapsed means their clock ran ahead of ours; treat it as "no news
   // yet" rather than winding them back.
   const since = Math.min(Math.max(0, nowMs - p.atMs), MAX_EXTRAPOLATION_MS)
-  return Math.max(0, p.distance + (p.speed * since) / 3_600_000)
+  return Math.max(0, p.distance + (p.speed * since) / MS_PER_UNIT_TIME)
 }
 
 export interface Standing {
