@@ -1,6 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
+import { coursesFor, type Course, type Subunit, type Question, type Difficulty , type SubjectId } from '../data/subjects'
+import SubjectTabs from '../components/SubjectTabs'
 import { loadCourse } from '../lib/content'
 import {
   stepRace, rank, placementOf, raceScore, aiTuningsFor, initialCooldown, trackFraction, applyAnswer, ordinal,
@@ -17,7 +18,7 @@ const CircuitGL = lazy(() => import('../components/CircuitGL'))
 import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
 import { summarize, taggedPool, type AnsweredItem, type TaggedQuestion } from '../lib/summary'
-import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
+import { usePlayer, resolveCourseId, resolveSubjectId, levelFromXp } from '../lib/player'
 import { useAuth } from '../lib/auth'
 import { createGameRoom, inviteToGameRoom, gameRoomsAvailable } from '../lib/gameroom'
 import { friendFromState, inviteeLabel } from '../lib/inviteFriend'
@@ -93,6 +94,9 @@ export default function Racer() {
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
 
   const [ph, setPh] = useState<Phase>('course')
+  // Which subject's courses the picker lists. Opens on the player's own, but
+  // it's a tab, not a lock — the other subject is always one tap away.
+  const [subject, setSubject] = useState<SubjectId>(() => resolveSubjectId(player.preferredCourseId))
   const [courseId, setCourseId] = useState<string | null>(null)
   const [course, setCourse] = useState<Course | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -386,12 +390,13 @@ export default function Racer() {
 
         {ph === 'course' && (
           <Sheet title="CHOOSE A COURSE" sub="Pit lane — pick the championship you're racing in.">
+            <SubjectTabs value={subject} onPick={setSubject} accent={ACCENT} />
             <div className="grid gap-3 sm:grid-cols-2">
-              {COURSE_LIST.map((c) => {
+              {coursesFor(subject).map((c) => {
                 const preferred = c.id === preferredCourseId
                 return (
                   <button key={c.id} onClick={() => { setCourseId(c.id); setSelected(new Set()); setPh('build') }}
-                    aria-label={preferred ? `${c.name} — your math level` : c.name}
+                    aria-label={preferred ? `${c.name} — your level` : c.name}
                     className="group relative overflow-hidden text-left rounded-lg bg-track-slate ring-1 ring-white/10 hover:ring-white/30 transition pl-5 pr-4 py-4">
                     <span aria-hidden className="absolute left-0 top-0 bottom-0 w-2" style={{ backgroundImage: KERB_STRIPE }} />
                     <span className="flex items-center justify-between gap-2">

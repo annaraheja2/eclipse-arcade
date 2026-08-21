@@ -269,6 +269,129 @@ export const CURRICULUM: Record<string, readonly OutlineUnit[]> = {
       t('Preparation for Calculus', 'Synthesis of algebra, trig, and analytic geometry.'),
     ]},
   ],
+
+  // -------------------------------------------------------------------------
+  // SCIENCE — the three general high-school courses
+  // -------------------------------------------------------------------------
+  //
+  // Same shape as the math outline above and read by the same buildCourse, so
+  // every game, picker and admin screen treats a science course exactly like a
+  // math one. Only the subject label (data/subjects.ts) tells them apart.
+  //
+  // The math outline came from Harish; this one follows the standard NGSS-era
+  // high-school sequence (Biology → Chemistry → Physics) rather than any one
+  // district's scope-and-sequence. It is ours to revise.
+
+  biology: [
+    { id: 'cell-biology', name: 'Cells & Cell Processes', description: 'structure, transport, division', topics: [
+      t('Cell Structure & Organelles', 'Prokaryotes vs eukaryotes, organelles and what each one does.'),
+      t('Cell Membrane & Transport', 'Diffusion, osmosis, active transport, tonicity.'),
+      t('Cell Division', 'Mitosis and meiosis, the cell cycle, chromosome counts.'),
+      t('Cellular Energy', 'Photosynthesis and cellular respiration, ATP.'),
+    ]},
+    { id: 'molecular-genetics', name: 'Molecular Genetics', description: 'DNA, RNA, protein synthesis', topics: [
+      t('DNA & RNA Structure', 'Nucleotides, base pairing, the double helix, DNA vs RNA.'),
+      t('Protein Synthesis', 'Transcription, translation, codons, the role of each RNA.'),
+      t('Mutations', 'Substitution, insertion, deletion, and their effects.'),
+      t('Biotechnology', 'PCR, gel electrophoresis, genetic engineering.'),
+    ]},
+    { id: 'heredity', name: 'Heredity', description: 'Mendelian genetics and inheritance', topics: [
+      t('Mendelian Genetics', 'Dominant and recessive alleles, genotype vs phenotype.'),
+      t('Punnett Squares & Ratios', 'Monohybrid and dihybrid crosses, predicted ratios.'),
+      t('Human Inheritance', 'Sex linkage, codominance, incomplete dominance, blood types.'),
+    ]},
+    { id: 'evolution-and-classification', name: 'Evolution & Classification', description: 'natural selection, evidence, taxonomy', topics: [
+      t('Natural Selection', 'Variation, adaptation, fitness, selective pressure.'),
+      t('Evidence of Evolution', 'Fossils, homologous structures, molecular evidence.'),
+      t('Taxonomy', 'The classification hierarchy, binomial nomenclature, domains.'),
+      t('Speciation', 'Isolation, divergence, patterns of evolutionary change.'),
+    ]},
+    { id: 'ecology', name: 'Ecology', description: 'ecosystems, populations, cycles', topics: [
+      t('Ecosystems & Energy Flow', 'Trophic levels, food chains and webs, the 10% rule.'),
+      t('Population Ecology', 'Growth curves, carrying capacity, limiting factors.'),
+      t('Biogeochemical Cycles', 'Carbon, nitrogen, and water cycles.'),
+      t('Symbiosis & Community', 'Mutualism, commensalism, parasitism, succession.'),
+    ]},
+    { id: 'human-body-systems', name: 'Human Body Systems', description: 'organ systems and homeostasis', topics: [
+      t('Circulatory & Respiratory', 'Heart, blood vessels, gas exchange.'),
+      t('Nervous & Endocrine', 'Neurons, the brain, hormones and glands.'),
+      t('Homeostasis', 'Feedback loops, regulating temperature and blood sugar.'),
+      t('Digestive & Immune', 'Digestion and absorption, pathogens and defence.'),
+    ]},
+  ],
+
+  chemistry: [
+    { id: 'matter-and-measurement', name: 'Matter & Measurement', description: 'classifying matter, change, units', topics: [
+      t('Classifying Matter', 'Elements, compounds, mixtures, pure substances.'),
+      t('Physical & Chemical Change', 'Telling a change of state from a reaction.'),
+      t('Measurement & Units', 'SI units, density, significant figures.'),
+      t('States of Matter', 'Solids, liquids, gases, phase changes.'),
+    ]},
+    { id: 'atomic-structure', name: 'Atomic Structure', description: 'particles, isotopes, electrons', topics: [
+      t('Subatomic Particles', 'Protons, neutrons, electrons, charge and location.'),
+      t('Isotopes & Atomic Mass', 'Mass number, isotope notation, average atomic mass.'),
+      t('Electron Configuration', 'Energy levels, valence electrons, orbital filling.'),
+      t('Atomic Models', 'Dalton through the quantum model.'),
+    ]},
+    { id: 'periodic-table', name: 'The Periodic Table', description: 'organization, trends, families', topics: [
+      t('Organization of the Table', 'Periods, groups, metals, nonmetals, metalloids.'),
+      t('Periodic Trends', 'Atomic radius, ionization energy, electronegativity.'),
+      t('Groups & Families', 'Alkali metals, halogens, noble gases, transition metals.'),
+    ]},
+    { id: 'chemical-bonding', name: 'Chemical Bonding', description: 'ionic, covalent, molecular shape', topics: [
+      t('Ionic Bonding', 'Electron transfer, ions, formula units, lattice.'),
+      t('Covalent Bonding', 'Electron sharing, single/double/triple bonds, polarity.'),
+      t('Naming & Formulas', 'Ionic and covalent naming, polyatomic ions.'),
+      t('Molecular Geometry', 'VSEPR shapes, bond angles, intermolecular forces.'),
+    ]},
+    { id: 'reactions-and-stoichiometry', name: 'Reactions & Stoichiometry', description: 'balancing, types, the mole', topics: [
+      t('Balancing Equations', 'Conservation of mass, coefficients, balancing practice.'),
+      t('Types of Reactions', 'Synthesis, decomposition, single and double replacement, combustion.'),
+      t('The Mole & Molar Mass', "Avogadro's number, molar mass, mole conversions."),
+      t('Stoichiometry Calculations', 'Mole ratios, limiting reactant, percent yield.'),
+    ]},
+    { id: 'solutions-acids-and-bases', name: 'Solutions, Acids & Bases', description: 'concentration, acids, pH', topics: [
+      t('Solutions & Concentration', 'Solute, solvent, solubility, molarity.'),
+      t('Acids & Bases', 'Definitions, properties, neutralization.'),
+      t('The pH Scale', 'pH, pOH, strong vs weak, indicators.'),
+      t('Gas Laws', "Boyle's, Charles's, and the combined gas law."),
+    ]},
+  ],
+
+  physics: [
+    { id: 'kinematics', name: 'Motion & Kinematics', description: 'speed, acceleration, free fall', topics: [
+      t('Speed, Velocity & Acceleration', 'Distance vs displacement, scalars vs vectors, rate of change.'),
+      t('Graphs of Motion', 'Reading position-time and velocity-time graphs.'),
+      t('Free Fall', 'Gravity, falling objects, projectile basics.'),
+      t('Kinematic Equations', 'Relating displacement, velocity, acceleration, and time.'),
+    ]},
+    { id: 'forces', name: "Forces & Newton's Laws", description: 'laws of motion, friction, vectors', topics: [
+      t("Newton's Laws", 'Inertia, F = ma, action and reaction.'),
+      t('Friction & Weight', 'Normal force, friction, mass vs weight.'),
+      t('Vectors & Resultants', 'Adding perpendicular vectors, components, magnitude.'),
+      t('Circular Motion & Gravity', 'Centripetal force, universal gravitation.'),
+    ]},
+    { id: 'energy-and-work', name: 'Work, Energy & Power', description: 'work, energy forms, conservation', topics: [
+      t('Work & Power', 'Work as force times distance, power as work over time.'),
+      t('Kinetic & Potential Energy', 'Energy of motion and of position.'),
+      t('Conservation of Energy', 'Transformations, machines, efficiency.'),
+      t('Simple Machines', 'Levers, pulleys, mechanical advantage.'),
+    ]},
+    { id: 'momentum', name: 'Momentum & Collisions', description: 'momentum, impulse, collisions', topics: [
+      t('Momentum & Impulse', 'p = mv, impulse-momentum theorem.'),
+      t('Conservation of Momentum', 'Elastic and inelastic collisions.'),
+    ]},
+    { id: 'waves-and-sound', name: 'Waves, Sound & Light', description: 'wave properties, sound, optics', topics: [
+      t('Wave Properties', 'Wavelength, frequency, amplitude, the wave equation.'),
+      t('Sound', 'Longitudinal waves, pitch, the speed of sound, the Doppler effect.'),
+      t('Light & Optics', 'The electromagnetic spectrum, reflection, refraction, lenses.'),
+    ]},
+    { id: 'electricity-and-magnetism', name: 'Electricity & Magnetism', description: 'charge, circuits, magnetism', topics: [
+      t('Charge & Static Electricity', 'Conservation of charge, conductors, insulators.'),
+      t("Circuits & Ohm's Law", 'Current, voltage, resistance, series and parallel.'),
+      t('Magnetism', 'Magnetic fields, electromagnets, induction.'),
+    ]},
+  ],
 }
 
 /**
@@ -376,5 +499,50 @@ export const PLACEMENT: Record<string, Record<string, string>> = {
     'partial-sums': 'sequences-series-and-sigma-notation#Series & Tests (Intro)',
     'determinants-and-inverses': 'systems-and-matrices#Matrix Algebra',
     'solving-with-matrices': 'systems-and-matrices#Applications to Systems',
+  },
+
+  // Science. Authored one set per curriculum topic, so every entry here is a
+  // straight `unit#Topic` pour with no leftovers sitting under their own name.
+  biology: {
+    organelles: 'cell-biology#Cell Structure & Organelles',
+    'cell-transport': 'cell-biology#Cell Membrane & Transport',
+    'dna-structure': 'molecular-genetics#DNA & RNA Structure',
+    'protein-synthesis': 'molecular-genetics#Protein Synthesis',
+    'mendelian-genetics': 'heredity#Mendelian Genetics',
+    'punnett-ratios': 'heredity#Punnett Squares & Ratios',
+    'natural-selection': 'evolution-and-classification#Natural Selection',
+    taxonomy: 'evolution-and-classification#Taxonomy',
+    'energy-flow': 'ecology#Ecosystems & Energy Flow',
+    'population-ecology': 'ecology#Population Ecology',
+    'circulatory-respiratory': 'human-body-systems#Circulatory & Respiratory',
+    homeostasis: 'human-body-systems#Homeostasis',
+  },
+  chemistry: {
+    'classifying-matter': 'matter-and-measurement#Classifying Matter',
+    measurement: 'matter-and-measurement#Measurement & Units',
+    'subatomic-particles': 'atomic-structure#Subatomic Particles',
+    'electron-configuration': 'atomic-structure#Electron Configuration',
+    'table-organization': 'periodic-table#Organization of the Table',
+    'periodic-trends': 'periodic-table#Periodic Trends',
+    'bond-types': 'chemical-bonding#Ionic Bonding',
+    'balancing-basics': 'chemical-bonding#Naming & Formulas',
+    'balancing-equations': 'reactions-and-stoichiometry#Balancing Equations',
+    'the-mole': 'reactions-and-stoichiometry#The Mole & Molar Mass',
+    solutions: 'solutions-acids-and-bases#Solutions & Concentration',
+    'acids-and-bases': 'solutions-acids-and-bases#The pH Scale',
+  },
+  physics: {
+    'speed-and-acceleration': 'kinematics#Speed, Velocity & Acceleration',
+    'free-fall': 'kinematics#Free Fall',
+    'newtons-laws': "forces#Newton's Laws",
+    'vectors-and-resultants': 'forces#Vectors & Resultants',
+    'work-and-power': 'energy-and-work#Work & Power',
+    'kinetic-and-potential': 'energy-and-work#Kinetic & Potential Energy',
+    'momentum-and-impulse': 'momentum#Momentum & Impulse',
+    collisions: 'momentum#Conservation of Momentum',
+    'wave-properties': 'waves-and-sound#Wave Properties',
+    'sound-and-light': 'waves-and-sound#Sound',
+    'ohms-law': "electricity-and-magnetism#Circuits & Ohm's Law",
+    'charge-and-magnetism': 'electricity-and-magnetism#Magnetism',
   },
 }

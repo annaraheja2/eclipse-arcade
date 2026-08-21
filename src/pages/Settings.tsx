@@ -4,10 +4,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import {
   usePlayer, levelFromXp, isStreakAtRisk, todayStr, accuracy,
-  resolveCourseId, AVATAR_COLORS,
+  resolveCourseId, resolveSubjectId, AVATAR_COLORS,
 } from '../lib/player'
 import { isFirebaseConfigured } from '../lib/firebase'
-import { COURSE_LIST } from '../data/subjects'
+import { coursesFor, firstCourseOf, SUBJECTS, type SubjectId } from '../data/subjects'
 import { GAMES } from '../lib/games'
 import { displayNameFor } from '../lib/username'
 import { isMuted, setMuted } from '../lib/sound'
@@ -54,7 +54,7 @@ export default function Settings() {
           <p className="text-center text-white/70 font-pixel text-[10px] py-16">LOADING…</p>
         ) : !user ? (
           <Gate title="SIGN IN">
-            Sign in to view your progress, pick your math level, and manage your account. Use the
+            Sign in to view your progress, pick your subject and level, and manage your account. Use the
             account button in the top-right to get started.
           </Gate>
         ) : (
@@ -79,6 +79,7 @@ function SignedIn({ user }: { user: User }) {
   }, [user.uid])
 
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
+  const subject = resolveSubjectId(player.preferredCourseId)
   const avatarColor = player.avatarColor ?? CY
   const email = (user.email ?? '').toLowerCase()
 
@@ -92,7 +93,15 @@ function SignedIn({ user }: { user: User }) {
 
       <ProgressCard player={player} />
 
+      <SubjectCard
+        subject={subject}
+        // Switching subject moves the preferred course into it, which is what
+        // "my subject" actually means — there is no separate field to set.
+        onPick={(next) => updatePreferences({ preferredCourseId: firstCourseOf(next) })}
+      />
+
       <MathLevelCard
+        subject={subject}
         preferredCourseId={preferredCourseId}
         onPick={(id) => updatePreferences({ preferredCourseId: id })}
       />
@@ -250,14 +259,52 @@ function Stat({ label, value, icon, color }: { label: string; value: string; ico
   )
 }
 
-function MathLevelCard({ preferredCourseId, onPick }: {
-  preferredCourseId: string; onPick: (id: string) => void
+/**
+ * Subject, then the course within it.
+ *
+ * The subject isn't stored: it IS the subject of the preferred course (see
+ * resolveSubjectId), so switching here moves the preferred course to that
+ * subject's first one. Two fields could disagree; one cannot.
+ */
+function SubjectCard({ subject, onPick }: {
+  subject: SubjectId; onPick: (subject: SubjectId) => void
 }) {
   return (
-    <Card title="MATH LEVEL">
+    <Card title="SUBJECT">
+      <p className="text-sm text-white/65 mb-4">
+        What you’re here to work on. Every game opens on this subject — you can still switch
+        subject inside any game without changing this.
+      </p>
+      <fieldset className="grid gap-2.5 sm:grid-cols-2 border-0 p-0 m-0 min-w-0" aria-label="Preferred subject">
+        {SUBJECTS.map((s) => {
+          const selected = s.id === subject
+          return (
+            <button
+              key={s.id} type="button" aria-pressed={selected}
+              onClick={() => onPick(s.id)}
+              className={`text-left rounded-xl border p-3.5 transition ${selected ? 'border-neon-cyan/70 bg-neon-cyan/10' : 'border-white/10 bg-white/[0.02] hover:border-neon-cyan/40'}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold">{s.name}</span>
+                {selected && <span className="shrink-0 font-pixel text-[8px] px-2 py-1 rounded" style={{ background: `${CY}22`, color: bright(CY) }}>SELECTED</span>}
+              </div>
+              <span className="block text-xs text-white/55 mt-1">{s.blurb}</span>
+            </button>
+          )
+        })}
+      </fieldset>
+    </Card>
+  )
+}
+
+function MathLevelCard({ subject, preferredCourseId, onPick }: {
+  subject: SubjectId; preferredCourseId: string; onPick: (id: string) => void
+}) {
+  return (
+    <Card title="YOUR LEVEL">
       <p className="text-sm text-white/65 mb-4">Your default course for vs-AI Battleship. You can still change it per game.</p>
-      <fieldset className="grid gap-2.5 sm:grid-cols-2 border-0 p-0 m-0 min-w-0" aria-label="Preferred math level">
-        {COURSE_LIST.map((c) => {
+      <fieldset className="grid gap-2.5 sm:grid-cols-2 border-0 p-0 m-0 min-w-0" aria-label="Preferred course">
+        {coursesFor(subject).map((c) => {
           const selected = c.id === preferredCourseId
           return (
             <button

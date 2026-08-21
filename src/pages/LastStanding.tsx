@@ -7,9 +7,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { COURSE_LIST, type Course, type Subunit, type Question, type Difficulty } from '../data/subjects'
+import { coursesFor, type Course, type Subunit, type Question, type Difficulty , type SubjectId } from '../data/subjects'
+import SubjectTabs from '../components/SubjectTabs'
 import { loadCourse } from '../lib/content'
-import { usePlayer, resolveCourseId, levelFromXp } from '../lib/player'
+import { usePlayer, resolveCourseId, resolveSubjectId, levelFromXp } from '../lib/player'
 import {
   SEAT_COUNT, createLobby, isAlive, lobbySeats, timeForTurn, applyAnswer, banish,
   aiRateFor, aiAnswerChance, aiSolves, aiBanishTarget, scoreForPlacement,
@@ -73,6 +74,9 @@ export default function LastStanding() {
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
 
   const [screen, setScreen] = useState<Screen>('course')
+  // Which subject's courses the picker lists. Opens on the player's own, but
+  // it's a tab, not a lock — the other subject is always one tap away.
+  const [subject, setSubject] = useState<SubjectId>(() => resolveSubjectId(player.preferredCourseId))
   const [courseId, setCourseId] = useState<string | null>(null)
   const [course, setCourse] = useState<Course | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -328,12 +332,13 @@ export default function LastStanding() {
 
         {screen === 'course' && (
           <Section title="CHOOSE A COURSE">
+            <SubjectTabs value={subject} onPick={setSubject} accent={ACCENT} />
             <div className="grid gap-3 sm:grid-cols-2">
-              {COURSE_LIST.map((c) => {
+              {coursesFor(subject).map((c) => {
                 const preferred = c.id === preferredCourseId
                 return (
                   <button key={c.id} onClick={() => { setCourseId(c.id); setSelected(new Set()); setScreen('build') }}
-                    aria-label={preferred ? `${c.name} — your math level` : c.name}
+                    aria-label={preferred ? `${c.name} — your level` : c.name}
                     className={`text-left rounded-xl border bg-white/[0.03] p-4 transition ${preferred ? 'border-neon-pink/70' : 'border-white/10 hover:border-neon-pink/60'}`}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-bold">{c.name}</span>

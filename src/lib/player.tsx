@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef, ty
 import type { User } from 'firebase/auth'
 import { getFirebaseDb } from './firebase'
 import { useAuth } from './auth'
-import { COURSE_LIST } from '../data/subjects'
+import { COURSE_LIST, subjectOf, type SubjectId } from '../data/subjects'
 
 export interface PlayerState {
   coins: number
@@ -28,9 +28,9 @@ const DEFAULT: PlayerState = {
   gamesPlayed: 0, questionsAnswered: 0, questionsCorrect: 0,
 }
 
-// The default math level (Algebra 1) and the neon accent palette an avatar may
-// use (tailwind.config.js → colors.neon). Constraining avatars to this palette
-// keeps every accent AA-legible on the #0a0620 field.
+// The default course (Algebra 1, the first math level) and the neon accent
+// palette an avatar may use (tailwind.config.js → colors.neon). Constraining
+// avatars to this palette keeps every accent AA-legible on the #0a0620 field.
 export const DEFAULT_COURSE_ID = COURSE_LIST[0].id
 export const AVATAR_COLORS = [
   '#3df5ff', '#ff3df0', '#a24bff', '#7c3aff', '#ff4d8d', '#ffb43d', '#3dffa2', '#4d8dff',
@@ -43,6 +43,19 @@ export function isValidCourseId(id: string): boolean {
 /** A stored/absent preferred course id resolved to a real one — falls back to Algebra 1. */
 export function resolveCourseId(id: string | undefined): string {
   return id !== undefined && isValidCourseId(id) ? id : DEFAULT_COURSE_ID
+}
+/**
+ * Which subject the player is focused on — DERIVED from their preferred course
+ * rather than stored beside it.
+ *
+ * Storing both would let them disagree (subject 'science' with a preferred
+ * course of Algebra 1), and nothing could then say which one a picker should
+ * believe. Deriving makes that state unrepresentable: changing subject in
+ * Settings simply moves the preferred course into that subject, which is also
+ * what makes it survive the existing persisted state with no migration.
+ */
+export function resolveSubjectId(id: string | undefined): SubjectId {
+  return subjectOf(resolveCourseId(id))
 }
 /** True when `color` is one of the AA-safe avatar accents. */
 export function isValidAvatarColor(color: string): boolean {
@@ -305,7 +318,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     commit(next)
   }, [commit])
 
-  // Profile prefs (math level, avatar color) — a normal write-through; only the
+  // Profile prefs (course, avatar color) — a normal write-through; only the
   // keys present in `patch` change.
   const updatePreferences = useCallback((patch: { preferredCourseId?: string; avatarColor?: string }) => {
     const next: PlayerState = { ...playerRef.current }

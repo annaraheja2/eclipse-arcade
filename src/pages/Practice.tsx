@@ -7,7 +7,8 @@
 // course merged over the bundle — the same questions the games ask.
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { COURSE_LIST, type Course, type Difficulty, type Subunit, type Unit } from '../data/subjects'
+import { coursesFor, type Course, type Difficulty, type Subunit, type Unit , type SubjectId } from '../data/subjects'
+import SubjectTabs from '../components/SubjectTabs'
 import { loadCourse } from '../lib/content'
 import { poolFor, unitQuestionCount, startQueue, advance, current, answerText, type Queue, type PracticeItem } from '../lib/practice'
 import { summarize, type AnsweredItem } from '../lib/summary'
@@ -15,7 +16,7 @@ import { instantiate } from '../lib/templates'
 import { templatesFor, hasTemplate } from '../data/templates'
 import QuestionPanel from '../components/QuestionPanel'
 import SessionSummary from '../components/SessionSummary'
-import { usePlayer, resolveCourseId, accuracy } from '../lib/player'
+import { usePlayer, resolveCourseId, resolveSubjectId, accuracy } from '../lib/player'
 import { ArrowLeft, Book } from '../icons'
 
 const ACCENT = '#a24bff'
@@ -37,6 +38,9 @@ export default function Practice() {
   const preferredCourseId = resolveCourseId(player.preferredCourseId)
 
   const [screen, setScreen] = useState<Screen>('course')
+  // Which subject's courses the picker lists. Opens on the player's own, but
+  // it's a tab, not a lock — the other subject is always one tap away.
+  const [subject, setSubject] = useState<SubjectId>(() => resolveSubjectId(player.preferredCourseId))
   const [courseId, setCourseId] = useState<string | null>(null)
   const [course, setCourse] = useState<Course | null>(null)
   const [unitId, setUnitId] = useState<string | null>(null)
@@ -175,13 +179,14 @@ export default function Practice() {
 
         {screen === 'course' && (
           <Section title="CHOOSE A COURSE" hint="Practice is untimed and unscored — work through as many as you like.">
+            <SubjectTabs value={subject} onPick={setSubject} accent={ACCENT} />
             <div className="grid gap-3 sm:grid-cols-2">
-              {COURSE_LIST.map((c) => {
+              {coursesFor(subject).map((c) => {
                 const preferred = c.id === preferredCourseId
                 return (
                   <button key={c.id}
                     onClick={() => { setCourseId(c.id); setUnitId(null); setSelected(new Set()); setScreen('unit') }}
-                    aria-label={preferred ? `${c.name} — your math level` : c.name}
+                    aria-label={preferred ? `${c.name} — your level` : c.name}
                     className={`text-left rounded-xl border bg-white/[0.03] p-4 transition ${preferred ? '' : 'border-white/10 hover:border-white/30'}`}
                     style={preferred ? { borderColor: `${ACCENT}b0` } : undefined}>
                     <div className="flex items-center justify-between gap-2">

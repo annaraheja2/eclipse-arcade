@@ -49,12 +49,30 @@ export const SOURCES: readonly Choice<Source>[] = [
   { value: 'other', label: 'Somewhere else' },
 ]
 
+/**
+ * Which half of the arcade they came for. Unlike the four questions above this
+ * is not asked twice: onboarding already makes the player choose a subject
+ * before it can offer them a course, so the answer is recorded from that choice
+ * rather than from a fifth question nobody needs to answer again.
+ *
+ * The values mirror SubjectId (data/subjects.ts). They are re-declared rather
+ * than imported so this module stays pure data with no dependency on the
+ * curriculum — survey.test.ts pins the two lists together.
+ */
+export type SurveySubject = 'math' | 'science'
+export const SUBJECT_CHOICES: readonly Choice<SurveySubject>[] = [
+  { value: 'math', label: 'Math' },
+  { value: 'science', label: 'Science' },
+]
+
 /** One player's answers. Every question may be left blank. */
 export interface Survey {
   role: Role | null
   level: Level | null
   goal: Goal | null
   source: Source | null
+  /** Taken from the subject they picked in onboarding, not asked separately. */
+  subject: SurveySubject | null
   /** True when they pressed skip rather than answering. */
   skipped: boolean
   createdAtMs: number
@@ -64,7 +82,7 @@ export interface Survey {
 export interface SurveyRow extends Survey { uid: string }
 
 export const EMPTY_SURVEY: Survey = {
-  role: null, level: null, goal: null, source: null, skipped: false, createdAtMs: 0,
+  role: null, level: null, goal: null, source: null, subject: null, skipped: false, createdAtMs: 0,
 }
 
 const valueOf = <T extends string>(choices: readonly Choice<T>[], v: unknown): T | null =>
@@ -86,6 +104,7 @@ export function toSurvey(uid: string, data: unknown): SurveyRow | null {
     level: valueOf(LEVELS, d.level),
     goal: valueOf(GOALS, d.goal),
     source: valueOf(SOURCES, d.source),
+    subject: valueOf(SUBJECT_CHOICES, d.subject),
     skipped: d.skipped === true,
     createdAtMs,
   }
@@ -94,11 +113,19 @@ export function toSurvey(uid: string, data: unknown): SurveyRow | null {
 /** Plain JSON for Firestore. Firestore rejects undefined, so blanks are null. */
 export function surveyData(s: Survey): Record<string, unknown> {
   return {
-    role: s.role, level: s.level, goal: s.goal, source: s.source, skipped: s.skipped,
+    role: s.role, level: s.level, goal: s.goal, source: s.source, subject: s.subject,
+    skipped: s.skipped,
   }
 }
 
-/** True when there is anything to report — a skip with no answers is not. */
+/**
+ * True when there is anything to report — a skip with no answers is not.
+ *
+ * `subject` is deliberately NOT counted. It comes from the onboarding choice
+ * rather than from an answered question, so every row carries one; counting it
+ * would make hasAnswers always true and drive the "skipped" figure to zero,
+ * losing the one number that says how many people declined.
+ */
 export function hasAnswers(s: Survey): boolean {
   return s.role !== null || s.level !== null || s.goal !== null || s.source !== null
 }
@@ -148,6 +175,7 @@ export interface SurveySummary {
   level: { counts: Count[]; answered: number }
   goal: { counts: Count[]; answered: number }
   source: { counts: Count[]; answered: number }
+  subject: { counts: Count[]; answered: number }
 }
 
 /** Everything the admin screen shows, from the rows it was given. */
@@ -159,5 +187,6 @@ export function summarise(rows: readonly SurveyRow[]): SurveySummary {
     level: tally(rows, 'level', LEVELS),
     goal: tally(rows, 'goal', GOALS),
     source: tally(rows, 'source', SOURCES),
+    subject: tally(rows, 'subject', SUBJECT_CHOICES),
   }
 }
